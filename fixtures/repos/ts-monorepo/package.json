@@ -1,0 +1,9 @@
+{
+  "name": "ts-monorepo-fixture",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "vitest run", "build": "nx run-many -t build" },
+  "dependencies": { "react": "^18.3.1" },
+  "devDependencies": { "vitest": "^2.1.0", "nx": "^19.0.0" }
+}
