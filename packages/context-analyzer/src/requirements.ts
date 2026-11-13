@@ -23,7 +23,7 @@ const BASELINE: Requirement[] = [
  */
 const RULES: { pattern: RegExp; add: Requirement[] }[] = [
   {
-    pattern: /migrat|database|schema|\bsql\b|\borm\b/i,
+    pattern: /migrat|database|schema|sql|\borm\b/i,
     add: [
       req("database", "database", "Database engine and data-access layer in use."),
       req("migration-policy", "user", "Migration rollout and backward-compatibility policy", true),

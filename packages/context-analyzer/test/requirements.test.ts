@@ -44,4 +44,9 @@ describe("deriveRequirements keyword boundaries", () => {
     expect(ids("add an ORM model")).toContain("database");
     expect(ids("write SQL query")).toContain("database");
   });
+
+  it("matches sql as a substring (mysql, postgresql, sqlite)", () => {
+    for (const t of ["tune the mysql indexes", "postgresql connection pool", "sqlite fixture"])
+      expect(ids(t)).toContain("database");
+  });
 });
