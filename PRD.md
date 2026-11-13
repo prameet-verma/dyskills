@@ -1,7 +1,7 @@
 # Dynamic Skills
 ## Product Requirements Document (PRD)
 
-**Version:** 0.7  
+**Version:** 0.8  
 **Status:** Proposed  
 **Product Category:** AI Agent Infrastructure / Context Engineering  
 **Product Type:** Open-source developer tooling  
@@ -44,54 +44,57 @@ An autonomous, context-aware capability engine that inspects the live repository
 ### Core workflow
 
 ```text
-                 USER TASK
+                       USER TASK
+                           |
+                           v
+                 ROOT AGENT UNDERSTANDS
+                           |
+                           v
+        EXISTING SKILLS + REPOSITORY INSTRUCTIONS
+                    (candidate scan)
+                           |
+                           v
+                    HYBRID DISCOVERY
+                    /              \
+             PROGRAMMATIC         AGENTIC
+              DISCOVERY           ANALYSIS
+                    \              /
+                     CONTEXT PACKET
+                           |
+                           v
+              SKILL SUFFICIENCY ASSESSMENT
+                           |
+        +------------------+------------------+
+        |                  |                  |
+    SUFFICIENT          PARTIAL          INSUFFICIENT
+        |                  |                  |
+        |                  v                  v
+        |          AUGMENT EXISTING      GENERATE NEW
+        |          SKILL (ephemeral         SKILL
+        |          delta overlay)             |
+        |                  \                 /
+        |                 CONTEXT GAP ANALYSIS
+        |                          |
+        |                    CLARIFICATION
+        |                          |
+        |                  SKILL COMPILATION
+        |                          |
+        |          GENERATION + BEHAVIOURAL EVALS
+        |                          |
+        +------------+-------------+
                      |
                      v
-             ROOT AGENT UNDERSTANDS
-                     |
-                     v
-              EXISTING SKILL CHECK
-                     |
-               +-----+-----+
-               |           |
-            SUFFICIENT    GAP
-               |           |
-               v           v
-          REUSE SKILL   JIT SKILL SYNTHESIS
-               |           |
-               |           v
-               |      HYBRID DISCOVERY
-               |      /             \
-               |  PROGRAMMATIC    AGENTIC
-               |  DISCOVERY       ANALYSIS
-               |      \             /
-               |       CONTEXT PACKET
-               |             |
-               |             v
-               |      CONTEXT GAP ANALYSIS
-               |             |
-               |        CLARIFICATION
-               |             |
-               |             v
-               |       SKILL COMPILATION
-               |             |
-               |             v
-               |       GENERATION EVALS
-               |             |
-               |             v
-               |      BEHAVIOURAL EVALS
-               |             |
-               +-------------+
-                     |
-                     v
-                ACTIVATE SKILL
+     ACTIVATE (existing skill unchanged, base skill
+               + augmentation, or new skill)
                      |
                      v
                 EXECUTE TASK
                      |
                      v
-                OFFER TO SAVE
+       OFFER TO SAVE (generated artifacts only)
 ```
+
+The existing-skill check is a three-way **Skill Sufficiency Assessment** (§5.5): reuse unchanged, augment temporarily, or generate new. A canonical skill is never modified to suit one task.
 
 ---
 
@@ -241,7 +244,7 @@ Register one lightweight, always-discoverable skill:
 
 Responsibilities:
 
-- Assess existing skill coverage.
+- Perform the Skill Sufficiency Assessment (§5.5).
 - Identify expertise gaps.
 - Determine whether JIT synthesis is worthwhile.
 - Initiate hybrid context discovery.
@@ -262,6 +265,52 @@ The bootstrapper should contain routing instructions and decision criteria, not 
 Default: **Auto**.
 
 Simple tasks and tasks already covered by available expertise should not trigger synthesis unnecessarily.
+
+## 5.5 Skill Sufficiency Assessment
+
+Before generating anything, Dynamic Skills decides whether the expertise already available is enough for the task. The decision has three outcomes, not two: an existing skill is often largely suitable, and recreating it from scratch wastes the budget and produces duplicate skills.
+
+```text
+Task Intent
+    |
+    v
+Existing Skills
+    |
+    v
+Repository Instructions
+    |
+    v
+Available Context (Context Analysis Result)
+    |
+    v
+Skill Sufficiency Assessment
+    |
+    +---- Sufficient ----> Execute with the existing skill, unchanged
+    |
+    +---- Partial -------> Augment the existing skill (ephemeral overlay)
+    |
+    +---- Insufficient --> Generate a new skill
+```
+
+| Outcome | Meaning | Result |
+|---|---|---|
+| Sufficient | An existing skill (or repository instruction set) covers the task's expertise and project context | Use it unchanged; no compilation, no evals; the session ends with a reuse outcome |
+| Partial | An existing skill covers the core expertise but lacks task-relevant project context, constraints or steps | Generate a temporary **skill augmentation** for that base skill |
+| Insufficient | No existing skill covers the task's core expertise | Generate a new skill (§8) |
+
+**Inputs.** The task intent, the existing skills found in project and personal locations, repository instruction files, and the validated Context Analysis Result (§6.6). The assessment runs after hybrid context discovery, so that repository context informs the verdict.
+
+**Decision authority.** The deterministic core scans existing skills and repository instructions and ranks candidates. The root agent (or a delegated subagent) judges sufficiency and returns a schema-validated `SkillSufficiencyAssessment` naming the outcome, the base skill (for Sufficient and Partial), the rationale, and, for Partial, the missing aspects. The core validates it: the base skill must exist among the scanned skills, Partial must list at least one missing aspect, and the outcome must be allowed by the invocation mode (§5.4). An explicit request to create a skill may still choose Partial when a suitable base exists.
+
+**Skill augmentation.**
+
+- An augmentation is a separate, small Agent Skill that names its base skill (for example `metadata.augments: <base-name>`) and contains only the delta: task-relevant project context, constraints, task contract and any missing methodology steps.
+- It never copies the base skill's content and never modifies the base skill's files. Canonical persisted skills are not modified because one task needs additional context.
+- It is activated together with the unchanged base skill, and it is ephemeral by default (§11.1).
+- It undergoes the same mandatory generation and behavioural evaluations as a new skill (§9). Duplication is measured against the base skill and must be low.
+- If the user later chooses to save it (§11.2), it is stored as its own artifact that references the base skill and the base version it was evaluated against; the base skill remains untouched.
+
+**Reporting.** The assessment, its rationale and the chosen base skill are retained with the session's reports.
 
 ---
 
@@ -617,6 +666,8 @@ Project context is compiled at generation time.
 
 The compiler must generate the smallest sufficient skill rather than a repository-wide knowledge document.
 
+When the Skill Sufficiency Assessment is Partial (§5.5), the compiler produces a skill augmentation instead: it receives the base skill as read-only input and emits only the missing project context, task contract and methodology delta.
+
 Supporting information may be placed in focused reference files linked from `SKILL.md`.
 
 ---
@@ -930,6 +981,7 @@ A changed repository revision should trigger a relevance check, not automaticall
 | Project-specific skill | Reuse after freshness checks |
 | Task-scoped skill | Reuse within its intended task or session |
 | Stale skill | Refresh or regenerate before reuse |
+| Partially sufficient skill | Reuse with an ephemeral augmentation (§5.5); never edit the canonical skill |
 
 **Maintenance principle:** Generate context when needed, retain reusable expertise separately, and refresh project-specific assumptions when evidence changes.
 
@@ -942,7 +994,8 @@ flowchart TD
     U["User Task"]
     H["Coding Harness Root Agent"]
     B["Dynamic Skill Bootstrapper"]
-    C{"Existing Skill Sufficient?"}
+    C{"Skill Sufficiency Assessment"}
+    E["Existing Skill (unchanged)"]
 
     PD["Programmatic Discovery"]
     AD["Agentic Context Analysis"]
@@ -965,16 +1018,17 @@ flowchart TD
     W["Original Task Execution"]
     L["Skill Lifecycle Manager"]
 
-    U --> H --> B --> C
-    C -->|Yes| W
-    C -->|No| PD
+    U --> H --> B --> PD
 
     PD --> SC
     SC --> AD
     AD --> CA
     CA --> CR
     CR --> EV
-    EV --> GV
+    EV --> C
+    C -->|Sufficient| E --> W
+    C -->|Partial: augment| GV
+    C -->|Insufficient: generate| GV
     GV --> Q
 
     Q -->|Yes| P --> GV
@@ -1033,13 +1087,14 @@ The Dynamic Skills engine should coordinate through structured contracts rather 
 The following contracts should be standardised within the core:
 
 - `SkillBootstrapRequest`
+- `SkillSufficiencyAssessment`
 - `ContextPacket`
 - `ContextAnalysisResult`
 - `ContextEvidence`
 - `ContextGap`
 - `ClarificationRequest`
 - `ClarificationResponse`
-- `GeneratedSkill`
+- `GeneratedSkill` (a new skill or a skill augmentation)
 - `SkillEvaluationReport`
 - `SkillBootstrapResult`
 
@@ -1113,6 +1168,9 @@ The bootstrapper must also follow the open Agent Skills specification.
 | FR-37 | Support behavioural baseline comparison | P1 |
 | FR-38 | Support skill promotion and revision | P1 |
 | FR-39 | Support multi-skill composition | P2 |
+| FR-40 | Perform a three-outcome Skill Sufficiency Assessment (sufficient, partial, insufficient) after context discovery | P0 |
+| FR-41 | Generate ephemeral, delta-only augmentations for partially sufficient skills | P0 |
+| FR-42 | Never modify canonical persisted skills when augmenting | P0 |
 
 ---
 
@@ -1205,6 +1263,7 @@ The bootstrapper must also follow the open Agent Skills specification.
 - Unnecessary invocation rate.
 - Missed invocation rate.
 - Existing-skill reuse rate.
+- Augmentation rate (partial outcomes) and augmentation evaluation pass rate.
 
 ## Clarification Quality
 
@@ -1259,7 +1318,8 @@ Deliverables:
 
 - Bootstrapper skill.
 - Explicit and autonomous invocation.
-- Skill coverage assessment.
+- Skill Sufficiency Assessment (sufficient / partial / insufficient).
+- Ephemeral skill augmentation for partially sufficient skills.
 - Deterministic repository discovery.
 - Parallel discovery pipeline.
 - Context Packet schema.
@@ -1496,6 +1556,9 @@ The first public release is successful when:
 28. Ephemeral skills do not pollute permanent skill locations.
 29. Evaluation, discovery and performance reports remain available independently of skill instructions.
 30. Timeout handling returns control safely to the original root agent.
+31. The Skill Sufficiency Assessment distinguishes sufficient, partial and insufficient expertise before any skill is generated.
+32. A partially sufficient skill is augmented with an evaluated, ephemeral delta-only augmentation activated alongside the unchanged base skill.
+33. Augmentation never modifies a canonical persisted skill.
 
 ---
 
