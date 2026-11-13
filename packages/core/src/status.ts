@@ -1,6 +1,6 @@
-import { MAX_CLARIFICATION_ROUNDS } from "./constants.js";
-import type { PipelineStatus, SessionState } from "./schemas.js";
-import { SlaClock } from "./sla.js";
+import { MAX_CLARIFICATION_ROUNDS } from "./constants";
+import type { PipelineStatus, SessionState } from "./schemas";
+import { SlaClock } from "./sla";
 
 /** Human labels for statuses rendered with the generic running block. */
 const LABELS: Partial<Record<PipelineStatus, string>> = {

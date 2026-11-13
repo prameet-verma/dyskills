@@ -16,6 +16,22 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^\\.{1,2}/.*\\.(js|ts|mjs|cjs)$",
+              message: "Use extensionless relative imports (moduleResolution: Bundler).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Documentation is enforced on published source only; tests and scripts are exempt.
     files: ["packages/*/src/**/*.ts", "adapters/*/src/**/*.ts"],
     plugins: { jsdoc },

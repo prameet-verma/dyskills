@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SlaClock, renderStatus, type SessionState } from "../src/index.js";
+import { SlaClock, renderStatus, type SessionState } from "../src/index";
 
 function state(
   over: Partial<SessionState>,

@@ -2,10 +2,10 @@ import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { DEFAULT_BUDGET_MS } from "./constants.js";
-import { SessionStateSchema } from "./schemas.js";
-import type { InvocationMode, SessionState, StageName } from "./schemas.js";
-import { SlaClock } from "./sla.js";
+import { DEFAULT_BUDGET_MS } from "./constants";
+import { SessionStateSchema } from "./schemas";
+import type { InvocationMode, SessionState, StageName } from "./schemas";
+import { SlaClock } from "./sla";
 
 /** A lock file older than this is assumed to belong to a crashed process and is reclaimed. */
 const STALE_LOCK_MS = 30_000;

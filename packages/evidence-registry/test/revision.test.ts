@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { fingerprintFile, getRepoRevision } from "../src/index.js";
+import { fingerprintFile, getRepoRevision } from "../src/index";
 
 it("returns 'untracked' outside git and a sha inside git", async () => {
   const outside = mkdtempSync(join(tmpdir(), "ds-rev-"));

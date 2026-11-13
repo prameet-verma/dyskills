@@ -3,7 +3,7 @@ import { mkdtemp, rm, utimes, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionStore, enforceDeadline, recordStage, resolveHome } from "../src/index.js";
+import { SessionStore, enforceDeadline, recordStage, resolveHome } from "../src/index";
 
 let home: string;
 let store: SessionStore;

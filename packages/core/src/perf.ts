@@ -1,5 +1,5 @@
-import type { SessionMetrics, SessionState, StageName } from "./schemas.js";
-import { SlaClock } from "./sla.js";
+import type { SessionMetrics, SessionState, StageName } from "./schemas";
+import { SlaClock } from "./sla";
 
 /**
  * Builds the performance report for a session (PRD §9.10).

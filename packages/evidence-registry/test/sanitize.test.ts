@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { sanitizeEvidenceValue } from "../src/index.js";
+import { sanitizeEvidenceValue } from "../src/index";
 
 it("redacts secrets, neutralises angle brackets and truncates", () => {
   expect(sanitizeEvidenceValue("token ghp_" + "a".repeat(36))).toBe("token [REDACTED]");

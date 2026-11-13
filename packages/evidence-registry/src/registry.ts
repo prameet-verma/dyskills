@@ -1,5 +1,5 @@
 import type { Confidence, Evidence, EvidenceCategory } from "@dynamic-skills/core";
-import { sanitizeEvidenceValue } from "./sanitize.js";
+import { sanitizeEvidenceValue } from "./sanitize";
 
 /** Input accepted by {@link EvidenceRegistry.add}; `timestamp` defaults to now. */
 export interface EvidenceInput {

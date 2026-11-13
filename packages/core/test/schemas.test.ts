@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { AnswerSchema, SmokeEvalSchema } from "../src/index.js";
-import { generateSchemas } from "../../../scripts/gen-schemas.js";
+import { AnswerSchema, SmokeEvalSchema } from "../src/index";
+import { generateSchemas } from "../../../scripts/gen-schemas";
 
 const validSmoke = {
   id: "s1",

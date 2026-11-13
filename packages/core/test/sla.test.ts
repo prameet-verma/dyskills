@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BUDGET_MS, SlaClock } from "../src/index.js";
+import { DEFAULT_BUDGET_MS, SlaClock } from "../src/index";
 
 describe("SlaClock", () => {
   it("excludes paused time and does not reset on resume", () => {

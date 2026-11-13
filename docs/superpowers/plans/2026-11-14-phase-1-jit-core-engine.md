@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- Relative imports are extensionless (`./sla`, not `./sla.js`); enforced by `no-restricted-imports`.
 - Active processing budget `DEFAULT_BUDGET_MS = 60_000`; active = wall-clock since session start minus human-wait pauses. Clarification never resets it.
 - `MAX_CLARIFICATION_ROUNDS = 3`; `MAX_EVAL_ATTEMPTS = 3` (initial + 2 revisions). No unbounded retries or loops anywhere.
 - Token estimate is `Math.ceil(chars / 4)` everywhere. `SKILL.md` ≤ 2,000 tokens passes; 2,001–5,000 is a warning; > 5,000 fails ("mandatory review").

@@ -1,3 +1,3 @@
-export * from "./registry.js";
-export * from "./sanitize.js";
-export * from "./revision.js";
+export * from "./registry";
+export * from "./sanitize";
+export * from "./revision";

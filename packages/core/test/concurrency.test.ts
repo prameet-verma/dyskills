@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapConcurrent } from "../src/index.js";
+import { mapConcurrent } from "../src/index";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

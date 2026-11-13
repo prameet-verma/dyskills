@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SlaClock, buildPerformanceReport, type SessionState } from "../src/index.js";
+import { SlaClock, buildPerformanceReport, type SessionState } from "../src/index";
 
 function state(): SessionState {
   return {

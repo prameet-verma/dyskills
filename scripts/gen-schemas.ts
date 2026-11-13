@@ -10,7 +10,7 @@ import {
   QuestionSchema,
   SessionStateSchema,
   SmokeEvalSchema,
-} from "../packages/core/src/index.js";
+} from "../packages/core/src/index";
 
 /** File name -> JSON Schema for the externally visible contracts. */
 export function generateSchemas(): Record<string, object> {

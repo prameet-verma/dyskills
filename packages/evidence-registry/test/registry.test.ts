@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EvidenceRegistry } from "../src/index.js";
+import { EvidenceRegistry } from "../src/index";
 
 const base = { category: "package-manager", revision: "x" } as const;
 

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { estimateTokens } from "../src/index.js";
+import { estimateTokens } from "../src/index";
 
 it("estimates ceil(chars/4)", () => {
   expect(estimateTokens("")).toBe(0);
