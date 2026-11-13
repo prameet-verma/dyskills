@@ -35,6 +35,28 @@ Every phase uses the same loop:
 3. **Branching:** one branch per phase (`phase-1-jit-core`, …), created via superpowers:using-git-worktrees;
    merged via superpowers:finishing-a-development-branch after the gate.
 
+## Documentation and maintainability (applies to every phase)
+
+Dynamic Skills is meant to be a long-lived open-source project, so documentation is part of "done",
+not a later phase:
+
+- **In code:** TSDoc on every exported symbol (purpose and contract), short "why" comments on
+  non-obvious logic citing the PRD section it implements, no dead code. Enforced by `pnpm lint`
+  (`eslint-plugin-jsdoc`) in CI from Phase 1 Task 1a onward.
+- **Per package:** a `README.md` with purpose, API summary, usage example and PRD sections covered,
+  kept current by whichever task changes the API.
+- **Per phase:** each phase plan ends with a documentation task that updates `docs/architecture.md`,
+  `docs/cli-reference.md`, `CHANGELOG.md`, and adds an ADR (`docs/adr/NNNN-*.md`) for every
+  significant decision made during the phase. Phase-specific guides: Phase 2 → adapter authoring
+  guide and per-harness install docs; Phase 3 → lifecycle and freshness guide; Phase 4 → writing evals
+  and benchmarks; Phase 5 → extension/plugin guide for community detectors, evals and adapters.
+- **Repository health:** CI on every push (lint, typecheck, test, build on Node 20 and 22),
+  Conventional Commits, Keep-a-Changelog, issue/PR templates, CONTRIBUTING, SECURITY and
+  CODE_OF_CONDUCT (Phase 1 Task 19). A release workflow and semver policy arrive with the first
+  public release (Phase 2, alongside `npx dynamic-skills init`).
+- **Every phase gate** includes a documentation check by the verifier: sampled TSDoc quality, docs
+  match the code, all relative links resolve.
+
 ## Phases
 
 ### Phase 1 — JIT Core Engine  · detailed plan: `2026-11-14-phase-1-jit-core-engine.md`

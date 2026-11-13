@@ -23,6 +23,7 @@
 - CLI contract: JSON on stdout (always has `ok: boolean`), human status block on stderr; exit codes `0` ok, `1` usage/state error, `2` evaluation gate failed, `3` timeout.
 - Bounded concurrency: discovery 4, evaluations 6.
 - Package names `@dynamic-skills/<dir>`; each `package.json` has `"type": "module"` and `"exports": { ".": "./src/index.ts" }`.
+- **Documentation and maintainability (open-source, long-lived):** every exported function, class, type, constant and schema has a TSDoc comment stating its purpose and contract (inputs, outputs, errors thrown, invariants) — the *why*, not a restatement of the name. Non-obvious logic (merge rules, ordering of checks, regexes, thresholds) gets a short comment explaining the reason and, where applicable, the PRD section it implements (e.g. `// PRD §9.2: human wait is excluded from the SLA`). Every package has a `README.md` (purpose, public API summary, short usage example, which PRD sections it implements) created by the task that creates the package and updated by any task that changes its API. No commented-out code, no dead exports, no TODOs without a linked reason. `pnpm lint` (Task 1a) must pass before every commit.
 
 ## Review Focus
 
@@ -35,12 +36,13 @@
 ## Task Dependencies
 
 ```text
-1 → 2 → 3 → 4 → 5 → 6 → 7
+1 → 1a → 2 → 3 → 4 → 5 → 6 → 7
         3 ─────────────────→ 9 (also needs 4)
 1 ───────────→ 8
 3,4,8 → 10 → 11 → 12 → 13 → 14 (also needs 9)
-all → 15 → 16 → 17 → 18
+all → 15 → 16 → 17 → 18 → 19
 ```
+Every task's "Commit" step runs `pnpm check` first (from Task 1a onward), and every task that creates or changes a package's public API creates or updates that package's `README.md`.
 Run sequentially on one branch (default). Tasks 8 and 9 may run in parallel with 5–7 only if each uses its own worktree.
 
 ---
@@ -116,6 +118,24 @@ it("estimates ceil(chars/4)", () => { expect(estimateTokens("")).toBe(0); expect
 - [ ] **Step 3:** Implement the files above; run `pnpm gen:schemas` to write `schemas/*.json`.
 - [ ] **Step 4:** `pnpm test && pnpm typecheck` → PASS.
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(core): workspace scaffold and typed contracts"`
+
+---
+
+### Task 1a: Lint, format, CI and documentation enforcement
+
+**Files:**
+- Create: `eslint.config.js`, `.prettierrc.json`, `.prettierignore`, `.editorconfig`, `.github/workflows/ci.yml`, `packages/core/README.md`
+- Modify: `package.json` (scripts, devDeps, `pnpm.onlyBuiltDependencies: ["esbuild"]`), `packages/core/src/*.ts` (TSDoc on all exports), `.gitignore` if needed
+
+**Interfaces:**
+- Produces: root scripts `lint` = `eslint . && prettier --check .`, `format` = `prettier --write .`, `check` = `pnpm lint && pnpm typecheck && pnpm test`. Every later task runs `pnpm check` before committing.
+
+ESLint flat config: `typescript-eslint` recommended (type-aware not required), `eslint-plugin-jsdoc` with `jsdoc/require-jsdoc` (`publicOnly: true`, require for function declarations, classes, methods, arrow functions assigned to exported consts, `TSInterfaceDeclaration`, `TSTypeAliasDeclaration`) and `jsdoc/require-description`, applied to `packages/*/src/**` and `adapters/*/src/**`; tests and scripts exempt from jsdoc rules. Ignore `dist/`, `coverage/`, `schemas/`, `fixtures/`, `.superpowers/`, `.claude/`. Prettier: `printWidth: 100`, `singleQuote: false`, `trailingComma: "all"`. CI (GitHub Actions, `ubuntu-latest`, Node 20 and 22 matrix, pnpm via `pnpm/action-setup`): `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` (build step `if: hashFiles('packages/cli/package.json') != ''`).
+
+- [ ] **Step 1:** Add configs and scripts; run `pnpm lint` → expect FAIL listing missing TSDoc on `packages/core/src` exports (this is the RED for the enforcement).
+- [ ] **Step 2:** Add TSDoc to every core export (purpose and contract; cite PRD sections for constants, e.g. `MAX_CLARIFICATION_ROUNDS` → PRD §9.3) and write `packages/core/README.md`.
+- [ ] **Step 3:** `pnpm check` → PASS; `pnpm format` leaves no diff.
+- [ ] **Step 4: Commit** — `chore: lint, format, CI and TSDoc enforcement`
 
 ---
 
@@ -673,11 +693,36 @@ it("mentions every CLI command", async () => {
 
 ---
 
+### Task 19: Open-source repository foundations and documentation set
+
+**Files:**
+- Create: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1, contact placeholder `[maintainer contact]`), `CHANGELOG.md` (Keep a Changelog format, `## [Unreleased]` listing Phase 1), `.github/ISSUE_TEMPLATE/{bug_report.yml,feature_request.yml}`, `.github/pull_request_template.md`
+- Create: `docs/architecture.md`, `docs/cli-reference.md`, `docs/adr/0001-agent-driven-cli.md`, `docs/adr/0002-ephemeral-session-store.md`, `docs/adr/0003-deterministic-evals-first.md`, `docs/adr/README.md` (index + template)
+- Modify: `README.md` (badges placeholder, links to docs), every `packages/*/README.md` (verify accurate against the code)
+- Test: `test/docs.test.ts`
+- `LICENSE` is added only if the human has chosen a license (controller passes the choice); otherwise leave it out and note it in the report.
+
+Content requirements:
+- `docs/architecture.md`: the component map from PRD §12.1 mapped to actual packages; a sequence diagram (mermaid) of one full CLI session; the session directory layout; the SLA clock model; trust boundaries (repo content untrusted, agent does LLM work); extension points planned for Phases 2–5.
+- `docs/cli-reference.md`: every command, its flags, preconditions (state machine), stdout fields, exit codes — matching the Task 15/16 tables.
+- ADRs: Context / Decision / Consequences / Status, ≤ 1 page each.
+- `CONTRIBUTING.md`: setup (`pnpm install`, `pnpm check`), repo layout, TDD and TSDoc expectations, how to add a detector or an eval (pointing at their interfaces), commit message convention (Conventional Commits), how to update `CHANGELOG.md` and ADRs.
+- `SECURITY.md`: reporting process placeholder, threat model summary (untrusted repo content, secret exclusion, no auto-install, no writes outside the session dir in Phase 1).
+
+- [ ] **Step 1: Write failing test** `test/docs.test.ts`: every directory in `packages/*` has a `README.md` with a `## API` heading; `docs/cli-reference.md` mentions every command in the CLI command table (same list as the Task 17 test); every relative markdown link in `README.md`, `CONTRIBUTING.md` and `docs/**/*.md` resolves to an existing file.
+- [ ] **Step 2:** `pnpm vitest run test/docs.test.ts` → FAIL.
+- [ ] **Step 3:** Write the documents.
+- [ ] **Step 4:** `pnpm check` → PASS.
+- [ ] **Step 5: Commit** — `docs: architecture, CLI reference, ADRs and contributor guides`
+
+---
+
 ## Phase 1 Gate (run by a fresh verifier subagent, then the human)
 
 The verifier gets only this section, `PRD.md` and the repo, and reports each item as PASS/FAIL with the command and output it used:
 
-1. `pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build` all succeed.
+1. `pnpm install --frozen-lockfile && pnpm check && pnpm build` all succeed (lint includes the TSDoc rule).
+1a. Documentation review: sample 10 exported symbols across packages and confirm each TSDoc states purpose and contract rather than restating the name; confirm `docs/architecture.md` and `docs/cli-reference.md` match the code.
 2. PRD §20 items 4–15, 17–22, 26, 27: map each to the test(s) that prove it and confirm those tests ran and passed.
 3. `grep -rniE "claude code|codex|opencode|AskUserQuestion|\.claude/" packages skills --include=*.ts --include=*.md` returns matches only in `packages/bootstrapper/src/scan.ts` (PRD §10.3 skill directory table), `packages/eval-engine/src/evals/structural.ts` (portability patterns) and `test/` files.
 4. No package imports a network or LLM client (`grep -rE "fetch\(|openai|anthropic|axios" packages` empty).
