@@ -1,0 +1,32 @@
+/** Maximum length of a sanitised evidence value, including the trailing ellipsis. */
+const MAX_VALUE_LENGTH = 500;
+
+/**
+ * Secret shapes that must never reach the registry, the agent prompt or a generated skill
+ * (PRD §6.4: repository content is untrusted data).
+ */
+const SECRET_PATTERNS: readonly RegExp[] = [
+  /ghp_[A-Za-z0-9]{36}/g,
+  /sk-[A-Za-z0-9_-]{20,}/g,
+  /AKIA[0-9A-Z]{16}/g,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,
+];
+
+/**
+ * Makes a raw repository-derived string safe to store and to embed in a fenced data block.
+ *
+ * Order matters: secrets are redacted first so whitespace collapsing cannot split a token, then
+ * whitespace is collapsed, then angle brackets become `‹` `›` so the value cannot close the
+ * evidence fence, and finally the result is truncated to exactly 500 characters (499 plus `…`).
+ * Pure and idempotent; never throws.
+ *
+ * @param raw - Untrusted text observed in the repository.
+ * @returns The sanitised value, at most 500 characters.
+ */
+export function sanitizeEvidenceValue(raw: string): string {
+  let out = raw;
+  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, "[REDACTED]");
+  out = out.replace(/\s+/g, " ").replace(/</g, "‹").replace(/>/g, "›");
+  if (out.length > MAX_VALUE_LENGTH) out = out.slice(0, MAX_VALUE_LENGTH - 1) + "…";
+  return out;
+}
