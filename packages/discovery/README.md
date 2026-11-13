@@ -16,13 +16,17 @@ failing detector never stops the others.
   breadth-first listing, skipping dependency/build directories and secret paths.
 - **`isSecretPath(rel)`** (`secrets.ts`): true for `.env*`/`.envrc`/`.netrc` (case-insensitive), keys, certificates, SSH keys,
   `*.pfx`/`*.jks`, `credentials.json`, `secrets/**`, `.npmrc`, `.pypirc`.
-- **`MANIFEST_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime, package manager,
-  framework, database (data tasks only), testing, monorepo and build detectors.
+- **`MANIFEST_DETECTORS`, `STRUCTURE_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime,
+  package manager, framework, database (data tasks only), testing, monorepo and build
+  detectors, plus language, CI, architecture and convention detectors.
 - **`KNOWN_FRAMEWORKS`, `KNOWN_DATABASES`, `KNOWN_TEST_TOOLS`** (`known.ts`).
 
 Evidence keys: `runtime.node`, `runtime.node.engines`, `runtime.python`, `package-manager`,
 `framework.<name>`, `database.<name>`, `monorepo.{nx,turborepo,workspaces,pnpm-workspace}` (`workspaces` from package.json, `pnpm-workspace` from pnpm-workspace.yaml),
-`testing.<name>`, `build.script.<name>`, `build.make.<target>`.
+`testing.<name>`, `build.script.<name>`, `build.make.<target>`, `language.<name>` (top 5, `"<n> files"`),
+`ci.github-actions`, `ci.gitlab`, `architecture.top-level-dirs`, `architecture.entrypoints`,
+`conventions.readme` (first 10 README headings, untrusted), `conventions.contributing`,
+`conventions.adr`, `conventions.agents-md`, `conventions.claude-md` (the last two are path only).
 
 ## Example
 
