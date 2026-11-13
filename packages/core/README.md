@@ -17,6 +17,9 @@ I/O, network access or harness-specific logic.
   `DISCOVERY_CONCURRENCY`, `EVAL_CONCURRENCY`.
 - **`mapConcurrent(items, limit, fn, { signal })`** (`concurrency.ts`): ordered, bounded
   parallel map that stops starting work after the first failure or abort.
+- **`SlaClock`** (`sla.ts`): pure active-time clock (`start`, `from`, `pause`, `resume`,
+  `activeMs`, `remainingMs`, `isExpired`, `isPaused`, `snapshot`). Paused human-wait time is
+  excluded and resuming never resets the budget; the caller supplies `now` to every method.
 - **`estimateTokens(text)`** (`tokens.ts`): `ceil(chars / 4)`.
 
 ## Example
@@ -36,5 +39,5 @@ const sizes = await mapConcurrent(files, EVAL_CONCURRENCY, async (f) => estimate
 ## PRD sections implemented
 
 §5.5 (invocation modes), §6.3–6.5 (gaps, evidence), §8.1–8.5 (evaluation outcomes, size limits),
-§9.1–9.4 (budget, clarification limits, assumptions), §9.6–9.7 (stages, bounded parallelism),
+§9.1–9.4 (budget, SLA clock, clarification limits, assumptions), §9.6–9.7 (stages, bounded parallelism),
 §9.10 (metrics).
