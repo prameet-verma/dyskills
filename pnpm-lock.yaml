@@ -202,7 +202,6 @@ importers:
       '@dynamic-skills/core':
         specifier: workspace:*
         version: link:../core
-    devDependencies:
       '@dynamic-skills/discovery':
         specifier: workspace:*
         version: link:../discovery

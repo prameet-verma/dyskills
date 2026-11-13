@@ -32,3 +32,16 @@ describe("deriveRequirements", () => {
     expect(new Set(list).size).toBe(list.length);
   });
 });
+
+describe("deriveRequirements keyword boundaries", () => {
+  it("does not treat 'orm' inside other words as a database task", () => {
+    const list = ids("improve performance of the formatter on our platform");
+    expect(list).not.toContain("database");
+    expect(list).not.toContain("migration-policy");
+  });
+
+  it("matches ORM and SQL as whole words", () => {
+    expect(ids("add an ORM model")).toContain("database");
+    expect(ids("write SQL query")).toContain("database");
+  });
+});

@@ -31,4 +31,27 @@ describe("planSemanticProbes", () => {
     const [p] = planSemanticProbes([gap("conventions")], files);
     expect(p?.suggestedFiles).toEqual(["CONTRIBUTING.md", "README.md", "docs/adr/0001-x.md"]);
   });
+
+  it("suggests manifests and lockfiles for a package-manager gap", async () => {
+    const files = await buildFileIndex(fixture("conflicting"));
+    const [p] = planSemanticProbes([gap("package-manager")], files);
+    expect(p?.suggestedFiles).toEqual(
+      expect.arrayContaining(["package.json", "package-lock.json", "yarn.lock"]),
+    );
+  });
+
+  it("prefers shallow paths when capping", () => {
+    const files = {
+      files: [
+        "a/b/c/package.json",
+        ...[1, 2, 3, 4, 5].map((n) => `p${n}/package.json`),
+        "package.json",
+      ],
+      truncated: false,
+    };
+    const [p] = planSemanticProbes([gap("build")], files);
+    expect(p?.suggestedFiles).toHaveLength(5);
+    expect(p?.suggestedFiles[0]).toBe("package.json");
+    expect(p?.suggestedFiles).not.toContain("a/b/c/package.json");
+  });
 });

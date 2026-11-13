@@ -14,7 +14,8 @@ answer. Pure functions; no I/O.
   `needs-investigation`, `missing` or `conflicting`, with a resolution of `none`, `inspect` or
   `ask`. Human-only requirements are answered only by evidence keyed `user.<requirement id>`.
 - **`planSemanticProbes(gaps, files)`** (`probes.ts`): one `SemanticProbe` per `inspect` gap,
-  with at most 5 suggested files drawn from the file index.
+  with at most 5 suggested files drawn from the file index (well-known manifests, lockfiles,
+  config and docs per category; shallowest paths first).
 
 ## Example
 

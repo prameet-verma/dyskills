@@ -7,9 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@dynamic-skills/core": "workspace:*"
-  },
-  "devDependencies": {
+    "@dynamic-skills/core": "workspace:*",
     "@dynamic-skills/discovery": "workspace:*"
   }
 }
