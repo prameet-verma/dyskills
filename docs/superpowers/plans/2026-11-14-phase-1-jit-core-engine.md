@@ -87,7 +87,7 @@ Run sequentially on one branch (default). Tasks 8 and 9 may run in parallel with
 - `estimateTokens(text: string): number`.
 - `generateSchemas(): Record<string, object>` in `scripts/gen-schemas.ts` (file name → JSON Schema for Evidence, Question, Answer, Assumption, SmokeEval, EvalResult, SessionState).
 
-Root scripts: `test` = `vitest run`, `typecheck` = `tsc -p tsconfig.json --noEmit`, `gen:schemas` = `tsx scripts/gen-schemas.ts`, `build` = `pnpm --filter @dynamic-skills/cli build`. `engines.node` = `>=20`. `vitest.config.ts` includes `packages/*/test/**/*.test.ts` and `test/**/*.test.ts`.
+Root scripts: `test` = `vitest run`, `typecheck` = `tsc -p tsconfig.json --noEmit`, `gen:schemas` = `tsx scripts/gen-schemas.ts`, `build` = `pnpm --filter @dynamic-skills/cli build`. `engines.node` = `>=24`. `vitest.config.ts` includes `packages/*/test/**/*.test.ts` and `test/**/*.test.ts`.
 
 - [ ] **Step 1: Write failing tests**
 
