@@ -1,0 +1,34 @@
+import { describe, expect, it } from "vitest";
+import { deriveRequirements } from "../src/index";
+
+const ids = (task: string): string[] => deriveRequirements(task).map((r) => r.id);
+const BASELINE = ["language", "runtime", "package-manager", "testing", "build"];
+
+describe("deriveRequirements", () => {
+  it("returns exactly the baseline for a trivial task", () => {
+    expect(ids("fix typo in README")).toEqual(BASELINE);
+    expect(deriveRequirements("fix typo in README").every((r) => r.material && !r.humanOnly)).toBe(
+      true,
+    );
+  });
+
+  it("adds architecture for the PRD caching task", () => {
+    expect(
+      ids("Implement a new distributed caching strategy for the order-processing service"),
+    ).toContain("architecture");
+  });
+
+  it("adds database, migration-policy and business-rules for a billing migration", () => {
+    const reqs = deriveRequirements("write a database migration for billing");
+    const found = (id: string) => reqs.find((r) => r.id === id);
+    expect(found("database")).toBeDefined();
+    expect(found("migration-policy")).toMatchObject({ humanOnly: true, category: "user" });
+    expect(found("business-rules")).toMatchObject({ humanOnly: true, category: "user" });
+  });
+
+  it("adds ci, monorepo and conventions and never duplicates ids", () => {
+    const list = ids("lint the workspace before the release pipeline, migrate schema, sql");
+    expect(list).toEqual(expect.arrayContaining(["ci", "monorepo", "conventions", "database"]));
+    expect(new Set(list).size).toBe(list.length);
+  });
+});

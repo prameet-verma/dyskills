@@ -36,6 +36,7 @@ the repository contains the library packages below. The design rationale is in t
 | [`@dynamic-skills/core`](packages/core/README.md)                           | Shared zod schemas, fixed limits, SLA clock, ephemeral session store, status rendering, performance reporting. |
 | [`@dynamic-skills/evidence-registry`](packages/evidence-registry/README.md) | Provenance-tracking store of repository facts, with conflict recording and value sanitisation.                 |
 | [`@dynamic-skills/discovery`](packages/discovery/README.md)                 | Parallel, task-directed deterministic discovery with secret-file exclusion.                                    |
+| [`@dynamic-skills/context-analyzer`](packages/context-analyzer/README.md)   | Task requirements, evidence gap classification and semantic probe planning.                                    |
 
 Further packages land as Phase 1 progresses.
 
