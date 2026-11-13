@@ -2,6 +2,7 @@
   "name": "dynamic-skills",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.34.9",
   "engines": {
     "node": ">=20"
   },

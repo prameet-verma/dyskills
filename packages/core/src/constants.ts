@@ -16,7 +16,10 @@ export const MAX_EVAL_ATTEMPTS = 3;
 /** Estimated-token count of `SKILL.md` above which a conciseness warning is raised (PRD §8.5). */
 export const SKILL_TOKEN_SOFT_LIMIT = 2000;
 
-/** Estimated-token count of `SKILL.md` above which evaluation fails and review is mandatory (PRD §8.5). */
+/**
+ * Estimated-token count of `SKILL.md` above which evaluation fails and review is mandatory (PRD
+ * §8.5).
+ */
 export const SKILL_TOKEN_HARD_LIMIT = 5000;
 
 /** Maximum concurrent discovery probes (PRD §9.7). */
