@@ -6,7 +6,7 @@
 
 **Architecture:** pnpm TypeScript monorepo following PRD §18. Packages are pure libraries (`@dynamic-skills/*`, source-exported `.ts`, no per-package build); `packages/cli` wires them and is bundled with tsup. The CLI is stateful through an ephemeral session directory; the root agent performs every LLM step (see roadmap "Architecture decision").
 
-**Tech Stack:** Node ≥20, TypeScript 5 (strict, ESM), pnpm workspaces, Vitest 3, zod 4 (`z.toJSONSchema`), `yaml` 2, `smol-toml` 1, `commander` 12, tsup 8, tsx 4.
+**Tech Stack:** Node ≥24, TypeScript 6 (strict, ESM), pnpm workspaces, Vitest 5, zod 4 (`z.toJSONSchema`), `yaml` 2, `smol-toml` 1, `commander` 15, tsup 9, tsx 4.
 
 **Spec:** `PRD.md` · **Roadmap:** `docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md`
 
@@ -130,7 +130,7 @@ it("estimates ceil(chars/4)", () => { expect(estimateTokens("")).toBe(0); expect
 **Interfaces:**
 - Produces: root scripts `lint` = `eslint . && prettier --check .`, `format` = `prettier --write .`, `check` = `pnpm lint && pnpm typecheck && pnpm test`. Every later task runs `pnpm check` before committing.
 
-ESLint flat config: `typescript-eslint` recommended (type-aware not required), `eslint-plugin-jsdoc` with `jsdoc/require-jsdoc` (`publicOnly: true`, require for function declarations, classes, methods, arrow functions assigned to exported consts, `TSInterfaceDeclaration`, `TSTypeAliasDeclaration`) and `jsdoc/require-description`, applied to `packages/*/src/**` and `adapters/*/src/**`; tests and scripts exempt from jsdoc rules. Ignore `dist/`, `coverage/`, `schemas/`, `fixtures/`, `.superpowers/`, `.claude/`. Prettier: `printWidth: 100`, `singleQuote: false`, `trailingComma: "all"`. CI (GitHub Actions, `ubuntu-latest`, Node 20 and 22 matrix, pnpm via `pnpm/action-setup`): `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` (build step `if: hashFiles('packages/cli/package.json') != ''`).
+ESLint flat config: `typescript-eslint` recommended (type-aware not required), `eslint-plugin-jsdoc` with `jsdoc/require-jsdoc` (`publicOnly: true`, require for function declarations, classes, methods, arrow functions assigned to exported consts, `TSInterfaceDeclaration`, `TSTypeAliasDeclaration`) and `jsdoc/require-description`, applied to `packages/*/src/**` and `adapters/*/src/**`; tests and scripts exempt from jsdoc rules. Ignore `dist/`, `coverage/`, `schemas/`, `fixtures/`, `.superpowers/`, `.claude/`. Prettier: `printWidth: 100`, `singleQuote: false`, `trailingComma: "all"`. CI (GitHub Actions, `ubuntu-latest`, Node 24 and 26 matrix, pnpm via `pnpm/action-setup`): `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` (build step `if: hashFiles('packages/cli/package.json') != ''`).
 
 - [ ] **Step 1:** Add configs and scripts; run `pnpm lint` → expect FAIL listing missing TSDoc on `packages/core/src` exports (this is the RED for the enforcement).
 - [ ] **Step 2:** Add TSDoc to every core export (purpose and contract; cite PRD sections for constants, e.g. `MAX_CLARIFICATION_ROUNDS` → PRD §9.3) and write `packages/core/README.md`.

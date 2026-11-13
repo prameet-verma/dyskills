@@ -50,7 +50,7 @@ not a later phase:
   significant decision made during the phase. Phase-specific guides: Phase 2 → adapter authoring
   guide and per-harness install docs; Phase 3 → lifecycle and freshness guide; Phase 4 → writing evals
   and benchmarks; Phase 5 → extension/plugin guide for community detectors, evals and adapters.
-- **Repository health:** CI on every push (lint, typecheck, test, build on Node 20 and 22),
+- **Repository health:** CI on every push (lint, typecheck, test, build on Node 24 and 26),
   Conventional Commits, Keep-a-Changelog, issue/PR templates, CONTRIBUTING, SECURITY and
   CODE_OF_CONDUCT (Phase 1 Task 19). A release workflow and semver policy arrive with the first
   public release (Phase 2, alongside `npx dynamic-skills init`).
