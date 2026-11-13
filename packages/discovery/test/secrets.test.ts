@@ -1,5 +1,8 @@
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isSecretPath, runDiscovery } from "../src/index";
+import { ALL_DETECTORS, isSecretPath, runDiscovery } from "../src/index";
 import { fixture } from "./helpers";
 
 describe("secret exclusion", () => {
@@ -18,6 +21,13 @@ describe("secret exclusion", () => {
       "secrets/token.txt",
       "app/secrets/x/y.yaml",
       ".npmrc",
+      ".ENV",
+      "Server.PEM",
+      ".envrc",
+      ".netrc",
+      "a.pfx",
+      "store.jks",
+      "Secrets/x",
       ".pypirc",
     ]) {
       expect(isSecretPath(p), p).toBe(true);
@@ -56,5 +66,38 @@ describe("secret exclusion", () => {
       ],
     });
     expect(seen).toEqual(["null", "null", "null", "20.11.0"]);
+  });
+
+  it("does not follow symlinks to secrets or outside the repo", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "ds-outside-"));
+    writeFileSync(
+      join(outside, "ext.json"),
+      '{"packageManager":"yarn@1.0.0","name":"OUTSIDE_VALUE"}',
+    );
+    const repo = mkdtempSync(join(tmpdir(), "ds-link-"));
+    writeFileSync(join(repo, ".env"), "LEAK_SECRET_999");
+    symlinkSync(join(outside, "ext.json"), join(repo, "package.json"));
+    symlinkSync(join(repo, ".env"), join(repo, ".nvmrc"));
+    const reads: (string | null)[] = [];
+    const { registry } = await runDiscovery({
+      repo,
+      task: "x",
+      detectors: [
+        ...ALL_DETECTORS,
+        {
+          id: "probe",
+          categories: ["runtime"],
+          always: true,
+          run: async (ctx) => {
+            reads.push(await ctx.readText("package.json"), await ctx.readText(".nvmrc"));
+            return [];
+          },
+        },
+      ],
+    });
+    expect(reads).toEqual([null, null]);
+    const json = JSON.stringify(registry.toJSON());
+    expect(json).not.toContain("LEAK_SECRET_999");
+    expect(json).not.toContain("yarn");
   });
 });

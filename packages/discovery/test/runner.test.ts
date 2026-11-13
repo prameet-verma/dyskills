@@ -24,7 +24,8 @@ describe("runDiscovery", () => {
       confidence: "inferred",
     });
     expect(registry.get("runtime.node.engines")?.value).toBe("›=20"); // sanitiser swaps < and > for lookalikes
-    expect(registry.get("monorepo.workspaces")).toBeDefined();
+    expect(registry.get("monorepo.pnpm-workspace")?.value).toBe("packages/*");
+    expect(registry.get("monorepo.workspaces")).toBeUndefined();
   });
 
   it("discovers the Python service", async () => {

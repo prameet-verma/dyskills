@@ -1,5 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { DISCOVERY_CONCURRENCY, mapConcurrent } from "@dynamic-skills/core";
 import { EvidenceRegistry, getRepoRevision } from "@dynamic-skills/evidence-registry";
 import { ALL_DETECTORS } from "./detectors/index";
@@ -21,16 +21,28 @@ export function selectDetectors(task: string, detectors: Detector[]): Detector[]
   return detectors.filter((d) => d.always || (d.keywords?.test(task) ?? false));
 }
 
-/** Creates the sandboxed reader handed to detectors. */
+/** True when `rel` (from `relative(root, target)`) stays inside `root`. */
+function isInside(rel: string): boolean {
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/**
+ * Creates the sandboxed reader handed to detectors. Symlinks are resolved first: the real
+ * target must lie inside the real repo root and must not itself be a secret path, so a link
+ * named `package.json` cannot expose `.env` or files outside the repository.
+ */
 function makeReader(repo: string): DetectorContext["readText"] {
   return async (rel) => {
     if (isSecretPath(rel)) return null;
     const abs = resolve(repo, rel);
-    const back = relative(repo, abs);
-    if (back.startsWith("..") || isAbsolute(back)) return null;
+    if (!isInside(relative(repo, abs))) return null;
     try {
-      if ((await stat(abs)).size > MAX_READ_BYTES) return null;
-      return await readFile(abs, "utf8");
+      const realRoot = await realpath(repo);
+      const real = await realpath(abs);
+      const back = relative(realRoot, real);
+      if (!isInside(back) || isSecretPath(back.split(sep).join("/"))) return null;
+      if ((await stat(real)).size > MAX_READ_BYTES) return null;
+      return await readFile(real, "utf8");
     } catch {
       return null;
     }

@@ -9,6 +9,7 @@
   "dependencies": {
     "@dynamic-skills/core": "workspace:*",
     "@dynamic-skills/evidence-registry": "workspace:*",
-    "smol-toml": "^1.9.1"
+    "smol-toml": "^1.9.1",
+    "yaml": "^2.9.1"
   }
 }

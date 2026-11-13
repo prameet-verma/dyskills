@@ -1,4 +1,5 @@
 import { parse as parseToml } from "smol-toml";
+import { parse as parseYaml } from "yaml";
 import type { EvidenceInput } from "@dynamic-skills/evidence-registry";
 import { KNOWN_DATABASES, KNOWN_FRAMEWORKS, KNOWN_TEST_TOOLS } from "../known";
 import type { Detector, DetectorContext } from "./types";
@@ -314,11 +315,19 @@ const monorepoDetector: Detector = {
     const strings = globs.filter((g): g is string => typeof g === "string");
     if (strings.length > 0) add("workspaces", strings.join(", "), "package.json");
 
+    // Distinct key: package.json and pnpm-workspace.yaml are separate declarations and their
+    // glob lists legitimately differ, so they must not be merged into a false conflict.
     const pnpm = await ctx.readText("pnpm-workspace.yaml");
     if (pnpm !== null) {
-      // Minimal line scan avoids a YAML dependency; only the `packages:` list matters here.
-      const patterns = [...pnpm.matchAll(/^\s*-\s*["']?([^"'#\s]+)["']?/gm)].map((m) => m[1]);
-      add("workspaces", patterns.join(", ") || "configured", "pnpm-workspace.yaml");
+      let patterns: string[] = [];
+      try {
+        const doc: unknown = parseYaml(pnpm);
+        const list = isObject(doc) ? doc["packages"] : undefined;
+        if (Array.isArray(list)) patterns = list.filter((g): g is string => typeof g === "string");
+      } catch {
+        // Malformed YAML: still report that the file exists.
+      }
+      add("pnpm-workspace", patterns.join(", ") || "configured", "pnpm-workspace.yaml");
     }
     return out;
   },

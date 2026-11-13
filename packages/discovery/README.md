@@ -14,14 +14,14 @@ failing detector never stops the others.
   `keywords` match the task.
 - **`buildFileIndex(repo, { maxFiles?, maxDepth? })`** (`file-index.ts`): deterministic
   breadth-first listing, skipping dependency/build directories and secret paths.
-- **`isSecretPath(rel)`** (`secrets.ts`): true for `.env*`, keys, certificates, SSH keys,
-  `credentials.json`, `secrets/**`, `.npmrc`, `.pypirc`.
+- **`isSecretPath(rel)`** (`secrets.ts`): true for `.env*`/`.envrc`/`.netrc` (case-insensitive), keys, certificates, SSH keys,
+  `*.pfx`/`*.jks`, `credentials.json`, `secrets/**`, `.npmrc`, `.pypirc`.
 - **`MANIFEST_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime, package manager,
   framework, database (data tasks only), testing, monorepo and build detectors.
 - **`KNOWN_FRAMEWORKS`, `KNOWN_DATABASES`, `KNOWN_TEST_TOOLS`** (`known.ts`).
 
 Evidence keys: `runtime.node`, `runtime.node.engines`, `runtime.python`, `package-manager`,
-`framework.<name>`, `database.<name>`, `monorepo.{nx,turborepo,workspaces}`,
+`framework.<name>`, `database.<name>`, `monorepo.{nx,turborepo,workspaces,pnpm-workspace}` (`workspaces` from package.json, `pnpm-workspace` from pnpm-workspace.yaml),
 `testing.<name>`, `build.script.<name>`, `build.make.<target>`.
 
 ## Example

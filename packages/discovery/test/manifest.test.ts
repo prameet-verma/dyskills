@@ -65,4 +65,15 @@ describe("manifest detectors", () => {
     const r = await runDiscovery({ repo, task: "database" });
     expect(r.errors).toEqual([]);
   });
+
+  it("keeps package.json and pnpm workspace declarations apart", async () => {
+    const repo = repoWith({
+      "package.json": JSON.stringify({ workspaces: ["apps/*"] }),
+      "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\nonlyBuiltDependencies:\n  - esbuild\n",
+    });
+    const { registry } = await runDiscovery({ repo, task: "x" });
+    expect(registry.list({ confidence: "conflicting" })).toEqual([]);
+    expect(registry.get("monorepo.workspaces")?.value).toBe("apps/*");
+    expect(registry.get("monorepo.pnpm-workspace")?.value).toBe("packages/*");
+  });
 });
