@@ -98,6 +98,22 @@ describe("SessionStore", () => {
   });
 });
 
+describe("malformed session ids", () => {
+  it.each(["..", "../x", "../../etc", "ds-x", "", "ds-20260101000000-ABCDEF"])(
+    "reject %j with SESSION_NOT_FOUND and touch nothing outside sessions/",
+    async (bad) => {
+      const sentinel = join(home, "sentinel.txt");
+      await writeFile(sentinel, "keep");
+      const nf = { code: "SESSION_NOT_FOUND" };
+      await expect(store.remove(bad)).rejects.toMatchObject(nf);
+      await expect(store.load(bad)).rejects.toMatchObject(nf);
+      await expect(store.withLock(bad, async () => 1)).rejects.toMatchObject(nf);
+      expect(existsSync(sentinel)).toBe(true);
+      expect(existsSync(join(home, "sessions"))).toBe(false);
+    },
+  );
+});
+
 describe("resolveHome", () => {
   it("honours DYNAMIC_SKILLS_HOME", () => {
     const prev = process.env.DYNAMIC_SKILLS_HOME;

@@ -49,6 +49,9 @@ export class SessionLockedError extends Error {
   }
 }
 
+/** Shape of every id produced by {@link SessionStore.create}. */
+const SESSION_ID_PATTERN = /^ds-\d{14}-[0-9a-f]{6}$/;
+
 /** Formats epoch ms as `YYYYMMDDHHmmss` in UTC for use in session ids. */
 function stamp(ms: number): string {
   return new Date(ms).toISOString().replace(/[-:T]/g, "").slice(0, 14);
@@ -70,8 +73,15 @@ export class SessionStore {
     this.home = home;
   }
 
-  /** Absolute path of a session's directory. */
+  /**
+   * Absolute path of a session's directory. This is the single choke point for path building:
+   * ids come from agent-controlled CLI arguments, so anything not shaped like a generated id
+   * (which also rules out `..` and separators) is reported as an unknown session.
+   *
+   * @throws {SessionNotFoundError} if `id` is malformed.
+   */
   dir(id: string): string {
+    if (!SESSION_ID_PATTERN.test(id)) throw new SessionNotFoundError(id);
     return join(this.home, "sessions", id);
   }
 
