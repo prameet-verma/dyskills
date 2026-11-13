@@ -2,9 +2,9 @@
 
 Shared contracts and primitives for Dynamic Skills: the zod schemas every package exchanges,
 the pipeline's fixed limits, a bounded-concurrency helper and the token estimator. It has no
-I/O, network access or harness-specific logic.
+network access or harness-specific logic; its only I/O is the ephemeral session store.
 
-## Public API
+## API
 
 - **Schemas and types** (`schemas.ts`): `EvidenceSchema`, `RequirementSchema`, `GapSchema`,
   `QuestionSchema`, `AnswerSchema`, `AssumptionSchema`, `SessionStateSchema`,
@@ -20,6 +20,13 @@ I/O, network access or harness-specific logic.
 - **`SlaClock`** (`sla.ts`): pure active-time clock (`start`, `from`, `pause`, `resume`,
   `activeMs`, `remainingMs`, `isExpired`, `isPaused`, `snapshot`). Paused human-wait time is
   excluded and resuming never resets the budget; the caller supplies `now` to every method.
+- **`SessionStore`, `resolveHome`** (`session.ts`): file-backed ephemeral sessions under
+  `<home>/sessions/<id>/` with atomic `save`, a `withLock` lock file (stale after 30 s),
+  confined artifact read/write and `remove`; errors `SessionNotFoundError` and
+  `SessionLockedError` carry a `.code`. Also `recordStage` and `enforceDeadline`.
+- **`renderStatus(state, now)`** (`status.ts`): the user-visible status blocks (PRD §9.5).
+- **`buildPerformanceReport(state, now)`** (`perf.ts`): wall/active/human-wait time, stage
+  timings and cache hit rate (`null` when there were no lookups).
 - **`estimateTokens(text)`** (`tokens.ts`): `ceil(chars / 4)`.
 
 ## Example
@@ -40,4 +47,4 @@ const sizes = await mapConcurrent(files, EVAL_CONCURRENCY, async (f) => estimate
 
 §5.5 (invocation modes), §6.3–6.5 (gaps, evidence), §8.1–8.5 (evaluation outcomes, size limits),
 §9.1–9.4 (budget, SLA clock, clarification limits, assumptions), §9.6–9.7 (stages, bounded parallelism),
-§9.10 (metrics).
+§9.5 (status text), §9.10 (metrics and performance report).
