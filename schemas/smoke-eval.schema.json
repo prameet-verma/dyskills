@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "scenario": {
+      "type": "string"
+    },
+    "expectedBehaviour": {
+      "type": "string"
+    },
+    "requiredOutputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prohibited": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "contains",
+              "not-contains",
+              "regex",
+              "not-regex"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "rubric": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "scenario",
+    "expectedBehaviour",
+    "requiredOutputs",
+    "prohibited",
+    "assertions",
+    "rubric"
+  ],
+  "additionalProperties": false
+}

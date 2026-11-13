@@ -1,0 +1,19 @@
+{
+  "name": "dynamic-skills",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "gen:schemas": "tsx scripts/gen-schemas.ts",
+    "build": "pnpm --filter @dynamic-skills/cli build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0",
+    "zod": "^4.0.0"
+  }
+}

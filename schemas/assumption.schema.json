@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "questionId": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    },
+    "assumption": {
+      "type": "string"
+    },
+    "basis": {
+      "type": "string"
+    },
+    "impact": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "declined",
+        "skipped",
+        "unanswered"
+      ]
+    }
+  },
+  "required": [
+    "questionId",
+    "question",
+    "assumption",
+    "basis",
+    "impact",
+    "status"
+  ],
+  "additionalProperties": false
+}
