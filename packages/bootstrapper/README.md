@@ -6,8 +6,8 @@ already covered by one of them or needs a new skill.
 ## API
 
 - **`scanExistingSkills({ repo, home? })`** (`scan.ts`): reads `<dir>/<name>/SKILL.md` from the
-  project skill directories `.claude/skills`, `.agents/skills`, `.opencode/skills` and the
-  personal `~/.claude/skills`, `~/.agents/skills`, `~/.config/opencode/skills`. Returns
+  the three project-level and three personal skill directories from the PRD §10.3 table (see
+  `ROOTS` in `src/scan.ts`). Returns
   `{ skills, instructionFiles, warnings }`. Skills whose frontmatter is missing, broken or
   lacks a string `name` and `description` are skipped with a warning; the same name and body
   found twice is kept once (project before personal). `instructionFiles` lists `AGENTS.md`

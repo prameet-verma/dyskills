@@ -81,27 +81,33 @@ export function assessCoverage(
       const own = tokens(`${s.name} ${s.description}`);
       let hits = 0;
       for (const t of taskTokens) if (own.has(t)) hits++;
-      const score = taskTokens.size === 0 ? 0 : hits / taskTokens.size;
-      return { name: s.name, path: s.path, score: Math.round(score * 100) / 100 };
+      const raw = taskTokens.size === 0 ? 0 : hits / taskTokens.size;
+      return { name: s.name, path: s.path, raw };
     })
-    .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .filter((c) => c.raw > 0)
+    .sort((a, b) => b.raw - a.raw || a.name.localeCompare(b.name))
     .slice(0, MAX_CANDIDATES);
 
   const top = candidates[0];
+  // The threshold compares the raw score; rounding is for display only (0.496 must not reuse).
+  const candidatesOut = candidates.map((c) => ({
+    name: c.name,
+    path: c.path,
+    score: Math.round(c.raw * 100) / 100,
+  }));
   const done = (
     recommendation: CoverageAssessment["recommendation"],
     reason: string,
-  ): CoverageAssessment => ({ recommendation, candidates, reason });
+  ): CoverageAssessment => ({ recommendation, candidates: candidatesOut, reason });
 
   if (opts.explicit) return done("synthesize", "A new skill was explicitly requested.");
   if (opts.mode === "manual") {
     return done("none", "Manual mode: skills are only created on explicit request.");
   }
-  if (top && top.score >= REUSE_THRESHOLD) {
+  if (top && top.raw >= REUSE_THRESHOLD) {
     return done(
       "reuse",
-      `Existing skill "${top.name}" already covers this task (score ${top.score}).`,
+      `Existing skill "${top.name}" already covers this task (score ${Math.round(top.raw * 100) / 100}).`,
     );
   }
   if (opts.mode === "suggest") {

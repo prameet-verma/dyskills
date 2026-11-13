@@ -45,7 +45,8 @@ function parseSkill(text: string): { name: string; description: string; body: st
   if (!match) return "missing frontmatter";
   let data: unknown;
   try {
-    data = parse(match[1] ?? "");
+    // Repository content is untrusted: silence yaml's process warnings so it cannot write to stderr.
+    data = parse(match[1] ?? "", { logLevel: "error" });
   } catch {
     return "invalid YAML frontmatter";
   }

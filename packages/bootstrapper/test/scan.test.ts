@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { scanExistingSkills } from "../src/index";
 import { put, skillMd, tmp } from "./helpers";
 
@@ -62,6 +62,21 @@ describe("scanExistingSkills", () => {
     await put(repo, "AGENTS.md", "x");
     const r = await scanExistingSkills({ repo, home });
     expect(r.instructionFiles).toEqual([join(repo, "AGENTS.md")]);
+    expect(r.warnings).toEqual([]);
+  });
+});
+
+describe("scanExistingSkills yaml safety", () => {
+  it("emits no process warning for an unknown tag and accepts the skill", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, ".claude/skills/w/SKILL.md", "---\nname: !weird w\ndescription: d\n---\nbody");
+    const spy = vi.spyOn(process, "emitWarning");
+    const r = await scanExistingSkills({ repo, home });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    // Accepted: the unknown tag is ignored and the value stays a plain string.
+    expect(r.skills.map((s) => s.name)).toEqual(["w"]);
     expect(r.warnings).toEqual([]);
   });
 });
