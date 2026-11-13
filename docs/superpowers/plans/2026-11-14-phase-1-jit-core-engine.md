@@ -679,7 +679,7 @@ The verifier gets only this section, `PRD.md` and the repo, and reports each ite
 
 1. `pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build` all succeed.
 2. PRD §20 items 4–15, 17–22, 26, 27: map each to the test(s) that prove it and confirm those tests ran and passed.
-3. `grep -rniE "claude code|codex|opencode|AskUserQuestion|\.claude/" packages skills` returns nothing outside comments that name Phase 2.
+3. `grep -rniE "claude code|codex|opencode|AskUserQuestion|\.claude/" packages skills --include=*.ts --include=*.md` returns matches only in `packages/bootstrapper/src/scan.ts` (PRD §10.3 skill directory table), `packages/eval-engine/src/evals/structural.ts` (portability patterns) and `test/` files.
 4. No package imports a network or LLM client (`grep -rE "fetch\(|openai|anthropic|axios" packages` empty).
 5. The bootstrap skill passes its own evaluator (Task 17 test) and is ≤ 2,000 tokens.
 6. Whole-branch review via superpowers:requesting-code-review, findings resolved or recorded.
