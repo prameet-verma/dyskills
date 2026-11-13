@@ -59,7 +59,7 @@ not a later phase:
 
 ## Phases
 
-### Phase 1 — JIT Core Engine · detailed plan: `2026-11-14-phase-1-jit-core-engine.md`
+### Phase 1 — JIT Core Engine  · detailed plan: `2026-11-14-phase-1-jit-core-engine.md`
 
 Monorepo scaffold, core contracts (zod + JSON Schema), SLA clock with pause/resume, ephemeral session
 store, Evidence Registry, parallel deterministic discovery with secret exclusion, gap analysis,
@@ -126,9 +126,9 @@ packs, optional `LlmProvider` for headless/API runs, multi-skill composition (FR
 
 ## Cross-phase risks
 
-| Risk                                              | Mitigation                                                                                                   |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Risk | Mitigation |
+|---|---|
 | A harness cannot activate a new skill mid-session | Phase 2 spike first; fallback is the Phase 1 behaviour (agent reads the returned skill content into context) |
-| 60 s budget too tight with real agents            | Phase 1 instruments every stage; the live smoke step measures it before Phase 2                              |
-| Agent ignores bootstrap steps                     | Bootstrap is short, command-driven, and the CLI's state machine rejects out-of-order steps                   |
-| Heuristic evals produce false positives           | Every heuristic eval is a warning unless the PRD makes it mandatory; Phase 4 adds rubric/benchmark depth     |
+| 60 s budget too tight with real agents | Phase 1 instruments every stage; the live smoke step measures it before Phase 2 |
+| Agent ignores bootstrap steps | Bootstrap is short, command-driven, and the CLI's state machine rejects out-of-order steps |
+| Heuristic evals produce false positives | Every heuristic eval is a warning unless the PRD makes it mandatory; Phase 4 adds rubric/benchmark depth |
