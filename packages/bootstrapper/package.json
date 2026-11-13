@@ -1,0 +1,13 @@
+{
+  "name": "@dynamic-skills/bootstrapper",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dynamic-skills/core": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}
