@@ -1,4 +1,5 @@
 # Dynamic Skills
+
 ## Product Requirements Document (PRD)
 
 **Version:** 0.6  
@@ -103,19 +104,19 @@ An autonomous, context-aware capability engine that inspects the live repository
 
 The following principles define how Dynamic Skills should operate.
 
-| Principle | Description |
-|---|---|
-| Just-in-Time | Generate expertise at the point of need, not in anticipation of every possible task |
-| Autonomous | Agents can identify expertise gaps and initiate generation themselves |
-| Context-first | Inspect the live repository before generating project-specific instructions |
-| Programmatic-first | Discover everything possible through deterministic inspection before involving an LLM |
-| Human-last | Ask users only questions that code, configuration and repository evidence cannot answer |
-| Minimal expertise | Generate the smallest sufficient skill for the task |
-| Evaluation-first | Validate generated skills before activation |
-| Portable | Follow the open Agent Skills format across coding harnesses |
-| Ephemeral-first | Use generated skills temporarily and offer persistence after successful use |
-| Time-bounded | Complete automated generation and activation within 60 seconds of active processing |
-| Harness-agnostic | Reuse existing agent infrastructure instead of building another runtime |
+| Principle          | Description                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| Just-in-Time       | Generate expertise at the point of need, not in anticipation of every possible task     |
+| Autonomous         | Agents can identify expertise gaps and initiate generation themselves                   |
+| Context-first      | Inspect the live repository before generating project-specific instructions             |
+| Programmatic-first | Discover everything possible through deterministic inspection before involving an LLM   |
+| Human-last         | Ask users only questions that code, configuration and repository evidence cannot answer |
+| Minimal expertise  | Generate the smallest sufficient skill for the task                                     |
+| Evaluation-first   | Validate generated skills before activation                                             |
+| Portable           | Follow the open Agent Skills format across coding harnesses                             |
+| Ephemeral-first    | Use generated skills temporarily and offer persistence after successful use             |
+| Time-bounded       | Complete automated generation and activation within 60 seconds of active processing     |
+| Harness-agnostic   | Reuse existing agent infrastructure instead of building another runtime                 |
 
 ### Important operating distinction
 
@@ -129,26 +130,26 @@ It means performing a lightweight capability assessment for a task and generatin
 
 # 3. Core Product Decisions
 
-| Area | Decision |
-|---|---|
-| Initial harness support | Claude Code, OpenAI Codex and OpenCode |
-| Skill format | Open Agent Skills standard |
-| Portability | Identical generated skill artifacts across harnesses |
-| Invocation | Explicit user invocation and autonomous agent invocation |
-| Default generation | Automatic when a genuine expertise gap is identified |
-| Discovery | Live repository inspection |
-| Context compilation | At skill generation time |
-| Activation | Immediate use within the current task |
-| Persistence | Project, personal/global or ephemeral |
-| Evaluation | Mandatory generation checks and behavioural smoke evaluations |
-| Skill quality | Concise, focused and minimal |
-| Performance | Hard 60-second active processing deadline |
-| Clarification | Maximum three rounds |
-| SLA exception | Pause while waiting for human responses |
-| Assumptions | Document and proceed when clarification is declined |
-| User transparency | Visible clarification and processing states |
-| Staleness prevention | Revalidate persisted project-specific assumptions |
-| Architecture | Common core + thin harness adapters |
+| Area                    | Decision                                                      |
+| ----------------------- | ------------------------------------------------------------- |
+| Initial harness support | Claude Code, OpenAI Codex and OpenCode                        |
+| Skill format            | Open Agent Skills standard                                    |
+| Portability             | Identical generated skill artifacts across harnesses          |
+| Invocation              | Explicit user invocation and autonomous agent invocation      |
+| Default generation      | Automatic when a genuine expertise gap is identified          |
+| Discovery               | Live repository inspection                                    |
+| Context compilation     | At skill generation time                                      |
+| Activation              | Immediate use within the current task                         |
+| Persistence             | Project, personal/global or ephemeral                         |
+| Evaluation              | Mandatory generation checks and behavioural smoke evaluations |
+| Skill quality           | Concise, focused and minimal                                  |
+| Performance             | Hard 60-second active processing deadline                     |
+| Clarification           | Maximum three rounds                                          |
+| SLA exception           | Pause while waiting for human responses                       |
+| Assumptions             | Document and proceed when clarification is declined           |
+| User transparency       | Visible clarification and processing states                   |
+| Staleness prevention    | Revalidate persisted project-specific assumptions             |
+| Architecture            | Common core + thin harness adapters                           |
 
 **Format principle:** Generated expertise follows the open Agent Skills `SKILL.md` specification. Repository instruction files such as `AGENTS.md` and `CLAUDE.md` serve as discovery inputs rather than alternative generated skill formats.
 
@@ -308,11 +309,11 @@ Do not invoke synthesis unnecessarily for trivial tasks, simple follow-ups or ta
 
 ## 5.5 Invocation Modes
 
-| Mode | Behaviour |
-|---|---|
-| Auto | Agent initiates synthesis when an expertise gap exists |
-| Suggest | Agent proposes synthesis and awaits approval |
-| Manual | Only explicit developer invocation |
+| Mode    | Behaviour                                              |
+| ------- | ------------------------------------------------------ |
+| Auto    | Agent initiates synthesis when an expertise gap exists |
+| Suggest | Agent proposes synthesis and awaits approval           |
+| Manual  | Only explicit developer invocation                     |
 
 Default: **Auto**.
 
@@ -326,17 +327,17 @@ Responsible for inspecting the live repository and collecting only the informati
 
 Use lightweight scripts and parsers before involving LLM reasoning.
 
-| Discovery area | Potential sources |
-|---|---|
-| Programming languages | File extensions, manifests |
-| Runtime versions | `.nvmrc`, `.node-version` |
-| Framework versions | Dependency manifests and lockfiles |
-| Package managers | npm, Yarn, pnpm |
-| Monorepo tooling | NX, Turborepo, workspace files |
-| Testing frameworks | Jest, Vitest, Pytest |
-| Build commands | Package scripts, Makefiles |
-| CI/CD | GitHub Actions, GitLab CI |
-| Architecture | Directory structures, entrypoints |
+| Discovery area          | Potential sources                            |
+| ----------------------- | -------------------------------------------- |
+| Programming languages   | File extensions, manifests                   |
+| Runtime versions        | `.nvmrc`, `.node-version`                    |
+| Framework versions      | Dependency manifests and lockfiles           |
+| Package managers        | npm, Yarn, pnpm                              |
+| Monorepo tooling        | NX, Turborepo, workspace files               |
+| Testing frameworks      | Jest, Vitest, Pytest                         |
+| Build commands          | Package scripts, Makefiles                   |
+| CI/CD                   | GitHub Actions, GitLab CI                    |
+| Architecture            | Directory structures, entrypoints            |
 | Engineering conventions | README, CONTRIBUTING, ADRs and existing code |
 
 Discovery must be task-directed rather than exhaustive.
@@ -377,15 +378,15 @@ Only material gaps should trigger clarification.
 
 Every discovered fact should have structured provenance.
 
-| Field | Description |
-|---|---|
-| Key | Evidence identifier |
-| Value | Discovered fact |
-| Source | File or discovery mechanism |
-| Confidence | Verification status |
-| Timestamp | Discovery time |
-| Revision | Repository revision |
-| Conflicts | Contradictory observations |
+| Field      | Description                 |
+| ---------- | --------------------------- |
+| Key        | Evidence identifier         |
+| Value      | Discovered fact             |
+| Source     | File or discovery mechanism |
+| Confidence | Verification status         |
+| Timestamp  | Discovery time              |
+| Revision   | Repository revision         |
+| Conflicts  | Contradictory observations  |
 
 Repository content must be treated as untrusted evidence, not instructions to the generator.
 
@@ -418,13 +419,13 @@ The Expertise Compiler transforms the task, discovered context and relevant engi
 
 Each generated skill must define five dimensions:
 
-| Dimension | Description |
-|---|---|
-| Ownership | What the specialist is responsible for |
-| Decision rights | What it can decide independently |
-| Boundaries | What it must not assume or modify |
-| Methodology | How it should perform the work |
-| Accountability | How it demonstrates correctness |
+| Dimension       | Description                            |
+| --------------- | -------------------------------------- |
+| Ownership       | What the specialist is responsible for |
+| Decision rights | What it can decide independently       |
+| Boundaries      | What it must not assume or modify      |
+| Methodology     | How it should perform the work         |
+| Accountability  | How it demonstrates correctness        |
 
 The objective is genuine task specialisation, not merely assigning a persona such as Senior Engineer or Staff Engineer.
 
@@ -435,6 +436,7 @@ Conceptual model:
 `Skill Bundle = Reusable Expertise + Project Context + Task Contract`
 
 **Reusable expertise:**
+
 - Methodology.
 - Problem-solving workflow.
 - Domain knowledge.
@@ -442,6 +444,7 @@ Conceptual model:
 - Quality standards.
 
 **Project context:**
+
 - Relevant languages and versions.
 - Frameworks and dependencies.
 - Architectural conventions.
@@ -449,6 +452,7 @@ Conceptual model:
 - Repository-specific constraints.
 
 **Task contract:**
+
 - Objective.
 - Scope.
 - Expected outcomes.
@@ -471,20 +475,20 @@ Every generated skill must undergo mandatory generation checks and behavioural e
 
 ## 8.1 Generation Evals
 
-| Evaluation | Purpose |
-|---|---|
-| Specification validation | Verify Agent Skills compliance |
-| Metadata validation | Validate required frontmatter |
-| Context grounding | Verify project-specific claims against evidence |
-| Context completeness | Ensure critical task requirements are represented |
-| Scope validation | Verify task relevance |
-| Role validation | Verify responsibility and boundaries |
-| Assumption detection | Identify unsupported claims |
-| Duplication detection | Identify overlap with existing instructions |
-| Conciseness evaluation | Identify redundant content |
-| Reference validation | Verify referenced files |
-| Portability validation | Detect harness-specific instructions |
-| Security validation | Identify unsafe instructions |
+| Evaluation               | Purpose                                           |
+| ------------------------ | ------------------------------------------------- |
+| Specification validation | Verify Agent Skills compliance                    |
+| Metadata validation      | Validate required frontmatter                     |
+| Context grounding        | Verify project-specific claims against evidence   |
+| Context completeness     | Ensure critical task requirements are represented |
+| Scope validation         | Verify task relevance                             |
+| Role validation          | Verify responsibility and boundaries              |
+| Assumption detection     | Identify unsupported claims                       |
+| Duplication detection    | Identify overlap with existing instructions       |
+| Conciseness evaluation   | Identify redundant content                        |
+| Reference validation     | Verify referenced files                           |
+| Portability validation   | Detect harness-specific instructions              |
+| Security validation      | Identify unsafe instructions                      |
 
 ## 8.2 Behavioural Evals
 
@@ -516,12 +520,12 @@ Deeper benchmarking is particularly important before promotion into reusable lib
 
 ## 8.4 Evaluation Outcomes
 
-| Result | Action |
-|---|---|
-| Pass | Eligible for activation |
-| Warning | Eligible with recorded limitations |
-| Fail | Revise and reevaluate |
-| Not applicable | Record rationale |
+| Result         | Action                             |
+| -------------- | ---------------------------------- |
+| Pass           | Eligible for activation            |
+| Warning        | Eligible with recorded limitations |
+| Fail           | Revise and reevaluate              |
+| Not applicable | Record rationale                   |
 
 Mandatory structural, grounding and conciseness checks cannot be bypassed.
 
@@ -542,11 +546,11 @@ Generation principles:
 
 Proposed targets:
 
-| Measure | Target |
-|---|---|
-| Main `SKILL.md` | Preferably ≤ 2,000 tokens |
-| Above 2,000 tokens | Soft warning |
-| Above 5,000 tokens | Mandatory review |
+| Measure            | Target                    |
+| ------------------ | ------------------------- |
+| Main `SKILL.md`    | Preferably ≤ 2,000 tokens |
+| Above 2,000 tokens | Soft warning              |
+| Above 5,000 tokens | Mandatory review          |
 
 The system should attempt automatic reduction and reevaluation before activation.
 
@@ -608,13 +612,13 @@ When users decline clarification or an answer remains unavailable after three ro
 
 Record:
 
-| Field | Description |
-|---|---|
-| Question | Original unresolved question |
-| Assumption | Decision being made |
-| Basis | Available evidence or reasoning |
-| Impact | Potential consequences |
-| Status | Declined, skipped or unanswered |
+| Field      | Description                     |
+| ---------- | ------------------------------- |
+| Question   | Original unresolved question    |
+| Assumption | Decision being made             |
+| Basis      | Available evidence or reasoning |
+| Impact     | Potential consequences          |
+| Status     | Declined, skipped or unanswered |
 
 Assumptions must not be represented as verified repository facts.
 
@@ -669,13 +673,13 @@ Use native harness interaction interfaces wherever possible.
 
 ## 9.6 Time-Budgeted Pipeline
 
-| Stage | Target processing window |
-|---|---|
-| Invocation and skill lookup | 0–5 seconds |
-| Parallel deterministic discovery | 5–20 seconds |
-| Context analysis and compilation | 15–35 seconds |
-| Parallel generation evaluations | 30–52 seconds |
-| Activation and finalisation | 52–60 seconds |
+| Stage                            | Target processing window |
+| -------------------------------- | ------------------------ |
+| Invocation and skill lookup      | 0–5 seconds              |
+| Parallel deterministic discovery | 5–20 seconds             |
+| Context analysis and compilation | 15–35 seconds            |
+| Parallel generation evaluations  | 30–52 seconds            |
+| Activation and finalisation      | 52–60 seconds            |
 
 These are overlapping processing windows, not fixed sequential waits.
 
@@ -790,22 +794,22 @@ Would you like to save this skill?
 [ Discard ]
 ```
 
-| Option | Behaviour |
-|---|---|
-| Project | Save in the current repository |
+| Option            | Behaviour                                 |
+| ----------------- | ----------------------------------------- |
+| Project           | Save in the current repository            |
 | Personal / Global | Save across projects for the current user |
-| Ephemeral | Keep temporarily |
-| Discard | Remove the generated artifact |
+| Ephemeral         | Keep temporarily                          |
+| Discard           | Remove the generated artifact             |
 
 Persistent saving requires user approval.
 
 ## 10.3 Harness-Specific Storage
 
-| Harness | Project scope | Personal/global scope |
-|---|---|---|
-| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Codex | `.agents/skills/` | `~/.agents/skills/` |
-| OpenCode | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| Harness     | Project scope       | Personal/global scope        |
+| ----------- | ------------------- | ---------------------------- |
+| Claude Code | `.claude/skills/`   | `~/.claude/skills/`          |
+| Codex       | `.agents/skills/`   | `~/.agents/skills/`          |
+| OpenCode    | `.opencode/skills/` | `~/.config/opencode/skills/` |
 
 Adapters handle native installation and skill discovery paths.
 
@@ -845,12 +849,12 @@ A changed repository revision should trigger a relevance check, not automaticall
 
 ## 11.2 Reuse Strategies
 
-| Skill type | Reuse policy |
-|---|---|
-| Generic expertise | Reuse across compatible projects |
-| Project-specific skill | Reuse after context freshness checks |
-| Task-scoped skill | Reuse only within its intended task or session |
-| Expired or invalidated skill | Refresh or regenerate before reuse |
+| Skill type                   | Reuse policy                                   |
+| ---------------------------- | ---------------------------------------------- |
+| Generic expertise            | Reuse across compatible projects               |
+| Project-specific skill       | Reuse after context freshness checks           |
+| Task-scoped skill            | Reuse only within its intended task or session |
+| Expired or invalidated skill | Refresh or regenerate before reuse             |
 
 ## 11.3 Maintenance Philosophy
 
@@ -926,21 +930,21 @@ flowchart TD
 
 ## 12.1 Component Responsibilities
 
-| Component | Responsibility |
-|---|---|
-| Bootstrapper | Explicit and autonomous entry point |
-| Context Discovery Engine | Live repository discovery |
-| Evidence Registry | Stores discovered facts and provenance |
-| Gap Analyzer | Identifies missing task requirements |
-| Clarification Manager | Handles questions, rounds, assumptions and SLA pauses |
-| Expertise Compiler | Generates portable contextual skills |
-| Generation Evaluator | Performs mandatory quality checks |
-| Behavioural Evaluator | Tests expected behaviour |
-| Temporary Skill Store | Stores generated artifacts before persistence |
-| Activation Layer | Loads skills into the current agent session |
-| Lifecycle Manager | Controls persistence, versioning and reuse |
-| Freshness Validator | Checks persisted project-specific context |
-| Harness Adapter | Handles platform-specific integration |
+| Component                | Responsibility                                        |
+| ------------------------ | ----------------------------------------------------- |
+| Bootstrapper             | Explicit and autonomous entry point                   |
+| Context Discovery Engine | Live repository discovery                             |
+| Evidence Registry        | Stores discovered facts and provenance                |
+| Gap Analyzer             | Identifies missing task requirements                  |
+| Clarification Manager    | Handles questions, rounds, assumptions and SLA pauses |
+| Expertise Compiler       | Generates portable contextual skills                  |
+| Generation Evaluator     | Performs mandatory quality checks                     |
+| Behavioural Evaluator    | Tests expected behaviour                              |
+| Temporary Skill Store    | Stores generated artifacts before persistence         |
+| Activation Layer         | Loads skills into the current agent session           |
+| Lifecycle Manager        | Controls persistence, versioning and reuse            |
+| Freshness Validator      | Checks persisted project-specific context             |
+| Harness Adapter          | Handles platform-specific integration                 |
 
 ## 12.2 Root Agent Coordination
 
@@ -969,22 +973,13 @@ interface HarnessAdapter {
 
   getExistingSkills(): Promise<Skill[]>;
 
-  delegateDiscovery(
-    request: DiscoveryRequest
-  ): Promise<DiscoveryResult>;
+  delegateDiscovery(request: DiscoveryRequest): Promise<DiscoveryResult>;
 
-  askUser(
-    questions: Question[]
-  ): Promise<Answer[]>;
+  askUser(questions: Question[]): Promise<Answer[]>;
 
-  loadSkillForSession(
-    skill: GeneratedSkill
-  ): Promise<void>;
+  loadSkillForSession(skill: GeneratedSkill): Promise<void>;
 
-  saveSkill(
-    skill: GeneratedSkill,
-    scope: "project" | "personal"
-  ): Promise<void>;
+  saveSkill(skill: GeneratedSkill, scope: "project" | "personal"): Promise<void>;
 
   getAvailableCapabilities(): Promise<HostCapabilities>;
 }
@@ -1017,42 +1012,42 @@ The bootstrapper must itself follow the open Agent Skills specification.
 
 # 14. Functional Requirements
 
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-01 | Accept tasks from the host agent | P0 |
-| FR-02 | Support explicit user invocation | P0 |
-| FR-03 | Support autonomous agent invocation | P0 |
-| FR-04 | Assess existing skill coverage before synthesis | P0 |
-| FR-05 | Avoid unnecessary generation | P0 |
-| FR-06 | Inspect the live repository | P0 |
-| FR-07 | Perform deterministic context discovery | P0 |
-| FR-08 | Execute independent discovery concurrently | P0 |
-| FR-09 | Maintain an Evidence Registry | P0 |
-| FR-10 | Identify missing and conflicting context | P0 |
-| FR-11 | Ask only material clarification questions | P0 |
-| FR-12 | Enforce three clarification rounds maximum | P0 |
-| FR-13 | Pause and resume the SLA | P0 |
-| FR-14 | Display transparent clarification status | P0 |
-| FR-15 | Record assumptions when clarification is declined | P0 |
-| FR-16 | Generate portable Agent Skills | P0 |
-| FR-17 | Separate expertise from project context | P0 |
-| FR-18 | Run mandatory generation evaluations | P0 |
-| FR-19 | Run behavioural smoke evaluations | P0 |
-| FR-20 | Execute independent evaluations concurrently | P0 |
-| FR-21 | Enforce conciseness and duplication checks | P0 |
-| FR-22 | Activate generated skills in the current session | P0 |
-| FR-23 | Complete active processing within 60 seconds | P0 |
-| FR-24 | Support graceful timeout and fallback | P0 |
-| FR-25 | Support ephemeral skills | P0 |
-| FR-26 | Support project and personal/global persistence | P0 |
-| FR-27 | Support Claude Code, Codex and OpenCode | P0 |
-| FR-28 | Preserve identical skill artifacts | P0 |
-| FR-29 | Retain evaluation and performance reports | P0 |
-| FR-30 | Check persisted skill freshness | P1 |
-| FR-31 | Support versioning and expiry | P1 |
-| FR-32 | Support behavioural baseline comparison | P1 |
-| FR-33 | Support skill promotion and revision | P1 |
-| FR-34 | Support advanced multi-skill composition | P2 |
+| ID    | Requirement                                       | Priority |
+| ----- | ------------------------------------------------- | -------- |
+| FR-01 | Accept tasks from the host agent                  | P0       |
+| FR-02 | Support explicit user invocation                  | P0       |
+| FR-03 | Support autonomous agent invocation               | P0       |
+| FR-04 | Assess existing skill coverage before synthesis   | P0       |
+| FR-05 | Avoid unnecessary generation                      | P0       |
+| FR-06 | Inspect the live repository                       | P0       |
+| FR-07 | Perform deterministic context discovery           | P0       |
+| FR-08 | Execute independent discovery concurrently        | P0       |
+| FR-09 | Maintain an Evidence Registry                     | P0       |
+| FR-10 | Identify missing and conflicting context          | P0       |
+| FR-11 | Ask only material clarification questions         | P0       |
+| FR-12 | Enforce three clarification rounds maximum        | P0       |
+| FR-13 | Pause and resume the SLA                          | P0       |
+| FR-14 | Display transparent clarification status          | P0       |
+| FR-15 | Record assumptions when clarification is declined | P0       |
+| FR-16 | Generate portable Agent Skills                    | P0       |
+| FR-17 | Separate expertise from project context           | P0       |
+| FR-18 | Run mandatory generation evaluations              | P0       |
+| FR-19 | Run behavioural smoke evaluations                 | P0       |
+| FR-20 | Execute independent evaluations concurrently      | P0       |
+| FR-21 | Enforce conciseness and duplication checks        | P0       |
+| FR-22 | Activate generated skills in the current session  | P0       |
+| FR-23 | Complete active processing within 60 seconds      | P0       |
+| FR-24 | Support graceful timeout and fallback             | P0       |
+| FR-25 | Support ephemeral skills                          | P0       |
+| FR-26 | Support project and personal/global persistence   | P0       |
+| FR-27 | Support Claude Code, Codex and OpenCode           | P0       |
+| FR-28 | Preserve identical skill artifacts                | P0       |
+| FR-29 | Retain evaluation and performance reports         | P0       |
+| FR-30 | Check persisted skill freshness                   | P1       |
+| FR-31 | Support versioning and expiry                     | P1       |
+| FR-32 | Support behavioural baseline comparison           | P1       |
+| FR-33 | Support skill promotion and revision              | P1       |
+| FR-34 | Support advanced multi-skill composition          | P2       |
 
 ---
 
@@ -1143,14 +1138,14 @@ The bootstrapper must itself follow the open Agent Skills specification.
 
 ## Performance
 
-| Metric | Target |
-|---|---|
-| Active generation and activation | ≤ 60 seconds |
-| Maximum clarification rounds | 3 |
-| Human clarification wait | Excluded from SLA |
-| Unbounded processing loops | Zero |
-| Unnecessary sequential LLM calls | Minimise |
-| Independent discovery and evaluations | Concurrent |
+| Metric                                | Target            |
+| ------------------------------------- | ----------------- |
+| Active generation and activation      | ≤ 60 seconds      |
+| Maximum clarification rounds          | 3                 |
+| Human clarification wait              | Excluded from SLA |
+| Unbounded processing loops            | Zero              |
+| Unnecessary sequential LLM calls      | Minimise          |
+| Independent discovery and evaluations | Concurrent        |
 
 Track p50, p95 and maximum active processing duration.
 
