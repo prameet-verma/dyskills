@@ -51,6 +51,9 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
 - **`buildPerformanceReport(state, now)`** (`perf.ts`): a `PerformanceReport` with
   `schemaVersion`, wall/active/human-wait time, stage timings, context counters and cache hit
   rate (`null` when there were no lookups).
+- **`buildDiscoveryReport(state, packet, evidence)`** (`perf.ts`): a `DiscoveryReport` with
+  programmatic/agentic time, evidence counts by origin and `programmaticFactShare` (verified
+  programmatic over verified programmatic plus agentic; `null` when there are none).
 - **`estimateTokens(text)`** (`tokens.ts`): `ceil(chars / 4)`.
 
 ## Example

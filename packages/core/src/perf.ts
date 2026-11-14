@@ -1,6 +1,6 @@
 import { CONTRACT_VERSION } from "./constants";
-import type { PerformanceReport } from "./contracts";
-import type { SessionState } from "./schemas";
+import type { ContextPacket, DiscoveryReport, PerformanceReport } from "./contracts";
+import type { Evidence, SessionState } from "./schemas";
 import { SlaClock } from "./sla";
 
 /**
@@ -30,5 +30,47 @@ export function buildPerformanceReport(s: SessionState, now: number): Performanc
     analysisSubmissions: m.analysisSubmissions,
     packetTokens: m.packetTokens,
     outcome: m.outcome,
+  };
+}
+
+/**
+ * Builds the discovery report: programmatic versus agentic discovery (PRD §10.8, AC 29).
+ *
+ * `programmaticFactShare` is verified programmatic / (verified programmatic + verified agentic).
+ * User answers are excluded because they are neither discovered facts nor agent claims; the share
+ * is `null` (not 0) when that denominator is 0 so "no data" stays distinguishable.
+ *
+ * @param s - Session state; supplies stage timings and context counters.
+ * @param packet - The Context Packet, or `null` when none was built (limitations are then `null`).
+ * @param evidence - All evidence in the session, every item counted by origin.
+ */
+export function buildDiscoveryReport(
+  s: SessionState,
+  packet: ContextPacket | null,
+  evidence: Evidence[],
+): DiscoveryReport {
+  const m = s.metrics;
+  const byOrigin = { programmatic: 0, agentic: 0, user: 0 };
+  let verifiedProgrammatic = 0;
+  let verifiedAgentic = 0;
+  for (const e of evidence) {
+    byOrigin[e.origin] += 1;
+    if (e.confidence !== "verified") continue;
+    if (e.origin === "programmatic") verifiedProgrammatic += 1;
+    else if (e.origin === "agentic") verifiedAgentic += 1;
+  }
+  const denominator = verifiedProgrammatic + verifiedAgentic;
+  return {
+    schemaVersion: CONTRACT_VERSION,
+    programmaticMs: m.stageMs.discovery ?? 0,
+    agenticMs: m.stageMs.analysis ?? 0,
+    contextRequests: m.contextRequests,
+    contextRequestRounds: m.contextRequestRounds,
+    analysisSubmissions: m.analysisSubmissions,
+    packetTokens: m.packetTokens,
+    evidenceByOrigin: byOrigin,
+    programmaticFactShare: denominator === 0 ? null : verifiedProgrammatic / denominator,
+    detectorErrors: packet?.limitations.detectorErrors ?? [],
+    limitations: packet?.limitations ?? null,
   };
 }

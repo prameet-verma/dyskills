@@ -197,6 +197,22 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/activation:
+    dependencies:
+      '@dynamic-skills/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dynamic-skills/eval-engine':
+        specifier: workspace:*
+        version: link:../eval-engine
+      '@dynamic-skills/evidence-registry':
+        specifier: workspace:*
+        version: link:../evidence-registry
+    devDependencies:
+      '@dynamic-skills/skill-compiler':
+        specifier: workspace:*
+        version: link:../skill-compiler
+
   packages/bootstrapper:
     dependencies:
       '@dynamic-skills/core':

@@ -42,6 +42,7 @@ the repository contains the library packages below. The design rationale is in t
 | [`@dynamic-skills/clarification-manager`](packages/clarification-manager/README.md) | Clarification rounds, SLA pause/resume and assumption recording.                                               |
 | [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                       |
 | [`@dynamic-skills/eval-engine`](packages/eval-engine/README.md)                     | Generation evals: spec, metadata, references, conciseness, portability and security.                           |
+| [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                              |
 
 Further packages land as Phase 1 progresses.
 

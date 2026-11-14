@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   PerformanceReportSchema,
   SlaClock,
+  buildDiscoveryReport,
   buildPerformanceReport,
+  DiscoveryReportSchema,
+  type Evidence,
   type SessionState,
 } from "../src/index";
 
@@ -76,5 +79,51 @@ describe("buildPerformanceReport", () => {
     s.metrics.cacheHits = 1;
     s.metrics.cacheLookups = 4;
     expect(buildPerformanceReport(s, 2_000).cacheHitRate).toBe(0.25);
+  });
+});
+
+function ev(key: string, origin: Evidence["origin"], confidence: Evidence["confidence"]): Evidence {
+  return {
+    key,
+    value: "v",
+    category: "runtime",
+    source: "s",
+    confidence,
+    timestamp: "t",
+    revision: "r",
+    conflicts: [],
+    origin,
+  };
+}
+
+describe("buildDiscoveryReport", () => {
+  it("computes the programmatic fact share, excluding user answers", () => {
+    const s = state();
+    s.metrics.stageMs = { discovery: 12, analysis: 34 };
+    const r = buildDiscoveryReport(s, null, [
+      ev("a", "programmatic", "verified"),
+      ev("b", "programmatic", "verified"),
+      ev("c", "programmatic", "verified"),
+      ev("d", "agentic", "verified"),
+      ev("e", "user", "verified"),
+      ev("f", "agentic", "inferred"),
+    ]);
+    expect(r.programmaticFactShare).toBe(0.75);
+    expect(r.evidenceByOrigin).toEqual({ programmatic: 3, agentic: 2, user: 1 });
+    expect(r.programmaticMs).toBe(12);
+    expect(r.agenticMs).toBe(34);
+    expect(r.contextRequests).toBe(2);
+    expect(r.detectorErrors).toEqual([]);
+    expect(r.limitations).toBeNull();
+    expect(DiscoveryReportSchema.safeParse(r).success).toBe(true);
+  });
+
+  it("is null when nothing is verified and defaults missing stages to 0", () => {
+    const s = state();
+    s.metrics.stageMs = {};
+    const r = buildDiscoveryReport(s, null, [ev("e", "user", "verified")]);
+    expect(r.programmaticFactShare).toBeNull();
+    expect(r.programmaticMs).toBe(0);
+    expect(r.agenticMs).toBe(0);
   });
 });
