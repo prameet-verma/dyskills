@@ -22,35 +22,32 @@ async function skills(): Promise<ExistingSkill[]> {
 const caching = "Implement a new distributed caching strategy for the order-processing service";
 
 describe("assessCoverage", () => {
-  it("reuses a matching skill", async () => {
+  it("offers a matching skill as a hint, never as a verdict", async () => {
     const r = assessCoverage("review the graphql schemas", await skills(), {
       explicit: false,
       mode: "auto",
     });
-    expect(r.recommendation).toBe("reuse");
-    expect(r.candidates.map((c) => c.name)).toEqual(["graphql-schema-review"]);
+    expect(r.recommendation).toBe("discover");
+    expect(r.candidates[0]?.name).toBe("graphql-schema-review");
     expect(r.candidates[0]?.score).toBeGreaterThanOrEqual(0.5);
   });
 
-  it("synthesizes, suggests or declines for an uncovered task by mode", async () => {
+  it("discovers for an uncovered task unless manual mode lacks an explicit request", async () => {
     const s = await skills();
-    expect(assessCoverage(caching, s, { explicit: false, mode: "auto" }).recommendation).toBe(
-      "synthesize",
-    );
-    expect(assessCoverage(caching, s, { explicit: false, mode: "manual" }).recommendation).toBe(
-      "none",
-    );
-    expect(assessCoverage(caching, s, { explicit: false, mode: "suggest" }).recommendation).toBe(
-      "suggest-synthesis",
-    );
+    const rec = (explicit: boolean, mode: "auto" | "suggest" | "manual") =>
+      assessCoverage(caching, s, { explicit, mode }).recommendation;
+    expect(rec(false, "auto")).toBe("discover");
+    expect(rec(false, "manual")).toBe("none");
+    expect(rec(true, "manual")).toBe("discover");
+    expect(rec(false, "suggest")).toBe("discover");
   });
 
-  it("synthesizes when explicit but still lists the candidate", async () => {
+  it("still lists the candidate when explicit", async () => {
     const r = assessCoverage("Create a skill for reviewing GraphQL schemas", await skills(), {
       explicit: true,
       mode: "manual",
     });
-    expect(r.recommendation).toBe("synthesize");
+    expect(r.recommendation).toBe("discover");
     expect(r.candidates.map((c) => c.name)).toEqual(["graphql-schema-review"]);
   });
 
@@ -59,23 +56,5 @@ describe("assessCoverage", () => {
     const r = assessCoverage("bootstrap dynamic skills", s, { explicit: false, mode: "auto" });
     expect(r.candidates).toEqual([]);
     expect(assessCoverage("a an", s, { explicit: false, mode: "auto" }).candidates).toEqual([]);
-  });
-});
-
-describe("assessCoverage threshold", () => {
-  it("compares the raw score, not the rounded one", () => {
-    // 124 of 250 task tokens match: raw 0.496 rounds to 0.5 but is below the threshold.
-    const words = Array.from({ length: 250 }, (_, i) => `word${String(i).padStart(3, "0")}`);
-    const skill: ExistingSkill = {
-      name: "s",
-      description: words.slice(0, 124).join(" "),
-      path: "/p",
-      scope: "project",
-      harness: "claude-code",
-      body: "",
-    };
-    const r = assessCoverage(words.join(" "), [skill], { explicit: false, mode: "auto" });
-    expect(r.candidates[0]?.score).toBe(0.5);
-    expect(r.recommendation).toBe("synthesize");
   });
 });
