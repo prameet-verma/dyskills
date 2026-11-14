@@ -362,6 +362,13 @@ describe("security", () => {
     'git commit -m "two words" -n',
     'git commit -am "fix it" -n',
     "git -c x=y commit -n",
+    "\\rm -rf /",
+    "/bin/rm -rf /",
+    "/usr/bin/rm -rf ~",
+    "$(rm -rf /)",
+    "`rm -rf /`",
+    "rm -rf {build,dist} /",
+    "rm -rf {build,/}",
   ];
   for (const text of fails) {
     it(`fails on "${text}"`, async () => {
@@ -401,6 +408,12 @@ describe("security", () => {
     "disable permissions caching",
     'git commit -m "-n is fine"',
     "see https://x.dev/.ssh-guide",
+    // Each would fail if the first word were read as the rm command.
+    "rmdir -rf /",
+    "firm -rf /",
+    "./rm-notes.md -rf /",
+    "rm.txt -rf /",
+    "rm -rf {build,dist}",
   ];
   for (const text of safeLines) {
     it(`passes "${text}"`, async () => {
