@@ -40,8 +40,9 @@ const DEFAULT_ASSUMPTION = {
 /** Case-, whitespace- and punctuation-insensitive form used to detect repeated questions. */
 function normalize(text: string): string {
   return text
+    .normalize("NFKC")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -80,11 +81,16 @@ export class ClarificationManager {
    * pending, the status is `waiting-for-clarification` and the SLA is paused (§10.3); otherwise
    * no round is consumed and the SLA is untouched.
    *
+   * Question ids must be unique across the whole session: an id already asked (in any round or
+   * earlier in this call) is rejected as `duplicate`.
+   *
    * @param questions - Candidate questions.
    * @param now - Epoch milliseconds.
+   * @throws {Error} if a previous round is still pending (checked before any mutation).
    */
   ask(questions: Question[], now: number): AskResult {
     const c = this.state.clarification;
+    if (c.pending.length > 0) throw new Error("A clarification round is still pending");
     if (!this.canAskMore()) {
       return {
         accepted: [],
@@ -93,15 +99,17 @@ export class ClarificationManager {
       };
     }
     const seen = new Set(c.asked.map((x) => normalize(x.text)));
+    const seenIds = new Set(c.asked.map((x) => x.id));
     const accepted: Question[] = [];
     const rejected: AskResult["rejected"] = [];
     for (const question of questions) {
-      const reason = this.rejectionFor(question, seen);
+      const reason = this.rejectionFor(question, seen, seenIds);
       if (reason) {
         rejected.push({ id: question.id, reason });
         continue;
       }
       seen.add(normalize(question.text));
+      seenIds.add(question.id);
       accepted.push(question);
     }
     if (accepted.length > 0) {
@@ -116,7 +124,11 @@ export class ClarificationManager {
     return { accepted, rejected, round: c.round };
   }
 
-  private rejectionFor(question: Question, seen: Set<string>): RejectionReason | undefined {
+  private rejectionFor(
+    question: Question,
+    seen: Set<string>,
+    seenIds: Set<string>,
+  ): RejectionReason | undefined {
     if (!question.material) return "not-material";
     if (question.evidenceKey && this.registry.isVerified(question.evidenceKey)) {
       return "answerable-by-evidence";
@@ -128,7 +140,7 @@ export class ClarificationManager {
     ) {
       return "answerable-by-discovery";
     }
-    if (seen.has(normalize(question.text))) return "duplicate";
+    if (seenIds.has(question.id) || seen.has(normalize(question.text))) return "duplicate";
     return undefined;
   }
 
@@ -142,20 +154,26 @@ export class ClarificationManager {
    *
    * @param answers - Replies keyed by question id; a later reply for the same id wins.
    * @param now - Epoch milliseconds.
-   * @throws {Error} if an answer names a question that was never asked.
+   * @throws {Error} if an answer names a question that is not pending, or is `answered` with a
+   *   blank value (both checked before any mutation).
    */
   answer(answers: Answer[], now: number): AnswerResult {
     const c = this.state.clarification;
-    const known = new Map(c.asked.map((x) => [x.id, x]));
+    // Only the open round can be answered; closed rounds would leave stale blockers/assumptions.
+    const known = new Map(c.pending.map((x) => [x.id, x]));
     for (const a of answers) {
-      if (!known.has(a.questionId)) throw new Error(`Unknown question id: ${a.questionId}`);
+      if (!known.has(a.questionId)) throw new Error(`Question ${a.questionId} is not pending`);
+      if (a.status === "answered" && (a.value ?? "").trim() === "") {
+        throw new Error(`Answer for ${a.questionId} has no value`);
+      }
     }
     const byId = new Map(answers.map((a) => [a.questionId, a]));
 
     const clock = SlaClock.from(this.state.sla);
+    const wasWaiting = clock.isPaused() || c.pending.length > 0;
     this.state.metrics.humanWaitMs += clock.resume(now);
     this.state.sla = clock.snapshot(now);
-    this.state.status = "resuming";
+    if (wasWaiting) this.state.status = "resuming";
 
     const evidenceAdded: string[] = [];
     const assumptions: Assumption[] = [];
@@ -167,7 +185,7 @@ export class ClarificationManager {
         const key = `user.${a.questionId}`;
         this.registry.add({
           key,
-          value: a.value ?? "",
+          value: a.value as string,
           category: "user",
           source: "user",
           confidence: "verified",

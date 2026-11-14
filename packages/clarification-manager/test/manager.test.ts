@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  SessionStateSchema,
   SessionStore,
   SlaClock,
   renderStatus,
@@ -107,6 +108,33 @@ describe("ClarificationManager.ask", () => {
     // Also duplicate against questions from earlier rounds.
     mgr.answer([{ questionId: "q1", status: "answered", value: "v" }], 2);
     expect(mgr.ask([q("q5", { text: "what is q1?" })], 3).rejected[0]?.reason).toBe("duplicate");
+  });
+
+  it("treats reused question ids as duplicates", () => {
+    mgr.ask([q("q1")], 1);
+    mgr.answer([{ questionId: "q1", status: "answered", value: "v" }], 2);
+    expect(mgr.ask([q("q1", { text: "brand new text" })], 3).rejected).toEqual([
+      { id: "q1", reason: "duplicate" },
+    ]);
+    const r = mgr.ask([q("x", { text: "a?" }), q("x", { text: "b?" })], 4);
+    expect(r.accepted).toHaveLength(1);
+    expect(r.rejected).toEqual([{ id: "x", reason: "duplicate" }]);
+  });
+
+  it("throws when a round is still pending", () => {
+    mgr.ask([q("q1")], 1);
+    const snapshot = structuredClone(state);
+    expect(() => mgr.ask([q("q2", { text: "z?" })], 2)).toThrow(
+      "A clarification round is still pending",
+    );
+    expect(state).toEqual(snapshot);
+  });
+
+  it("treats NFC and NFD text as duplicates", () => {
+    mgr.ask([q("q1", { text: "Use caf\u00e9?" })], 1);
+    mgr.answer([], 2);
+    const r = mgr.ask([q("q2", { text: "Use cafe\u0301?" })], 3);
+    expect(r.rejected).toEqual([{ id: "q2", reason: "duplicate" }]);
   });
 
   it("enforces three rounds", () => {
@@ -234,8 +262,55 @@ describe("ClarificationManager.answer", () => {
     mgr.ask([q("q1")], 1);
     const snapshot = structuredClone(state);
     expect(() => mgr.answer([{ questionId: "nope", status: "answered", value: "x" }], 2)).toThrow(
-      /nope/,
+      "Question nope is not pending",
     );
     expect(state).toEqual(snapshot);
+  });
+
+  it("rejects answers to closed rounds without mutating state", () => {
+    mgr.ask([q("q1", { blocking: true })], 1);
+    mgr.answer([{ questionId: "q1", status: "declined" }], 2);
+    mgr.ask([q("q2", { text: "other?" })], 3);
+    const snapshot = structuredClone(state);
+    expect(() => mgr.answer([{ questionId: "q1", status: "answered", value: "x" }], 4)).toThrow(
+      "Question q1 is not pending",
+    );
+    expect(state).toEqual(snapshot);
+    expect(registry.get("user.q1")).toBeUndefined();
+  });
+
+  it("accepts an empty answer list", () => {
+    mgr.ask([q("q1")], 1);
+    const r = mgr.answer([], 2);
+    expect(r.assumptions).toMatchObject([{ questionId: "q1", status: "unanswered" }]);
+  });
+
+  it("rejects blank answered values without mutating state", () => {
+    mgr.ask([q("q1", { blocking: true })], 1);
+    const snapshot = structuredClone(state);
+    for (const value of [undefined, "", "  \n"]) {
+      expect(() => mgr.answer([{ questionId: "q1", status: "answered", value }], 2)).toThrow(
+        "Answer for q1 has no value",
+      );
+    }
+    expect(state).toEqual(snapshot);
+    expect(state.blockedBy).toEqual([]);
+  });
+
+  it("leaves status unchanged when nothing was waiting", () => {
+    mgr.answer([], 5);
+    expect(state.status).toBe("assessing");
+  });
+
+  it("survives a persistence round-trip between ask and answer", () => {
+    mgr.ask([q("q1")], 18_000);
+    const reloaded = SessionStateSchema.parse(JSON.parse(JSON.stringify(state)));
+    expect(renderStatus(reloaded, 50_000)).toContain("Processing SLA: PAUSED");
+    new ClarificationManager(reloaded, registry).answer(
+      [{ questionId: "q1", status: "answered", value: "Redis" }],
+      100_000,
+    );
+    expect(reloaded.metrics.humanWaitMs).toBe(82_000);
+    expect(SlaClock.from(reloaded.sla).activeMs(100_000)).toBe(18_000);
   });
 });
