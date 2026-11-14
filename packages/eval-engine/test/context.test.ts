@@ -80,7 +80,9 @@ describe("grounding", () => {
 
   it("fails an unknown [inferred:] key", async () => {
     const ctx = await makeContext({ raw: withBullet(GOLDEN_RAW, "Go [inferred: runtime.go].") });
-    expect((await groundingEval.run(ctx)).outcome).toBe("fail");
+    const r = await groundingEval.run(ctx);
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("unknown evidence runtime.go");
   });
 
   it("fails a conflicting key", async () => {
@@ -122,6 +124,63 @@ describe("grounding", () => {
       assumptions,
     });
     expect((await groundingEval.run(bad)).outcome).toBe("fail");
+  });
+
+  it("checks every Project context section, normalising the heading", async () => {
+    const extra = "\n## Project context:\n- It is fast.\n";
+    const fresh = await groundingEval.run(
+      await makeContext({ raw: `${GOLDEN_RAW.trimEnd()}\n${extra}` }),
+    );
+    expect(fresh.outcome).toBe("fail");
+    const aug = await groundingEval.run(
+      await makeContext({
+        raw: `${GOLDEN_AUGMENT_RAW.trimEnd()}\n${extra}`,
+        augmentation: true,
+      }),
+    );
+    expect(aug.outcome).toBe("fail");
+    const only = GOLDEN_RAW.replace("## Project context", "## Project context:");
+    expect((await groundingEval.run(await makeContext({ raw: only }))).outcome).toBe("pass");
+    const uncited = only.replace(/\[evidence: package-manager\]/, "");
+    expect((await groundingEval.run(await makeContext({ raw: uncited }))).outcome).toBe("fail");
+  });
+
+  it("fails malformed citations", async () => {
+    for (const tag of [
+      `[evidence:${" ".repeat(201)}language.typescript]`,
+      "[Evidence: language.typescript]",
+      "[evidence : language.typescript]",
+      "[ evidence: language.typescript]",
+      "[evidence: language.typescript, runtime.node]",
+    ]) {
+      const r = await groundingEval.run(
+        await makeContext({ raw: withBullet(GOLDEN_RAW, `X ${tag}.`) }),
+      );
+      expect([tag.slice(0, 30), r.outcome]).toEqual([tag.slice(0, 30), "fail"]);
+      expect(r.messages.join("\n")).toContain("malformed citation near:");
+    }
+  });
+
+  it("ignores bullets inside a fenced block and closes fences by character and length", async () => {
+    const fenced = `${GOLDEN_RAW.trimEnd()}\n\n\`\`\`\n- uncited in fence\n\`\`\`\n`;
+    expect((await groundingEval.run(await makeContext({ raw: fenced }))).outcome).toBe("pass");
+    // A shorter fence does not close a longer one, so the heading inside stays hidden.
+    const long = `${GOLDEN_RAW.trimEnd()}\n\n\`\`\`\`\n\`\`\`\n## Project context\n- hidden\n\`\`\`\`\n`;
+    expect((await groundingEval.run(await makeContext({ raw: long }))).outcome).toBe("pass");
+  });
+
+  it("does not let an unclosed fence hide a Project context section", async () => {
+    const raw = `${GOLDEN_RAW.trimEnd()}\n\n\`\`\`\n## Project context\n- It is fast.\n`;
+    expect((await groundingEval.run(await makeContext({ raw }))).outcome).toBe("fail");
+  });
+
+  it("handles a 90k-character heading line quickly", async () => {
+    const raw = `${GOLDEN_RAW.trimEnd()}\n\n## ${"a".repeat(90_000)}\n`;
+    const ctx = await makeContext({ raw });
+    const t0 = performance.now();
+    await groundingEval.run(ctx);
+    await roleEval.run(ctx);
+    expect(performance.now() - t0).toBeLessThan(200);
   });
 
   it("stays linear on an unterminated tag followed by whitespace", async () => {
@@ -198,6 +257,47 @@ describe("assumptions", () => {
       raw: withBullet(GOLDEN_RAW, "Django handles requests [evidence: language.typescript]."),
     });
     expect((await assumptionsEval.run(ctx)).outcome).toBe("warning");
+  });
+
+  it("matches frameworks by exact key and word alias", async () => {
+    const core = await makeContext({
+      raw: withBullet(GOLDEN_RAW, "Core logic stays put [evidence: package-manager]."),
+    });
+    expect((await assumptionsEval.run(core)).outcome).toBe("pass");
+    const angular = await makeContext({
+      raw: withBullet(GOLDEN_RAW, "Uses Angular [evidence: package-manager]."),
+    });
+    const r = await assumptionsEval.run(angular);
+    expect(r.outcome).toBe("warning");
+    const base = await makeContext();
+    const nest = { ...base.evidence[0]!, key: "framework.@nestjs/core", value: "@nestjs/core" };
+    const ok = await makeContext({
+      raw: withBullet(GOLDEN_RAW, "Uses NestJS [evidence: package-manager]."),
+      evidence: [...base.evidence, nest],
+    });
+    expect((await assumptionsEval.run(ok)).outcome).toBe("pass");
+  });
+
+  it("applies the version rule", async () => {
+    const run = async (text: string, conflicting = false): Promise<string> => {
+      const base = await makeContext();
+      const evidence = base.evidence.map((e) =>
+        e.key === "runtime.node" && conflicting ? { ...e, confidence: "conflicting" as const } : e,
+      );
+      const ctx = await makeContext({
+        raw: withBullet(GOLDEN_RAW, `${text} [evidence: package-manager].`),
+        evidence,
+      });
+      return (await assumptionsEval.run(ctx)).outcome;
+    };
+    expect(await run("Node 20.11")).toBe("pass");
+    expect(await run("Node v20.11.0")).toBe("pass");
+    expect(await run("Node 20.11.0.")).toBe("pass");
+    expect(await run("See §6.6")).toBe("pass");
+    expect(await run("Host 192.168.1.1")).toBe("pass");
+    expect(await run("Node 22.1.0.")).toBe("fail");
+    expect(await run("About 2.0 tokens")).toBe("fail");
+    expect(await run("Node 20.11.0", true)).toBe("fail");
   });
 
   it("does not treat the word next as a framework", async () => {
@@ -296,6 +396,14 @@ describe("duplication", () => {
     const ctx = await makeContext();
     ctx.instructionTexts = [lines.slice(0, Math.ceil(lines.length * 0.6)).join("\n")];
     expect((await duplicationEval.run(ctx)).outcome).toBe("warning");
+  });
+
+  it("fails when a pasted frontmatter-like block carries the base Methodology", async () => {
+    const method = /## Methodology\n([\s\S]*?)(?=## Accountability)/.exec(BASE_RAW)![1]!;
+    const raw = GOLDEN_AUGMENT_RAW.replace(/\n---\n\n#/, `\n---\n---\n${method}\n---\n\n#`);
+    const ctx = await makeContext({ raw, augmentation: true });
+    expect(ctx.skill.body.startsWith("---")).toBe(true);
+    expect((await duplicationEval.run(ctx)).outcome).toBe("fail");
   });
 
   it("is zero for text shorter than one shingle", async () => {

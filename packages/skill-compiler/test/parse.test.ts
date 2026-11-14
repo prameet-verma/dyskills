@@ -7,6 +7,7 @@ import { deriveRequirements, consolidateAnalysis } from "@dynamic-skills/context
 import { runDiscovery } from "@dynamic-skills/discovery";
 import {
   BundleError,
+  ASSUMPTION_PATTERN,
   CITATION_PATTERN,
   INFERENCE_PATTERN,
   loadSmokeEval,
@@ -181,14 +182,40 @@ describe("golden citations", () => {
     const byKey = new Map(d.registry.list().map((e) => [e.key, e.confidence]));
     for (const dir of ["valid", "augmentation"]) {
       const s = await parseSkillBundle(F(dir));
-      const keys = (re: RegExp): string[] =>
-        [...s.body.matchAll(re)].flatMap((m) => (m[1] ?? "").split(/\s*,\s*/));
+      const keys = (re: RegExp): string[] => [...s.body.matchAll(re)].map((m) => m[1] ?? "");
       const cited = keys(CITATION_PATTERN);
       const inferred = keys(INFERENCE_PATTERN);
       expect(cited.length).toBeGreaterThan(0);
       expect(inferred.length).toBeGreaterThan(0);
       for (const k of cited) expect([k, byKey.get(k)]).toEqual([k, "verified"]);
       for (const k of inferred) expect([k, byKey.get(k)]).toEqual([k, "inferred"]);
+    }
+  });
+});
+
+describe("citation patterns", () => {
+  const count = (re: RegExp, text: string): number => [...text.matchAll(re)].length;
+  const timed = (fn: () => void): number => {
+    const t0 = performance.now();
+    fn();
+    return performance.now() - t0;
+  };
+
+  it("takes exactly one key per tag", () => {
+    expect(count(CITATION_PATTERN, "[evidence: a.b] [evidence:c]")).toBe(2);
+    expect(count(CITATION_PATTERN, "[evidence: a, b]")).toBe(0);
+    expect(count(INFERENCE_PATTERN, "[inferred: a b]")).toBe(0);
+    expect(count(ASSUMPTION_PATTERN, "[assumption: analysis-1]")).toBe(1);
+    expect(count(CITATION_PATTERN, `[evidence:${" ".repeat(201)}a]`)).toBe(0);
+  });
+
+  it("scans adversarial input in linear time", () => {
+    for (const re of [CITATION_PATTERN, INFERENCE_PATTERN, ASSUMPTION_PATTERN]) {
+      const name = re.source.slice(2, re.source.indexOf(":"));
+      const spaces = `[${name}:${" ".repeat(100_000)}`;
+      const repeated = `[${name}:a`.repeat(20_000);
+      expect(timed(() => count(re, spaces))).toBeLessThan(100);
+      expect(timed(() => count(re, repeated))).toBeLessThan(100);
     }
   });
 });

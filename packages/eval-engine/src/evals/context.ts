@@ -1,8 +1,11 @@
 import type { Evidence } from "@dynamic-skills/core";
 import { KNOWN_FRAMEWORKS } from "@dynamic-skills/discovery";
 import {
+  ASSUMPTION_PATTERN,
   AUGMENTATION_OPTIONAL_SECTIONS,
   AUGMENTATION_REQUIRED_SECTIONS,
+  CITATION_PATTERN,
+  INFERENCE_PATTERN,
   PROJECT_CONTEXT_SECTION,
   REQUIRED_SECTIONS,
 } from "@dynamic-skills/skill-compiler";
@@ -21,28 +24,42 @@ interface Citations {
   assumption: string[];
 }
 
-/**
- * Citation scanner. The shared `CITATION_PATTERN` family allows unbounded whitespace before the
- * reference, which backtracks quadratically on agent-written text such as `[evidence:` followed
- * by a long run of spaces. This pattern has no nested quantifier and caps the reference at 200
- * characters, so a scan is linear in the text length.
- */
-const CITATION_SCAN = /\[(evidence|inferred|assumption):([^\]\n]{1,200})\]/g;
-
-/** Extracts every citation in `text`, trimmed, in document order (duplicates kept). */
+/** Extracts every well-formed citation in `text`, in document order (duplicates kept). */
 function citationsIn(text: string): Citations {
-  const out: Citations = { evidence: [], inferred: [], assumption: [] };
-  for (const m of text.matchAll(CITATION_SCAN)) {
-    const ref = (m[2] ?? "").trim();
-    if (ref !== "") out[m[1] as keyof Citations].push(ref);
-  }
-  return out;
+  const grab = (re: RegExp): string[] => [...text.matchAll(re)].map((m) => m[1] ?? "");
+  return {
+    evidence: grab(CITATION_PATTERN),
+    inferred: grab(INFERENCE_PATTERN),
+    assumption: grab(ASSUMPTION_PATTERN),
+  };
 }
 
-/** True when `text` holds at least one citation of any kind. */
+/** True when `text` holds at least one well-formed citation of any kind. */
 function hasCitation(text: string): boolean {
   const c = citationsIn(text);
   return c.evidence.length + c.inferred.length + c.assumption.length > 0;
+}
+
+/** Anything that opens like a citation, tolerating case and padding; linear (bounded `\s`). */
+const OPENER = /\[\s{0,8}(?:evidence|inferred|assumption)\s{0,8}:/gi;
+
+/**
+ * Openers that are not the start of a well-formed citation (wrong case, padding, several keys,
+ * oversized key, missing `]`). Without this, a malformed tag would be silently uncited and could
+ * smuggle a claim past grounding (PRD §6.6). Returns up to 40 sanitised characters of each.
+ */
+function malformedCitations(text: string): string[] {
+  const starts = new Set<number>();
+  for (const re of [CITATION_PATTERN, INFERENCE_PATTERN, ASSUMPTION_PATTERN]) {
+    for (const m of text.matchAll(re)) starts.add(m.index);
+  }
+  const out: string[] = [];
+  for (const m of text.matchAll(OPENER)) {
+    if (!starts.has(m.index)) {
+      out.push(text.slice(m.index, m.index + 40).replace(/[^\x20-\x7e]/g, " "));
+    }
+  }
+  return out;
 }
 
 /** Evidence indexed by key. */
@@ -50,36 +67,61 @@ function byKey(evidence: Evidence[]): Map<string, Evidence> {
   return new Map(evidence.map((e) => [e.key, e]));
 }
 
-/** A `## ` section of a Markdown body. */
+/** One body line and whether it sits inside a closed fenced code block. */
+interface Line {
+  text: string;
+  fenced: boolean;
+}
+
+/** A `## ` section of a Markdown body; `heading` is normalised (see {@link normaliseHeading}). */
 interface Section {
   heading: string;
-  lines: string[];
+  lines: Line[];
+}
+
+/** Heading comparison form: trimmed, lowercase, trailing `:` removed (PRD §8.1). */
+function normaliseHeading(h: string): string {
+  return h.trim().toLowerCase().replace(/:+$/, "").trim();
 }
 
 /**
- * Splits a body into its `## ` sections, ignoring headings inside fenced code blocks. Lines
- * before the first `## ` heading are dropped.
+ * Splits a body into its `## ` sections. Headings inside fenced code blocks do not count. A fence
+ * closes on the same character with at least the opening length (as in skill-compiler's
+ * `stripFences`); a fence still open at the end of the text is treated as not fenced so it cannot
+ * hide later sections. Lines before the first `## ` heading are dropped.
  */
 function sectionsOf(body: string): Section[] {
+  const lines = body.split(/\r?\n/);
+  const fenced: boolean[] = new Array<boolean>(lines.length).fill(false);
+  let open: { run: string; at: number } | null = null;
+  lines.forEach((line, i) => {
+    const run = /^\s*(`{3,}|~{3,})/.exec(line)?.[1] ?? "";
+    if (open === null) {
+      if (run !== "") open = { run, at: i };
+    } else if (run !== "" && run[0] === open.run[0] && run.length >= open.run.length) {
+      for (let j = open.at; j <= i; j++) fenced[j] = true;
+      open = null;
+    }
+  });
   const sections: Section[] = [];
-  let fenced = false;
-  for (const line of body.split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    const heading = fenced ? null : /^##[ \t]+(\S.*?)[ \t]*$/.exec(line);
-    if (heading) sections.push({ heading: heading[1] ?? "", lines: [] });
-    else sections.at(-1)?.lines.push(line);
-  }
+  lines.forEach((text, i) => {
+    const isFenced = fenced[i] === true;
+    const heading = isFenced ? null : /^##[ \t]+(.*)$/.exec(text)?.[1]?.trim();
+    if (heading) sections.push({ heading: normaliseHeading(heading), lines: [] });
+    else sections.at(-1)?.lines.push({ text, fenced: isFenced });
+  });
   return sections;
 }
 
-/** True when a section has at least one non-empty line. */
-function nonEmpty(section: Section | undefined): boolean {
-  return section !== undefined && section.lines.some((l) => l.trim() !== "");
+/** Every section with the given heading (any case, optional trailing colon). */
+function findSections(sections: Section[], heading: string): Section[] {
+  const want = normaliseHeading(heading);
+  return sections.filter((s) => s.heading === want);
 }
 
-/** First section with the given heading (case-insensitive), or undefined. */
-function findSection(sections: Section[], heading: string): Section | undefined {
-  return sections.find((s) => s.heading.toLowerCase() === heading.toLowerCase());
+/** True when some section with that heading has at least one non-empty line. */
+function hasContent(sections: Section[], heading: string): boolean {
+  return findSections(sections, heading).some((s) => s.lines.some((l) => l.text.trim() !== ""));
 }
 
 /**
@@ -104,10 +146,15 @@ export const groundingEval: GenerationEval = {
     for (const id of new Set(cites.assumption)) {
       if (!ids.has(id)) failures.push(`unknown assumption ${id}`);
     }
-    const section = findSection(sectionsOf(ctx.skill.body), PROJECT_CONTEXT_SECTION);
-    for (const line of section?.lines ?? []) {
-      if (/^\s*(?:[-*+]|\d+[.)])\s+\S/.test(line) && !hasCitation(line)) {
-        failures.push(`uncited project claim: ${line.trim().slice(0, 80)}`);
+    for (const bad of malformedCitations(ctx.skill.body)) {
+      failures.push(`malformed citation near: ${bad}`);
+    }
+    // Every Project context section counts, so a second one cannot hold uncited claims.
+    for (const section of findSections(sectionsOf(ctx.skill.body), PROJECT_CONTEXT_SECTION)) {
+      for (const { text, fenced } of section.lines) {
+        if (!fenced && /^\s*(?:[-*+]|\d+[.)])\s+\S/.test(text) && !hasCitation(text)) {
+          failures.push(`uncited project claim: ${text.trim().slice(0, 80)}`);
+        }
       }
     }
     return result(failures);
@@ -140,23 +187,40 @@ export const evidenceClassificationEval: GenerationEval = {
   },
 };
 
-/** Version-like token (PRD §9.1). The optional group is bounded, so the scan is linear. */
-const VERSION = /\b\d+\.\d+(?:\.\d+)?\b/g;
+/**
+ * Version-like token (PRD §9.1): `1.2` or `1.2.3`, optionally `v`-prefixed. Not preceded by a word
+ * character, dot or `§` (so `§6.6` and the tail of `192.168.1.1` are skipped) and not followed by a
+ * word character or another dotted number (so four-part quads are skipped; a sentence-ending dot is
+ * fine). Any other dotted number such as `2.0 tokens` is still version-shaped and is flagged unless
+ * evidence supports it.
+ */
+const VERSION = /(?<![\w.§])v?(\d+\.\d+(?:\.\d+)?)(?!\w|\.\d)/g;
+
+/** Dotted numbers in support text; deliberately looser than {@link VERSION}. */
+const SUPPORT_VERSION = /\d+(?:\.\d+)+/g;
 
 /**
- * Word-match patterns for framework names. `next` and `koa` are ordinary words or short, so
- * `next` only counts as `Next.js`/`nextjs`; scoped names match their scope-less spelling.
+ * Word patterns for framework names. Scoped packages use explicit aliases so the generic word
+ * `core` never matches; `next` only counts as Next.js because the bare word is ordinary English.
  */
+const FRAMEWORK_WORDS: Record<string, RegExp> = {
+  next: /\bnext\.?js\b/i,
+  "@angular/core": /\bangular\b/i,
+  "@nestjs/core": /\bnest(?:js)?\b/i,
+};
+
+/** Word pattern for a known framework name. */
 function frameworkPattern(name: string): RegExp {
-  if (name === "next") return /\bnext\.?js\b/i;
-  const bare = name.replace(/^@[^/]+\//, "");
-  const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${escaped}\\b`, "i");
+  return (
+    FRAMEWORK_WORDS[name] ?? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")
+  );
 }
 
 /**
- * Assumptions (PRD §9.1): version numbers must come from evidence or a recorded assumption
- * (fail); a known framework named without `framework.<name>` evidence is a warning.
+ * Assumptions (PRD §9.1): a version in the body must equal, or be a dotted prefix of (`20.11` for
+ * `20.11.0`), a version in non-conflicting evidence or in a recorded assumption (fail); a known
+ * framework named without exactly `framework.<name>` evidence is a warning. Assumption
+ * `question` text is not support, because it may quote claims it asks about.
  */
 export const assumptionsEval: GenerationEval = {
   id: "assumptions",
@@ -165,18 +229,19 @@ export const assumptionsEval: GenerationEval = {
     const failures: string[] = [];
     const warnings: string[] = [];
     const support = [
-      ...ctx.evidence.map((e) => e.value),
-      ...ctx.assumptions.flatMap((a) => [a.assumption, a.basis, a.question]),
+      ...ctx.evidence.filter((e) => e.confidence !== "conflicting").map((e) => e.value),
+      ...ctx.assumptions.flatMap((a) => [a.assumption, a.basis, a.impact]),
     ].join("\n");
-    const supported = new Set(support.match(VERSION) ?? []);
-    for (const v of new Set(ctx.skill.body.match(VERSION) ?? [])) {
-      if (!supported.has(v)) failures.push(`unsupported version claim ${v}`);
+    const known = [...new Set(support.match(SUPPORT_VERSION) ?? [])];
+    const supports = (v: string): boolean => known.some((k) => k === v || k.startsWith(`${v}.`));
+    const claimed = new Set([...ctx.skill.body.matchAll(VERSION)].map((m) => m[1] ?? ""));
+    for (const v of claimed) {
+      if (!supports(v)) failures.push(`unsupported version claim ${v}`);
     }
     const keys = new Set(ctx.evidence.map((e) => e.key));
     for (const name of KNOWN_FRAMEWORKS) {
-      const bare = name.replace(/^@[^/]+\//, "");
-      if (frameworkPattern(name).test(ctx.skill.body) && !keys.has(`framework.${bare}`)) {
-        warnings.push(`mentions framework ${bare} without framework.${bare} evidence`);
+      if (frameworkPattern(name).test(ctx.skill.body) && !keys.has(`framework.${name}`)) {
+        warnings.push(`mentions framework ${name} without framework.${name} evidence`);
       }
     }
     return result(failures, warnings);
@@ -294,26 +359,23 @@ export const roleEval: GenerationEval = {
     const sections = sectionsOf(ctx.skill.body);
     const failures: string[] = [];
     if (ctx.augmentation === null) {
-      const missing = REQUIRED_SECTIONS.filter((h) => !nonEmpty(findSection(sections, h)));
+      const missing = REQUIRED_SECTIONS.filter((h) => !hasContent(sections, h));
       if (missing.length > 0) failures.push(`missing or empty sections: ${missing.join(", ")}`);
       return result(failures);
     }
     const allowed = [...AUGMENTATION_REQUIRED_SECTIONS, ...AUGMENTATION_OPTIONAL_SECTIONS];
-    const missing = AUGMENTATION_REQUIRED_SECTIONS.filter(
-      (h) => !nonEmpty(findSection(sections, h)),
-    );
+    const missing = AUGMENTATION_REQUIRED_SECTIONS.filter((h) => !hasContent(sections, h));
     if (missing.length > 0) failures.push(`missing or empty sections: ${missing.join(", ")}`);
-    const contract = findSection(sections, "Task contract")?.lines ?? [];
+    const contract = findSections(sections, "Task contract").flatMap((s) => s.lines);
     const covered = `- Already covered by ${ctx.augmentation.baseName}:`;
-    if (!contract.some((l) => l.trimStart().startsWith(covered))) {
+    if (!contract.some((l) => l.text.trimStart().startsWith(covered))) {
       failures.push(`## Task contract needs a line starting "${covered}"`);
     }
-    if (!contract.some((l) => l.trimStart().startsWith("- Adds:"))) {
+    if (!contract.some((l) => l.text.trimStart().startsWith("- Adds:"))) {
       failures.push('## Task contract needs a line starting "- Adds:"');
     }
-    const extra = sections.filter(
-      (s) => !allowed.some((h) => h.toLowerCase() === s.heading.toLowerCase()),
-    );
+    const allowedNorm = new Set(allowed.map(normaliseHeading));
+    const extra = sections.filter((s) => !allowedNorm.has(s.heading));
     if (extra.length > 0) {
       failures.push(
         `augmentation may only contain sections: ${allowed.join(", ")} (found: ${extra.map((s) => s.heading).join(", ")})`,
@@ -369,7 +431,9 @@ export const duplicationEval: GenerationEval = {
   id: "duplication",
   mandatory: false,
   async run(ctx) {
-    const mine = shingles(stripFrontmatter(ctx.skill.body));
+    // `skill.body` is already the post-frontmatter body; stripping again would let a pasted
+    // `---` block hide copied text.
+    const mine = shingles(ctx.skill.body);
     const others = [
       ...ctx.existingSkills.map((s) => ({ label: `skill ${s.name}`, text: s.body })),
       ...ctx.instructionTexts.map((t, i) => ({ label: `instruction text ${i + 1}`, text: t })),

@@ -21,12 +21,20 @@ export const REQUIRED_SECTIONS = [
 /** The section carrying repository facts; every bullet in it must cite its basis (PRD §6.6). */
 export const PROJECT_CONTEXT_SECTION = "Project context";
 
-/** Citation of an observed fact (evidence confidence `verified`). */
-export const CITATION_PATTERN = /\[evidence:\s*([^\]]+)\]/g;
-/** Citation of an inference (evidence confidence `inferred`). */
-export const INFERENCE_PATTERN = /\[inferred:\s*([^\]]+)\]/g;
-/** Citation of an assumption; the reference is a `questionId` (clarification id or `analysis-<n>`). */
-export const ASSUMPTION_PATTERN = /\[assumption:\s*([^\]]+)\]/g;
+/*
+ * One citation grammar for the whole pipeline: exactly one key per tag, no whitespace or commas
+ * inside the key, at most 8 spaces/tabs of padding on either side and a key of at most 200
+ * characters. Every quantifier is bounded and the key class excludes the padding characters, so a
+ * scan is linear in the text length even on adversarial input (the SKILL.md may be 100,000
+ * characters). Anything that opens like a citation but does not match is "malformed" and fails
+ * grounding (PRD §6.6, §9.1).
+ */
+/** Citation of an observed fact (evidence confidence `verified`); one key per tag. */
+export const CITATION_PATTERN = /\[evidence:[ \t]{0,8}([^\]\s,]{1,200})[ \t]{0,8}\]/g;
+/** Citation of an inference (evidence confidence `inferred`); one key per tag. */
+export const INFERENCE_PATTERN = /\[inferred:[ \t]{0,8}([^\]\s,]{1,200})[ \t]{0,8}\]/g;
+/** Citation of an assumption; one `questionId` (clarification id or `analysis-<n>`) per tag. */
+export const ASSUMPTION_PATTERN = /\[assumption:[ \t]{0,8}([^\]\s,]{1,200})[ \t]{0,8}\]/g;
 
 /** Suffix that distinguishes an augmentation skill from the base it extends (PRD §5.5). */
 export const AUGMENTATION_SUFFIX = "-augment";

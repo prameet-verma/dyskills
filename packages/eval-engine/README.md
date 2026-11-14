@@ -27,13 +27,16 @@ package holds the eval types, the structural evals and the context evals; it imp
   are scanned too (up to 50,000 bytes each; lines over 2,000 characters fail). Cautionary or
   negated mentions fail on purpose, because negation is easy to evade: restrictions must be
   phrased without quoting the command.
-
 - `groundingEval` (mandatory): every `[evidence:]`/`[inferred:]` key exists and is not conflicting,
-  every `[assumption:]` id is a recorded assumption, every `## Project context` bullet is cited.
+  every `[assumption:]` id is a recorded assumption, every bullet of every `## Project context`
+  section is cited, and malformed citations fail. A citation names exactly one key
+  (`[evidence: key]`: no commas or whitespace in the key, at most 8 spaces of padding, key up to
+  200 characters); the grammar is shared with `@dynamic-skills/skill-compiler`.
 - `evidenceClassificationEval` (mandatory): `[evidence:]` on an inferred or assumed key fails;
   `[inferred:]` on a verified key warns.
-- `assumptionsEval`: version numbers must appear in evidence or assumptions; known frameworks
-  need `framework.<name>` evidence (warning).
+- `assumptionsEval`: a version in the body must equal or be a dotted prefix of a version in
+  non-conflicting evidence or an assumption; known frameworks need exact `framework.<name>`
+  evidence (warning).
 - `completenessEval`: each answerable gap category is cited (warning); user evidence must be
   cited (fail).
 - `scopeEval`: the description shares a content word with the task.

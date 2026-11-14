@@ -20,7 +20,10 @@ export interface AugmentationContext {
   baseSha256: string;
   /** sha256 of the base `SKILL.md` hashed at evaluate time; differs when the base changed. */
   currentBaseSha256: string;
-  /** Body of the base skill, for overlap checks. */
+  /**
+   * Text of the base `SKILL.md` for overlap checks. It may include its frontmatter; the duplication
+   * eval strips it.
+   */
   baseBody: string;
 }
 

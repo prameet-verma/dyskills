@@ -22,7 +22,9 @@ called here. Implements PRD §5.5 (augmentation), §7 (untrusted evidence fence)
   bundle-relative links only (no schemes, absolute paths or fenced-code links).
 - `loadSmokeEval(path)`: validated `SmokeEval`, `null` if the file is absent.
 - Constants `REQUIRED_SECTIONS`, `PROJECT_CONTEXT_SECTION`, `AUGMENTATION_*`, `MAX_BASE_SKILL_CHARS`
-  and the citation patterns `CITATION_PATTERN`, `INFERENCE_PATTERN`, `ASSUMPTION_PATTERN`.
+  and the citation patterns `CITATION_PATTERN`, `INFERENCE_PATTERN`, `ASSUMPTION_PATTERN`. A citation names exactly one key (`[evidence: key]`, no commas or
+  whitespace in the key, at most 8 spaces of padding, key up to 200 characters); the patterns are
+  linear-time.
 
 ## Example
 
