@@ -248,6 +248,7 @@ export function buildCompilationBrief(input: CompilationBriefInput): string {
     "",
     "Task contract to write: objective, scope, success criteria and restrictions.",
     "Restrictions must include every constraint listed under Task context from analysis.",
+    'Phrase restrictions without quoting dangerous commands or flags (e.g. "never run destructive or global install commands", "never read secret files"); quoted commands fail the security eval even when negated.',
     "",
   ];
 

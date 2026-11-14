@@ -1,4 +1,4 @@
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import {
   SKILL_TOKEN_HARD_LIMIT,
@@ -114,44 +114,107 @@ export const metadataEval: GenerationEval = {
 };
 
 /**
+ * Resolves a bundle-relative reference to a real regular file inside the skill directory.
+ * The skill is untrusted, so `../` escapes and symlinks (including symlinked directory
+ * components) that leave the directory are rejected; realpath makes the containment check hold
+ * for those.
+ *
+ * @returns The real path, or a failure reason.
+ */
+async function resolveReference(
+  dir: string,
+  root: string,
+  ref: string,
+): Promise<{ real: string } | { problem: string }> {
+  const target = resolve(dir, ref);
+  const rel = relative(resolve(dir), target);
+  if (rel === "") return { problem: `reference "${ref}" is not a file` };
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    return { problem: `reference "${ref}" escapes the skill directory` };
+  }
+  try {
+    const real = await realpath(target);
+    const realRel = relative(root, real);
+    if (realRel.startsWith("..") || isAbsolute(realRel)) {
+      return { problem: `reference "${ref}" escapes the skill directory` };
+    }
+    if (!(await lstat(real)).isFile()) return { problem: `reference "${ref}" is not a file` };
+    return { real };
+  } catch {
+    return { problem: `reference "${ref}" does not exist` };
+  }
+}
+
+/**
  * Every bundle-relative link must resolve to an existing regular file inside the skill
- * directory (PRD §9.1). The skill is untrusted, so `../` escapes and symlinks that leave the
- * directory fail. Not mandatory: a skill with no references passes.
+ * directory (PRD §9.1). Not mandatory: a skill with no references passes.
  */
 export const referencesEval: GenerationEval = {
   id: "references",
   mandatory: false,
   async run(ctx) {
-    const failures: string[] = [];
     let root: string;
     try {
       root = await realpath(ctx.skill.dir);
     } catch {
       return result(ctx.skill.references.map((r) => `reference "${r}" cannot be resolved`));
     }
+    const failures: string[] = [];
     for (const ref of ctx.skill.references) {
-      const target = resolve(ctx.skill.dir, ref);
-      const rel = relative(resolve(ctx.skill.dir), target);
-      if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
-        failures.push(`reference "${ref}" escapes the skill directory`);
-        continue;
-      }
-      try {
-        // realpath also catches a symlinked directory component pointing outside.
-        const real = await realpath(target);
-        const realRel = relative(root, real);
-        if (realRel.startsWith("..") || isAbsolute(realRel)) {
-          failures.push(`reference "${ref}" escapes the skill directory`);
-        } else if (!(await lstat(real)).isFile()) {
-          failures.push(`reference "${ref}" is not a file`);
-        }
-      } catch {
-        failures.push(`reference "${ref}" does not exist`);
-      }
+      const r = await resolveReference(ctx.skill.dir, root, ref);
+      if ("problem" in r) failures.push(r.problem);
     }
     return result(failures);
   },
 };
+
+/** Per-file read cap for referenced files; the bundle is agent-written (untrusted). */
+const MAX_REFERENCED_BYTES = 400_000;
+
+/** A piece of skill text to scan: `label` prefixes its messages ("" for SKILL.md itself). */
+interface ScanUnit {
+  label: string;
+  text: string;
+}
+
+/**
+ * Collects SKILL.md plus every referenced regular file inside the skill directory, because
+ * referenced files are loaded into the agent's context just like SKILL.md (so portability and
+ * security rules apply to them). Missing, escaping and non-file references are skipped here;
+ * {@link referencesEval} reports them. A file over the cap yields a failure instead of a unit.
+ */
+async function collectScanUnits(
+  ctx: EvalContext,
+): Promise<{ units: ScanUnit[]; failures: string[] }> {
+  const units: ScanUnit[] = [{ label: "", text: ctx.skill.raw }];
+  const failures: string[] = [];
+  let root: string;
+  let skillMd: string | null;
+  try {
+    root = await realpath(ctx.skill.dir);
+    skillMd = await realpath(ctx.skill.skillMdPath).catch(() => null);
+  } catch {
+    return { units, failures };
+  }
+  for (const ref of ctx.skill.references) {
+    const r = await resolveReference(ctx.skill.dir, root, ref);
+    // SKILL.md is already scanned; skip a self-link rather than report it twice.
+    if ("problem" in r || r.real === skillMd) continue;
+    try {
+      if ((await stat(r.real)).size > MAX_REFERENCED_BYTES) {
+        failures.push(`${ref}: referenced file too large to scan`);
+        continue;
+      }
+      units.push({ label: ref, text: await readFile(r.real, "utf8") });
+    } catch {
+      // Vanished between resolve and read: treat like a missing reference (reported elsewhere).
+    }
+  }
+  return { units, failures };
+}
+
+/** Prefixes a message with its file label when the finding is not in SKILL.md. */
+const tag = (label: string, msg: string): string => (label === "" ? msg : `${label}: ${msg}`);
 
 /** Boilerplate advice that adds tokens but no repository-specific information (PRD §9.1). */
 const GENERIC_PHRASES = [
@@ -191,82 +254,183 @@ export const concisenessEval: GenerationEval = {
 
 /**
  * Harness-specific names that make a skill non-portable (PRD §9.1, §6.9 #7): instruction files,
- * harness directories, product names, harness tool names and slash commands.
+ * harness directories, product names, harness tool names and slash commands. The unambiguous
+ * names are case-insensitive; `Codex`, `Task tool` and `slash command` stay case-sensitive (or
+ * as-is) because lowercase "codex" / "task tool" are ordinary English.
  */
 const PORTABILITY_PATTERNS: { re: RegExp; label: string }[] = [
-  { re: /\bCLAUDE\.md\b/, label: "harness instruction file" },
-  { re: /\bAGENTS\.md\b/, label: "harness instruction file" },
-  { re: /\.claude\//, label: "harness directory" },
-  { re: /\.agents\//, label: "harness directory" },
-  { re: /\.opencode\//, label: "harness directory" },
-  { re: /\bClaude Code\b/, label: "harness product name" },
+  { re: /\bCLAUDE\.md\b/i, label: "harness instruction file" },
+  { re: /\bAGENTS\.md\b/i, label: "harness instruction file" },
+  { re: /\.claude\//i, label: "harness directory" },
+  { re: /\.agents\//i, label: "harness directory" },
+  { re: /\.opencode\//i, label: "harness directory" },
+  { re: /\bClaude Code\b/i, label: "harness product name" },
   { re: /\bCodex\b/, label: "harness product name" },
-  { re: /\bOpenCode\b/, label: "harness product name" },
-  { re: /\bAskUserQuestion\b/, label: "harness tool name" },
-  { re: /\bTodoWrite\b/, label: "harness tool name" },
+  { re: /\bOpenCode\b/i, label: "harness product name" },
+  { re: /\bAskUserQuestion\b/i, label: "harness tool name" },
+  { re: /\bTodoWrite\b/i, label: "harness tool name" },
   { re: /\bTask tool\b/, label: "harness tool name" },
   { re: /\bslash command/i, label: "slash command" },
 ];
 
-/** Fails on any harness-specific reference; generated skills must run on every harness. Mandatory. */
+/**
+ * Fails on any harness-specific reference in SKILL.md or a referenced file; generated skills
+ * must run on every harness. Mandatory.
+ */
 export const portabilityEval: GenerationEval = {
   id: "portability",
   mandatory: true,
   async run(ctx) {
-    const failures = PORTABILITY_PATTERNS.filter(({ re }) => re.test(ctx.skill.raw)).map(
-      ({ re, label }) => `non-portable ${label}: ${re.source}`,
-    );
+    const { units, failures } = await collectScanUnits(ctx);
+    for (const { label, text } of units) {
+      for (const { re, label: what } of PORTABILITY_PATTERNS) {
+        if (re.test(text)) failures.push(tag(label, `non-portable ${what}: ${re.source}`));
+      }
+    }
     return result(failures);
   },
 };
 
 /**
+ * `rm` with recursive and force flags (any spelling: `-rf`, `-Rf`, `-fr`, `-r -f`,
+ * `--recursive --force`, optionally after `sudo`) aimed at the filesystem root or the home
+ * directory itself. Done by tokenising instead of one regex because flag order and spelling
+ * vary. Only the exact targets `/`, `/*`, `~`, `~/`, `~/*`, `$HOME`, `${HOME}` (and their
+ * quoted/trailing-slash forms) count, so `rm -rf ./dist`, `/tmp/x` and `~/.cache/foo` pass.
+ */
+function hasDangerousRm(text: string): boolean {
+  const TARGET = /^(?:\/\*?|~\/?\*?|\$HOME\/?\*?|\$\{HOME\}\/?\*?)$/;
+  for (const m of text.matchAll(/\brm\s+([^\n;&|]*)/g)) {
+    const tokens = (m[1] ?? "").split(/\s+/).filter(Boolean);
+    const flags = tokens.filter((t) => t.startsWith("-"));
+    const recursive = flags.some((f) => f === "--recursive" || /^-[a-zA-Z]*[rR]/.test(f));
+    const force = flags.some((f) => f === "--force" || /^-[a-zA-Z]*f/.test(f));
+    if (!recursive || !force) continue;
+    const targets = tokens
+      .filter((t) => !t.startsWith("-"))
+      .map((t) => t.replace(/^["'`]+|["'`.,;)]+$/g, ""));
+    if (targets.some((t) => TARGET.test(t))) return true;
+  }
+  return false;
+}
+
+/**
  * Dangerous instructions a skill must never contain (PRD §9.5). The skill is agent-written from
  * untrusted repository content, so prompt-injection echoes are included.
  */
-const SECURITY_FAIL: { re: RegExp; label: string }[] = [
+const SECURITY_FAIL: { test: (text: string) => boolean; label: string }[] = [
   {
-    re: /\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z)?sh\b/i,
+    // `curl x | sh`, with optional intermediate pipes (`| tee y |`), sudo flags, `env`,
+    // absolute shell paths and dash.
+    test: (t) =>
+      /\b(?:curl|wget)\b[^\n]*\|\s*(?:sudo(?:\s+-\S+)*\s+)?(?:env\s+)?(?:\/(?:usr\/)?bin\/)?(?:ba|z|da)?sh\b/i.test(
+        t,
+      ),
     label: "pipes a download into a shell",
   },
   {
-    re: /\brm\s+-[a-z]*(?:rf|fr)[a-z]*\s+(?:\/(?![\w.-])|~)/,
-    label: "recursive delete of root or home",
+    // The other way round: the shell runs a command substitution that downloads
+    // (`bash <(curl x)`, `sh -c "$(curl x)"`).
+    test: (t) => /\b(?:ba|z)?sh\b[^\n]*(?:<\(|\$\()\s*(?:curl|wget)\b/i.test(t),
+    label: "runs a downloaded script in a shell",
   },
-  { re: /--dangerously/, label: "dangerous flag" },
-  { re: /--no-verify\b/, label: "skips verification hooks" },
+  { test: hasDangerousRm, label: "recursive delete of root or home" },
+  { test: (t) => /--dangerously/.test(t), label: "dangerous flag" },
   {
-    re: /ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions/i,
+    // `(?![\w-])` so `--no-verify-ssl` is not mistaken for the git flag.
+    test: (t) => /--no-verify(?![\w-])/.test(t),
+    label: "skips verification hooks",
+  },
+  {
+    // `git commit -n` is the short form of --no-verify; `-nm` bundles it with -m.
+    test: (t) => /\bgit\s+commit\b[^\n]*\s-[a-zA-Z]*n[a-zA-Z]*(?=\s|$)/.test(t),
+    label: "skips verification hooks",
+  },
+  {
+    test: (t) =>
+      /\b(?:ignore|disregard|forget)\s+(?:(?:all|the|any)\s+)*(?:previous|prior|above)\s+instructions/i.test(
+        t,
+      ),
     label: "prompt injection phrase",
   },
   {
-    re: /\b(?:cat|head|tail|less|more|source|read|reads|reading|print|open|cp|scp)\b[^\n]*(?:(?:^|[\s/"'`])\.env\b|~\/\.ssh|\bid_rsa\b)/i,
+    // A read-like verb followed on the same line by a secret path. `.env\b` deliberately also
+    // matches `.env.example` and other `.env.*` files: they are treated as secret, consistent
+    // with discovery's isSecretPath. The verb requirement keeps prose like "the .env file is
+    // ignored by git" from tripping while `cat .env` / `grep KEY .env` fail.
+    test: (t) =>
+      /\b(?:cat|head|tail|less|more|source|read|reads|reading|print|open|cp|scp|grep|egrep|rg|awk|sed)\b[^\n]*(?:(?:^|[\s/"'`])\.env\b|(?:~|\$\{?HOME\}?)\/\.ssh|\bid_rsa\b)/i.test(
+        t,
+      ),
     label: "reads secrets",
   },
-  { re: /~\/\.ssh|\bid_rsa\b/, label: "references SSH keys" },
-  { re: /\bdisable\s+(?:the\s+)?(?:sandbox|permissions?)\b/i, label: "disables safety controls" },
-  { re: /\bchmod\s+(?:-R\s+)?777\b/, label: "world-writable permissions" },
-  { re: /\bnpm\s+(?:install|i)\b[^\n]*\s(?:-g|--global)\b/, label: "global package install" },
-  { re: /\bpip3?\s+install\b[^\n]*--user\b/, label: "user-level package install" },
-  { re: /\b(?:install|register|add)\b[^\n]*\bMCP\s+server/i, label: "installs an MCP server" },
-  { re: /\bmcp\s+add\b/i, label: "installs an MCP server" },
+  {
+    // POSIX `. .env` sourcing has no verb word, so it is matched on its own.
+    test: (t) => /(?:^|[\s;&|])\.\s+\.env\b/m.test(t),
+    label: "reads secrets",
+  },
+  {
+    // SSH locations are flagged without a verb: there is no benign reason for a generated
+    // skill to name a private key path, unlike `.env` which is common in prose.
+    test: (t) => /(?:~|\$\{?HOME\}?)\/\.ssh|\bid_rsa\b/.test(t),
+    label: "references SSH keys",
+  },
+  {
+    test: (t) =>
+      /\b(?:disable|disabling|turn\s+off)\s+(?:the\s+)?(?:sandbox(?:ing)?|permissions?)\b/i.test(t),
+    label: "disables safety controls",
+  },
+  {
+    test: (t) => /\bchmod\s+(?:-\S+\s+)*(?:0?777|a\+rwx|ugo\+rwx)\b/.test(t),
+    label: "world-writable permissions",
+  },
+  {
+    test: (t) =>
+      /\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|add)\b[^\n]*\s(?:-g|--global)\b/.test(t) ||
+      /\b(?:npm|pnpm|yarn|bun)\s+(?:-g|--global)\s+(?:install|i|add)\b/.test(t) ||
+      /\byarn\s+global\s+add\b/.test(t),
+    label: "global package install",
+  },
+  {
+    test: (t) => /\bpip3?\s+install\b[^\n]*--user\b/.test(t),
+    label: "user-level package install",
+  },
+  {
+    test: (t) =>
+      /\b(?:install|register|add|configure|set\s*up)\b[^\n]*\bMCP\s+server/i.test(t) ||
+      /\bmcp\s+add\b/i.test(t) ||
+      /\b(?:edit|editing|edits|modify|modifying|update|updating|create|creating|write|writing|add\s+to)\b[^\n]*\bmcp\.json\b/i.test(
+        t,
+      ),
+    label: "installs an MCP server",
+  },
 ];
 const SECURITY_WARN: { re: RegExp; label: string }[] = [
   { re: /\bgit\s+push\b[^\n]*(?:--force\b|\s-f\b)/, label: "force push" },
 ];
 
-/** Fails on dangerous instructions and warns on risky ones (PRD §9.5). Mandatory. */
+/**
+ * Fails on dangerous instructions and warns on risky ones (PRD §9.5), in SKILL.md and every
+ * referenced file. Mandatory.
+ *
+ * Cautionary or negated mentions ("do not run rm -rf /") fail too, deliberately: negation is
+ * easy to evade or mis-parse, so generated skills must describe restrictions without quoting
+ * the dangerous command or flag (the compilation brief tells the agent so).
+ */
 export const securityEval: GenerationEval = {
   id: "security",
   mandatory: true,
   async run(ctx) {
-    const text = ctx.skill.raw;
-    const failures = SECURITY_FAIL.filter(({ re }) => re.test(text)).map(
-      ({ label }) => `unsafe instruction: ${label}`,
-    );
-    const warnings = SECURITY_WARN.filter(({ re }) => re.test(text)).map(
-      ({ label }) => `risky instruction: ${label}`,
-    );
+    const { units, failures } = await collectScanUnits(ctx);
+    const warnings: string[] = [];
+    for (const { label, text } of units) {
+      for (const { test, label: what } of SECURITY_FAIL) {
+        if (test(text)) failures.push(tag(label, `unsafe instruction: ${what}`));
+      }
+      for (const { re, label: what } of SECURITY_WARN) {
+        if (re.test(text)) warnings.push(tag(label, `risky instruction: ${what}`));
+      }
+    }
     return result(failures, warnings);
   },
 };

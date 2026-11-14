@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   ContextAnalysisResultSchema,
   type Assumption,
@@ -101,6 +101,8 @@ export interface ContextOverrides {
   smokeEval?: SmokeEval | null;
   withAnalysis?: boolean;
   augmentation?: boolean;
+  /** Extra files written next to a custom `raw` SKILL.md, keyed by skill-relative path. */
+  files?: Record<string, string>;
 }
 
 /**
@@ -120,6 +122,10 @@ export async function makeContext(o: ContextOverrides = {}): Promise<EvalContext
     dir = join(root, "skills", name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "SKILL.md"), o.raw);
+    for (const [rel, text] of Object.entries(o.files ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
   }
   const skill = await parseSkillBundle(resolve(dir, ".."));
   const found = await discover();
