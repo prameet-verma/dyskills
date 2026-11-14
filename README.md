@@ -25,7 +25,7 @@ skill.
   (`$DYNAMIC_SKILLS_HOME/sessions/<id>/`, defaulting to the OS temp directory) and never into any
   harness skill directory.
 
-The CLI and the bootstrap skill are **planned** (Phase 1, Tasks 15-17) and do not exist yet. Today
+The CLI is partly built (Phase 1, Task 15: assess to clarify; compile and activate follow) and the bootstrap skill is planned (Task 17). Today
 the repository contains the library packages below. The design rationale is in the
 [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
 
@@ -43,6 +43,7 @@ the repository contains the library packages below. The design rationale is in t
 | [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                       |
 | [`@dynamic-skills/eval-engine`](packages/eval-engine/README.md)                     | Generation evals: spec, metadata, references, conciseness, portability and security.                           |
 | [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                              |
+| [`@dynamic-skills/cli`](packages/cli/README.md)                                     | The `dynamic-skills` command: framework, session state machine and the assess-to-clarify commands.             |
 
 Further packages land as Phase 1 progresses.
 
