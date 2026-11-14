@@ -23,8 +23,9 @@ package currently holds the eval types and the structural evals; it implements P
 - `securityEval` (mandatory): fails on piping downloads into a shell, destructive deletes, unsafe
   flags, prompt-injection phrases, reading secrets, weakening the sandbox, global installs and
   MCP server installation; warns on force pushes. Referenced files inside the skill directory
-  are scanned too (up to 50,000 bytes each; lines over 2,000 characters fail). Cautionary or negated mentions fail on purpose,
-  because negation is easy to evade: restrictions must be phrased without quoting the command.
+  are scanned too (up to 50,000 bytes each; lines over 2,000 characters fail). Cautionary or
+  negated mentions fail on purpose, because negation is easy to evade: restrictions must be
+  phrased without quoting the command.
 
 ## Example
 
