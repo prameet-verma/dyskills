@@ -82,7 +82,7 @@ timeout fallback and discovery/evaluation/performance reports, the CLI, the boot
 performance reporting.
 
 - **FRs:** FR-01–FR-30, FR-33 (single canonical bundle), FR-34, FR-40–FR-42 (sufficiency assessment, augmentation, canonical skills never modified).
-- **Exit gate (verifier checks):** PRD §21 items 4–19, 21–25, 28–33 pass against the CLI end-to-end
+- **Exit gate (verifier checks):** PRD §21 items 3–19, 21–25, 28–33 pass against the CLI end-to-end
   test on fixture repos; the bootstrap skill passes its own evaluator; e2e active processing < 60 s;
   hybrid discovery produces a validated Context Analysis Result and a validated sufficiency verdict
   before every `compile`; the sufficient and partial paths run end-to-end with the base skill
