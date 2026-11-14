@@ -1,7 +1,8 @@
 # @dynamic-skills/eval-engine
 
 Deterministic evals that gate a generated skill before activation. No LLM is called. This
-package holds the eval types, the structural evals and the context evals; it implements PRD §5.5
+package holds the eval types, the structural and context evals, the parallel runner and the
+behavioural smoke recorder; it implements PRD §5.5
 (augmentation consistency), §6.6 (evidence classification), §9.1 (generation evals) and §9.5
 (security rules).
 
@@ -46,6 +47,20 @@ package holds the eval types, the structural evals and the context evals; it imp
   an augmentation is also checked base-side (0.3 fails, 0.15 warns).
 - `behaviouralDefinitionEval` (mandatory): a smoke eval with prohibited behaviour and an
   assertion or rubric item exists.
+- `ALL_EVALS`: the 14 generation evals in `EvalId` order (all but `behavioural`); the same set runs
+  for new skills and augmentations.
+- `runEvaluations(ctx, { evals?, concurrency?, signal? })`: runs evals with at most 6 in flight
+  and returns an `EvaluationReport`. A throwing eval becomes `fail` ("eval crashed: ..."); a
+  mandatory `not-applicable` becomes `fail` ("mandatory check cannot be skipped"). Overall is
+  fail > warning > pass; `activatable` means no `fail`; `limitations` are warning messages and
+  `revisionHints` are failure messages prefixed by eval id.
+- `recordBehaviouralResult(smoke, output, verdict, notes?)`: mandatory `behavioural` result.
+  Output is capped at 100,000 characters. Assertion regexes longer than 200 characters or with a
+  quantified group containing a quantifier (such as `(a+)+`) are rejected as unsafe, and invalid
+  patterns fail with a clear message; both are reported as failed assertions, never thrown. The
+  heuristic is conservative, not a proof of safety.
+- `isActivatable(report, behavioural)`: the report is activatable and the behavioural result is
+  `pass` or `warning`.
 
 ## Example
 
