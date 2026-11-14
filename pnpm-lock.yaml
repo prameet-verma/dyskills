@@ -264,6 +264,25 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
+  packages/eval-engine:
+    dependencies:
+      '@dynamic-skills/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dynamic-skills/skill-compiler':
+        specifier: workspace:*
+        version: link:../skill-compiler
+    devDependencies:
+      '@dynamic-skills/context-analyzer':
+        specifier: workspace:*
+        version: link:../context-analyzer
+      '@dynamic-skills/context-packet':
+        specifier: workspace:*
+        version: link:../context-packet
+      '@dynamic-skills/discovery':
+        specifier: workspace:*
+        version: link:../discovery
+
   packages/evidence-registry:
     dependencies:
       '@dynamic-skills/core':
