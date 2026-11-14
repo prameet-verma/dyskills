@@ -206,6 +206,15 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
+  packages/clarification-manager:
+    dependencies:
+      '@dynamic-skills/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dynamic-skills/evidence-registry':
+        specifier: workspace:*
+        version: link:../evidence-registry
+
   packages/context-analyzer:
     dependencies:
       '@dynamic-skills/core':
