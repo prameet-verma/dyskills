@@ -214,6 +214,25 @@ importers:
       '@dynamic-skills/discovery':
         specifier: workspace:*
         version: link:../discovery
+      '@dynamic-skills/evidence-registry':
+        specifier: workspace:*
+        version: link:../evidence-registry
+
+  packages/context-packet:
+    dependencies:
+      '@dynamic-skills/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dynamic-skills/discovery':
+        specifier: workspace:*
+        version: link:../discovery
+      '@dynamic-skills/evidence-registry':
+        specifier: workspace:*
+        version: link:../evidence-registry
+    devDependencies:
+      '@dynamic-skills/context-analyzer':
+        specifier: workspace:*
+        version: link:../context-analyzer
 
   packages/core:
     dependencies:

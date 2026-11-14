@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@dynamic-skills/core": "workspace:*",
-    "@dynamic-skills/discovery": "workspace:*"
+    "@dynamic-skills/discovery": "workspace:*",
+    "@dynamic-skills/evidence-registry": "workspace:*"
   }
 }

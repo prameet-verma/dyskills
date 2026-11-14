@@ -8,10 +8,12 @@ export interface RepoFileIndex {
   files: string[];
   /** True when the walk stopped early because `maxFiles` was reached. */
   truncated: boolean;
+  /** True when a directory at `maxDepth` exists whose children were not walked. */
+  depthLimited?: boolean;
 }
 
-/** Directories never descended into: dependencies, build output and caches. */
-const SKIP_DIRS = new Set([
+/** Directories never descended into or read: dependencies, build output and caches. */
+export const SKIPPED_DIRS: readonly string[] = [
   "node_modules",
   ".git",
   "dist",
@@ -23,7 +25,7 @@ const SKIP_DIRS = new Set([
   "venv",
   "__pycache__",
   "target",
-]);
+];
 
 /**
  * Lists repository files without touching their contents.
@@ -58,7 +60,7 @@ export async function buildFileIndex(
       for (const entry of entries) {
         const rel = dir ? `${dir}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-          if (!SKIP_DIRS.has(entry.name) && !isSecretPath(`${rel}/x`)) next.push(rel);
+          if (!SKIPPED_DIRS.includes(entry.name) && !isSecretPath(`${rel}/x`)) next.push(rel);
         } else if (entry.isFile() && !isSecretPath(rel)) {
           if (files.length >= maxFiles) return { files, truncated: true };
           files.push(rel);
@@ -67,5 +69,6 @@ export async function buildFileIndex(
     }
     queue = next;
   }
-  return { files, truncated: false };
+  // Directories left in the queue sit below maxDepth and were never listed.
+  return { files, truncated: false, depthLimited: queue.length > 0 };
 }

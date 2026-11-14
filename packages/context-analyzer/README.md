@@ -17,6 +17,15 @@ answer. Pure functions; no I/O.
   with at most 5 suggested files drawn from the file index (well-known manifests, lockfiles,
   config and docs per category; shallowest paths first).
 
+- **`consolidateAnalysis({ result, registry, packet, files, requirements, assumptions, revision })`**
+  (`consolidate.ts`): merges an agent's Context Analysis Result into the registry (`agentic.*`
+  evidence; `observed` claims without a resolvable source are downgraded to `inferred`),
+  conflicts, `analysis-<n>` assumptions and `unknown.*` human-only requirements, then
+  recomputes gaps.
+- **`recomputeGaps(requirements, evidence, analysed)`**: `analyzeGaps`, and once analysed every
+  residual `inspect` becomes `ask` (material conflict) or `none`, so the request/submit loop ends.
+- **`slugify(text, max?)`**: stable identifier fragments.
+
 ## Example
 
 ```ts
@@ -32,4 +41,4 @@ const probes = planSemanticProbes(gaps, files);
 
 ## PRD sections implemented
 
-§6.3, FR-15 (context requirements, gap analysis, semantic probes).
+§6.3, §6.6, §7, FR-10..12, FR-15 (context requirements, gap analysis, semantic probes, evidence consolidation).

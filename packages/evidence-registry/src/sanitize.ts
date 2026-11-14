@@ -13,6 +13,19 @@ const SECRET_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * Replaces secret-shaped values with `[REDACTED]` and changes nothing else (no whitespace or
+ * bracket rewriting), for callers such as code excerpts that must keep their layout.
+ *
+ * @param raw - Untrusted text.
+ * @returns The text with every {@link SECRET_PATTERNS} match redacted.
+ */
+export function redactSecrets(raw: string): string {
+  let out = raw;
+  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, "[REDACTED]");
+  return out;
+}
+
+/**
  * Makes a raw repository-derived string safe to store and to embed in a fenced data block.
  *
  * Order matters: secrets are redacted first so whitespace collapsing cannot split a token, then
@@ -24,8 +37,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
  * @returns The sanitised value, at most 500 characters.
  */
 export function sanitizeEvidenceValue(raw: string): string {
-  let out = raw;
-  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, "[REDACTED]");
+  let out = redactSecrets(raw);
   out = out.replace(/\s+/g, " ").replace(/</g, "‹").replace(/>/g, "›");
   if (out.length > MAX_VALUE_LENGTH) out = out.slice(0, MAX_VALUE_LENGTH - 1) + "…";
   return out;

@@ -1,14 +1,10 @@
-import { readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { DISCOVERY_CONCURRENCY, mapConcurrent } from "@dynamic-skills/core";
 import { EvidenceRegistry, getRepoRevision } from "@dynamic-skills/evidence-registry";
 import { ALL_DETECTORS } from "./detectors/index";
 import type { Detector, DetectorContext } from "./detectors/types";
 import { buildFileIndex, type RepoFileIndex } from "./file-index";
-import { isSecretPath } from "./secrets";
-
-/** Largest file a detector may read; bigger files are treated as unreadable. */
-const MAX_READ_BYTES = 1_000_000;
+import { createRepoReader } from "./safe-read";
 
 /**
  * Picks the detectors relevant to a task (PRD §10.2 task-directed discovery).
@@ -19,34 +15,6 @@ const MAX_READ_BYTES = 1_000_000;
  */
 export function selectDetectors(task: string, detectors: Detector[]): Detector[] {
   return detectors.filter((d) => d.always || (d.keywords?.test(task) ?? false));
-}
-
-/** True when `rel` (from `relative(root, target)`) stays inside `root`. */
-function isInside(rel: string): boolean {
-  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-}
-
-/**
- * Creates the sandboxed reader handed to detectors. Symlinks are resolved first: the real
- * target must lie inside the real repo root and must not itself be a secret path, so a link
- * named `package.json` cannot expose `.env` or files outside the repository.
- */
-function makeReader(repo: string): DetectorContext["readText"] {
-  return async (rel) => {
-    if (isSecretPath(rel)) return null;
-    const abs = resolve(repo, rel);
-    if (!isInside(relative(repo, abs))) return null;
-    try {
-      const realRoot = await realpath(repo);
-      const real = await realpath(abs);
-      const back = relative(realRoot, real);
-      if (!isInside(back) || isSecretPath(back.split(sep).join("/"))) return null;
-      if ((await stat(real)).size > MAX_READ_BYTES) return null;
-      return await readFile(real, "utf8");
-    } catch {
-      return null;
-    }
-  };
 }
 
 /** Result of {@link runDiscovery}. */
@@ -83,7 +51,7 @@ export async function runDiscovery(opts: {
 }): Promise<DiscoveryResult> {
   const repo = resolve(opts.repo);
   const [files, revision] = await Promise.all([buildFileIndex(repo), getRepoRevision(repo)]);
-  const ctx: DetectorContext = { repo, revision, files, readText: makeReader(repo) };
+  const ctx: DetectorContext = { repo, revision, files, readText: createRepoReader(repo) };
   const selected = selectDetectors(opts.task, opts.detectors ?? ALL_DETECTORS);
 
   const durations: Record<string, number> = {};

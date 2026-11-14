@@ -14,6 +14,12 @@ failing detector never stops the others.
   `keywords` match the task.
 - **`buildFileIndex(repo, { maxFiles?, maxDepth? })`** (`file-index.ts`): deterministic
   breadth-first listing, skipping dependency/build directories and secret paths.
+- **`resolveRepoPath(repo, rel)`** and **`createRepoReader(repo)`** (`safe-read.ts`): sandboxed
+  reads. Rejects secret paths, `SKIPPED_DIRS` segments and anything outside the repository,
+  re-checking the real path after symlink resolution; returns `ok` or a reason
+  (`secret`, `outside-repo`, `excluded`, `missing`). Files over 1 MB are `missing`.
+- **`SKIPPED_DIRS`**, and `RepoFileIndex.depthLimited` (true when directories at `maxDepth`
+  were not walked).
 - **`isSecretPath(rel)`** (`secrets.ts`): true for `.env*`/`.envrc`/`.netrc` (case-insensitive), keys, certificates, SSH keys,
   `*.pfx`/`*.jks`, `credentials.json`, `secrets/**`, `.npmrc`, `.pypirc`.
 - **`MANIFEST_DETECTORS`, `STRUCTURE_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime,

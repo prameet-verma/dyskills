@@ -17,6 +17,8 @@ repository content cannot leak secrets or break out of the fenced evidence block
 - **`sanitizeEvidenceValue(raw)`** (`sanitize.ts`): redacts GitHub tokens, `sk-` keys, AWS
   access keys and private-key headers, collapses whitespace, replaces `<` `>` with `‹` `›`
   and truncates to 500 characters.
+- **`redactSecrets(raw)`** (`sanitize.ts`): the secret redaction step alone, with no whitespace or
+  bracket changes (used for code excerpts). `sanitizeEvidenceValue` calls it first.
 - **`getRepoRevision(repo)`** (`revision.ts`): `git rev-parse HEAD`, or `"untracked"`.
 - **`fingerprintFile(absPath)`** (`revision.ts`): sha256 hex of a file.
 
