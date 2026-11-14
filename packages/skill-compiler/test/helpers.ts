@@ -4,6 +4,7 @@ import {
   ContextAnalysisResultSchema,
   type Assumption,
   type ContextAnalysisResult,
+  type ContextPacket,
   type Evidence,
   type SessionState,
 } from "@dynamic-skills/core";
@@ -90,4 +91,36 @@ export const NOT_ASKED: Assumption = {
   basis: "No backend configured",
   impact: "May need a swap",
   status: "not-asked",
+};
+
+/** Minimal packet literal for consolidation in tests. */
+export const PACKET: ContextPacket = {
+  schemaVersion: "1",
+  packetRevision: 1,
+  createdAt: "t",
+  trust: "untrusted",
+  notice: "n",
+  task: { intent: "t" },
+  repository: { identity: "r", root: "/r", revision: "x" },
+  technology: { languages: [], frameworks: [], runtimes: [], packageManagers: [] },
+  dependencies: [],
+  projectInstructions: [],
+  configuration: [],
+  architecture: { topLevelDirs: [], entrypoints: [] },
+  relevantFiles: [],
+  existingSkills: [],
+  evidence: [],
+  gaps: [],
+  probes: [],
+  limitations: {
+    indexTruncated: false,
+    depthLimited: false,
+    filesIndexed: 0,
+    skippedDirs: [],
+    secretPolicy: "",
+    detectorErrors: [],
+    detectorsNotRun: [],
+    excerptsDropped: [],
+  },
+  size: { chars: 0, estimatedTokens: 0 },
 };

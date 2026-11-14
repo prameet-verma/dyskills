@@ -1,4 +1,5 @@
-import { readFile, readdir } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   SmokeEvalSchema,
@@ -21,7 +22,37 @@ export class BundleError extends Error {
 }
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
-const LINK = /\[[^\]]*\]\(([^)\s]+)\)/g;
+/** SKILL.md is agent-written (untrusted); bounding it keeps every later scan cheap (PRD §6.5). */
+const MAX_SKILL_CHARS = 100_000;
+// Linear by construction: the label class excludes `[`, `]` and newlines, so a failed attempt at
+// one `[` never rescans text another attempt consumes.
+const LINK = /\[[^[\]\n]*\]\(\s*(<[^<>\n]*>|[^()\s]+)(?:\s+"[^"]*")?\s*\)/g;
+
+/** Removes fenced code blocks so links shown as examples are not treated as references. */
+function stripFences(body: string): string {
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const line of body.split("\n")) {
+    const m = /^\s*(```|~~~)/.exec(line);
+    if (fence === null) {
+      if (m) fence = m[1] ?? null;
+      else out.push(line);
+    } else if (m && m[1] === fence) {
+      fence = null;
+    }
+  }
+  return out.join("\n");
+}
+
+/** Normalises a link target to a relative file path, or `null` for anything non-local. */
+function localTarget(rawTarget: string): string | null {
+  let target = rawTarget.replace(/^<|>$/g, "");
+  target = target.replace(/[#?].*$/, "");
+  if (target === "" || target.startsWith("/")) return null;
+  // Any `scheme:` (http, mailto, data, javascript, file, C: ...) is not a bundle-relative file.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return null;
+  return target;
+}
 
 /**
  * Parses the single skill the agent wrote under `skillsRoot`.
@@ -34,7 +65,15 @@ const LINK = /\[[^\]]*\]\(([^)\s]+)\)/g;
  *   frontmatter is not a YAML mapping with string name and description.
  */
 export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSkill> {
-  const dirs = (await readdir(skillsRoot, { withFileTypes: true })).filter((d) => d.isDirectory());
+  let entries: Dirent[];
+  try {
+    entries = await readdir(skillsRoot, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    entries = [];
+  }
+  // Symlinked directories are counted so they are rejected below, not silently ignored.
+  const dirs = entries.filter((d) => d.isDirectory() || d.isSymbolicLink());
   if (dirs.length !== 1) {
     throw new BundleError(`expected exactly one skill directory, found ${dirs.length}`);
   }
@@ -42,11 +81,19 @@ export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSki
   const skillMdPath = join(dir, "SKILL.md");
   let raw: string;
   try {
+    // The agent controls this tree: a symlink could pull in a file from outside the session.
+    if ((await lstat(dir)).isSymbolicLink() || (await lstat(skillMdPath)).isSymbolicLink()) {
+      throw new BundleError("skill files must not be symlinks");
+    }
     raw = await readFile(skillMdPath, "utf8");
-  } catch {
+  } catch (err) {
+    if (err instanceof BundleError) throw err;
     throw new BundleError("SKILL.md not found");
   }
-  const match = FRONTMATTER.exec(raw);
+  if (raw.length > MAX_SKILL_CHARS) {
+    throw new BundleError(`SKILL.md exceeds ${MAX_SKILL_CHARS} characters`);
+  }
+  const match = FRONTMATTER.exec(raw.replace(/^\uFEFF/, ""));
   if (!match) throw new BundleError("missing frontmatter");
   let data: unknown;
   try {
@@ -65,9 +112,9 @@ export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSki
   const body = (match[2] ?? "").trim();
   const references = [
     ...new Set(
-      [...body.matchAll(LINK)]
-        .map((m) => m[1] ?? "")
-        .filter((t) => t !== "" && !/^(https?:|mailto:|#)/i.test(t)),
+      [...stripFences(body).matchAll(LINK)]
+        .map((m) => localTarget(m[1] ?? ""))
+        .filter((x): x is string => x !== null),
     ),
   ];
   const meta = fm.metadata;

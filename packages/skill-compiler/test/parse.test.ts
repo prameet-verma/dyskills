@@ -1,10 +1,18 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fingerprintFile } from "@dynamic-skills/evidence-registry";
 import { describe, expect, it } from "vitest";
-import { BundleError, loadSmokeEval, parseSkillBundle } from "../src/index";
-import { ROOT } from "./helpers";
+import { deriveRequirements, consolidateAnalysis } from "@dynamic-skills/context-analyzer";
+import { runDiscovery } from "@dynamic-skills/discovery";
+import {
+  BundleError,
+  CITATION_PATTERN,
+  INFERENCE_PATTERN,
+  loadSmokeEval,
+  parseSkillBundle,
+} from "../src/index";
+import { ANALYSIS, PACKET, ROOT } from "./helpers";
 
 const F = (p: string): string => resolve(ROOT, "fixtures/skills", p);
 
@@ -54,6 +62,99 @@ describe("parseSkillBundle", () => {
     const err = await parseSkillBundle(root).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BundleError);
     expect((err as Error).message).toBe("expected exactly one skill directory, found 2");
+  });
+});
+
+function bundle(body: string, raw?: string): string {
+  const root = mkdtempSync(join(tmpdir(), "bundle-"));
+  mkdirSync(join(root, "my-skill"));
+  writeFileSync(
+    join(root, "my-skill", "SKILL.md"),
+    raw ?? `---\nname: my-skill\ndescription: d\n---\n${body}\n`,
+  );
+  return root;
+}
+
+describe("parseSkillBundle hardening", () => {
+  it("does not take quadratic time on pathological input", async () => {
+    const t0 = Date.now();
+    await parseSkillBundle(bundle("[".repeat(90_000))).catch(() => undefined);
+    const big = bundle("", "---\nname: my-skill\ndescription: d\n---\n" + "[".repeat(200_000));
+    const err = await parseSkillBundle(big).catch((e: unknown) => e);
+    expect((err as Error).message).toBe("SKILL.md exceeds 100000 characters");
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it("throws BundleError for a missing root", async () => {
+    const err = await parseSkillBundle(join(tmpdir(), "no-such-root-xyz")).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BundleError);
+    expect((err as Error).message).toBe("expected exactly one skill directory, found 0");
+  });
+
+  it("rejects symlinked SKILL.md and symlinked skill directories", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "outside-"));
+    writeFileSync(join(outside, "SKILL.md"), "---\nname: s\ndescription: d\n---\n");
+    const r1 = mkdtempSync(join(tmpdir(), "bundle-"));
+    mkdirSync(join(r1, "s"));
+    symlinkSync(join(outside, "SKILL.md"), join(r1, "s", "SKILL.md"));
+    const r2 = mkdtempSync(join(tmpdir(), "bundle-"));
+    symlinkSync(outside, join(r2, "s"));
+    for (const r of [r1, r2]) {
+      const err = await parseSkillBundle(r).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BundleError);
+      expect((err as Error).message).toBe("skill files must not be symlinks");
+    }
+  });
+
+  it("extracts only bundle-relative references", async () => {
+    const body = [
+      '[a](refs/a.md#sec) [b](refs/b.md?x=1) [c](<refs/c.md>) [d](refs/d.md "Title")',
+      "[e](//evil.io/x) [f](/etc/passwd) [g](data:text/html,x) [h](javascript:alert(1)) [i](ftp://x/y) [j](C:/win)",
+      "```",
+      "[fenced](refs/fenced.md)",
+      "```",
+      "[k](refs/a.md)",
+    ].join("\n");
+    const s = await parseSkillBundle(bundle(body));
+    expect(s.references).toEqual(["refs/a.md", "refs/b.md", "refs/c.md", "refs/d.md"]);
+  });
+
+  it("strips a leading UTF-8 BOM before the frontmatter", async () => {
+    const s = await parseSkillBundle(
+      bundle("", "\uFEFF---\nname: my-skill\ndescription: d\n---\nbody\n"),
+    );
+    expect(s.name).toBe("my-skill");
+  });
+});
+
+describe("golden citations", () => {
+  it("cites verified keys with [evidence:] and inferred keys with [inferred:]", async () => {
+    const d = await runDiscovery({
+      repo: resolve(ROOT, "fixtures/repos/ts-monorepo"),
+      task: "add caching to order reads",
+    });
+    const out = consolidateAnalysis({
+      result: ANALYSIS,
+      registry: d.registry,
+      packet: PACKET,
+      files: d.files,
+      requirements: deriveRequirements("add caching to order reads"),
+      assumptions: [],
+      revision: "x",
+    });
+    expect(out.evidenceAdded.length).toBeGreaterThan(0);
+    const byKey = new Map(d.registry.list().map((e) => [e.key, e.confidence]));
+    for (const dir of ["valid", "augmentation"]) {
+      const s = await parseSkillBundle(F(dir));
+      const keys = (re: RegExp): string[] =>
+        [...s.body.matchAll(re)].flatMap((m) => (m[1] ?? "").split(/\s*,\s*/));
+      const cited = keys(CITATION_PATTERN);
+      const inferred = keys(INFERENCE_PATTERN);
+      expect(cited.length).toBeGreaterThan(0);
+      expect(inferred.length).toBeGreaterThan(0);
+      for (const k of cited) expect([k, byKey.get(k)]).toEqual([k, "verified"]);
+      for (const k of inferred) expect([k, byKey.get(k)]).toEqual([k, "inferred"]);
+    }
   });
 });
 

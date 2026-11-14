@@ -96,6 +96,13 @@ function defang(raw: string): string {
   return redactSecrets(raw).replace(/</g, "‹").replace(/>/g, "›");
 }
 
+/** Longest task text rendered; the task is user text, so it is bounded like other inputs. */
+const MAX_TASK_CHARS = 4_000;
+
+function truncateTask(task: string): string {
+  return task.length > MAX_TASK_CHARS ? `${task.slice(0, MAX_TASK_CHARS - 1)}…` : task;
+}
+
 function factLine(e: Evidence): string {
   return `- ${s(e.key)} = ${s(e.value)} (source: ${s(e.source)}; ${e.origin})`;
 }
@@ -149,18 +156,20 @@ function renderFence(input: CompilationBriefInput): string {
       ]),
     );
   }
-  lines.push(FENCE_CLOSE);
+  // Conflicts, assumptions and gaps are repository- or agent-derived too, so they stay inside the
+  // single fence, just before its closing tag (PRD §7).
+  lines.push(...renderDerivedSections(input), FENCE_CLOSE);
   return lines.join("\n");
 }
 
-/** Renders conflicts, assumptions and open gaps that follow the fence; all values sanitised. */
-function renderAfterFence(input: CompilationBriefInput): string[] {
+/** Renders conflicts, assumptions and open gaps for the fence interior; all values sanitised. */
+function renderDerivedSections(input: CompilationBriefInput): string[] {
   const conflicting = input.evidence.filter((e) => e.confidence === "conflicting");
   const assumptions = input.assumptions.map(
     (a) =>
       `- ${s(a.questionId)}: ${s(a.assumption)} (basis: ${s(a.basis)}; impact: ${s(a.impact)}; ${a.status})`,
   );
-  // Evidence keys are deliberately not repeated outside the fence.
+  // Gap lines never repeat evidence keys.
   const gaps = input.gaps
     .filter((g) => g.status !== "verified")
     .map((g) => `- ${s(g.requirement)} (${g.category}): ${g.status}, resolution ${g.resolution}`);
@@ -207,9 +216,11 @@ const CITATION_RULES = [
  * Builds the prompt that asks the agent to write a skill (new-skill mode) or an augmentation of
  * a partially sufficient base skill (PRD §5.5, §8, §8.1).
  *
- * Security (PRD §7): every repository- or agent-derived string is sanitised and rendered inside
- * one `<repository-evidence trust="untrusted">` fence that it cannot close; the base skill body
- * sits in its own read-only block with brackets defanged. Evidence is classified by confidence:
+ * Security (PRD §7): every repository- or agent-derived string (evidence, analysis, conflicts,
+ * assumptions, gaps, sufficiency aspects) is sanitised and rendered inside the single
+ * `<repository-evidence trust="untrusted">` fence that it cannot close. The user task sits in a
+ * `<task>` block and the base skill body in a read-only `<base-skill>` block, both with
+ * angle brackets defanged. Evidence is classified by confidence:
  * only `verified` entries are facts, `inferred` ones are inferences, `conflicting` and
  * `assumed` ones never appear as fact lines.
  *
@@ -233,7 +244,7 @@ export function buildCompilationBrief(input: CompilationBriefInput): string {
 
   const out: string[] = [
     "Task:",
-    defang(input.state.task),
+    `<task trust="user">${truncateTask(defang(input.state.task))}</task>`,
     "",
     "Task contract to write: objective, scope, success criteria and restrictions.",
     "Restrictions must include every constraint listed under Task context from analysis.",
@@ -265,7 +276,6 @@ export function buildCompilationBrief(input: CompilationBriefInput): string {
     `Remaining processing budget: ${seconds} seconds.`,
     "",
     renderFence(input),
-    ...renderAfterFence(input),
   );
   if (aug) out.push("", ...renderBase(aug));
   return out.join("\n");

@@ -884,9 +884,15 @@ Analysis summary — context only, not citable:
 Unknowns — do not invent answers:
 - [critical] <question>
 - [optional] <question>
+Unresolved conflicts — do not state as fact:
+- <conflicting key> conflicts with <its conflicts>
+Assumptions — cite as [assumption: id] and label as assumptions:
+- <questionId>: <assumption> (basis: <basis>; impact: <impact>; <status>)
+Open gaps:
+- <requirement> (<category>): <status>, resolution <resolution>
 </repository-evidence>
 ```
-Observed = evidence with confidence `verified`; Inferences = confidence `inferred`; `conflicting` and `assumed` entries never appear as fact lines. The block is followed by `Unresolved conflicts — do not state as fact:` (conflicting keys with their `conflicts`), `Assumptions — cite as [assumption: id] and label as assumptions:` (clarification and `not-asked` analysis assumptions, `- <questionId>: <assumption> (basis: <basis>; impact: <impact>; <status>)`) and `Open gaps:` (one line per gap that is not `verified`: `- <requirement> (<category>): <status>, resolution <resolution>`; evidence keys are not repeated outside the fence).
+Observed = evidence with confidence `verified`; Inferences = confidence `inferred`; `conflicting` and `assumed` entries never appear as fact lines. Everything repository- or agent-derived, including `Unresolved conflicts`, `Assumptions` (clarification and `not-asked` analysis assumptions) and `Open gaps` (one line per gap that is not `verified`; evidence keys are not repeated), sits inside the single fence just before its closing tag (Controller ruling R10). The task text is rendered in its own `<task trust="user">…</task>` block (defanged, capped at 4,000 chars) ahead of the fence. `parseSkillBundle` rejects a `SKILL.md` over 100,000 chars, symlinked skill files and a missing root (`found 0`); references exclude any `scheme:` target, absolute paths and fenced-code links, and strip `#`/`?` suffixes.
 
 **Augmentation mode** (verdict `partial`; PRD §8 "receives the base skill as read-only input and emits only the missing project context, task contract and methodology delta"). The brief differs from new-skill mode as follows:
 - It names the output `<sessionDir>/skills/<augmentationName(baseName)>/SKILL.md` and requires frontmatter `metadata.augments: <baseName>` and `metadata.augments-sha256: "<baseSha256>"` (quoted, so YAML always parses it as a string). The description starts with `Augments <baseName> with`.
