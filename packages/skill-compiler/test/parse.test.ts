@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fingerprintFile } from "@dynamic-skills/evidence-registry";
@@ -89,6 +89,41 @@ describe("parseSkillBundle hardening", () => {
     const err = await parseSkillBundle(join(tmpdir(), "no-such-root-xyz")).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BundleError);
     expect((err as Error).message).toBe("expected exactly one skill directory, found 0");
+  });
+
+  it("treats a root that is a regular file as found 0", async () => {
+    const f = join(mkdtempSync(join(tmpdir(), "bundle-")), "skills");
+    writeFileSync(f, "x");
+    const err = await parseSkillBundle(f).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BundleError);
+    expect((err as Error).message).toBe("expected exactly one skill directory, found 0");
+  });
+
+  it("rejects an oversized file by byte size before reading it", async () => {
+    const root = bundle("");
+    truncateSync(join(root, "my-skill", "SKILL.md"), 400_001);
+    const err = await parseSkillBundle(root).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BundleError);
+    expect((err as Error).message).toBe("SKILL.md exceeds 100000 characters");
+  });
+
+  it("closes a fence only with the same character and at least the opening length", async () => {
+    const body = [
+      "````",
+      "```",
+      "[inner](refs/inner.md)",
+      "```",
+      "[still](refs/still.md)",
+      "````",
+      "[after](refs/after.md)",
+      "~~~",
+      "```",
+      "[tilde](refs/tilde.md)",
+      "~~~",
+      "[last](refs/last.md)",
+    ].join("\n");
+    const s = await parseSkillBundle(bundle(body));
+    expect(s.references).toEqual(["refs/after.md", "refs/last.md"]);
   });
 
   it("rejects symlinked SKILL.md and symlinked skill directories", async () => {

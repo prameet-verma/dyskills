@@ -33,11 +33,13 @@ function stripFences(body: string): string {
   const out: string[] = [];
   let fence: string | null = null;
   for (const line of body.split("\n")) {
-    const m = /^\s*(```|~~~)/.exec(line);
+    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    const run = m?.[1] ?? "";
     if (fence === null) {
-      if (m) fence = m[1] ?? null;
+      if (m) fence = run;
       else out.push(line);
-    } else if (m && m[1] === fence) {
+    } else if (run !== "" && run[0] === fence[0] && run.length >= fence.length) {
+      // CommonMark: a closing fence uses the same character and is at least as long.
       fence = null;
     }
   }
@@ -58,18 +60,21 @@ function localTarget(rawTarget: string): string | null {
  * Parses the single skill the agent wrote under `skillsRoot`.
  *
  * @param skillsRoot - The session `skills/` directory; it must hold exactly one subdirectory.
- * @returns The parsed skill. `references` are relative markdown link targets (no `http(s):`,
- *   `mailto:` or `#anchor` links); `augments` is set from `metadata.augments` and
+ * @returns The parsed skill. `references` are de-duplicated bundle-relative link targets: links
+ *   inside fenced code blocks, any `scheme:` target, absolute or `//` paths are excluded, `#`/`?`
+ *   suffixes and `<>` are stripped; `augments` is set from `metadata.augments` and
  *   `metadata["augments-sha256"]` (missing sha becomes `""`), else `null` (PRD §5.5, §13.2).
- * @throws BundleError when there is not exactly one skill directory, `SKILL.md` is missing, or its
+ * @throws BundleError when the root is missing or unreadable or does not hold exactly one skill
+ *   directory (`found <n>`), the skill directory or `SKILL.md` is a symlink, `SKILL.md` is missing,
+ *   larger than 100,000 characters (checked by byte size before reading, then by length), or its
  *   frontmatter is not a YAML mapping with string name and description.
  */
 export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSkill> {
   let entries: Dirent[];
   try {
     entries = await readdir(skillsRoot, { withFileTypes: true });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  } catch {
+    // Missing, not a directory or unreadable: all mean "no skill directory" to the caller.
     entries = [];
   }
   // Symlinked directories are counted so they are rejected below, not silently ignored.
@@ -82,8 +87,13 @@ export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSki
   let raw: string;
   try {
     // The agent controls this tree: a symlink could pull in a file from outside the session.
-    if ((await lstat(dir)).isSymbolicLink() || (await lstat(skillMdPath)).isSymbolicLink()) {
+    const mdStat = await lstat(skillMdPath);
+    if ((await lstat(dir)).isSymbolicLink() || mdStat.isSymbolicLink()) {
       throw new BundleError("skill files must not be symlinks");
+    }
+    // UTF-8 is at most 4 bytes per char, so this rejects before reading a huge file into memory.
+    if (mdStat.size > MAX_SKILL_CHARS * 4) {
+      throw new BundleError(`SKILL.md exceeds ${MAX_SKILL_CHARS} characters`);
     }
     raw = await readFile(skillMdPath, "utf8");
   } catch (err) {
