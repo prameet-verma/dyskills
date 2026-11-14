@@ -1,7 +1,12 @@
-import { relative, resolve } from "node:path";
+import { dirname, relative } from "node:path";
 import type { SkillSufficiencyAssessment, SkillsScan } from "@dynamic-skills/core";
 import { describe, expect, it } from "vitest";
-import { requiresApproval, scanExistingSkills, validateSufficiency } from "../src/index";
+import {
+  matchBaseSkill,
+  requiresApproval,
+  scanExistingSkills,
+  validateSufficiency,
+} from "../src/index";
 import { put, skillMd, tmp } from "./helpers";
 
 async function fixture(): Promise<{ skills: SkillsScan["skills"]; instructionFiles: string[] }> {
@@ -49,7 +54,22 @@ describe("validateSufficiency", () => {
     expect(validateSufficiency(partial("graphql", "/other"), ctx(f)).map((i) => i.path)).toEqual([
       "baseSkill",
     ]);
-    expect(validateSufficiency(partial("graphql", resolve(g?.path ?? "")), ctx(f))).toEqual([]);
+    expect(validateSufficiency(partial("graphql", g?.path ?? ""), ctx(f))).toEqual([]);
+  });
+
+  it("matches the base skill by exact scanned path only", async () => {
+    const f = await fixture();
+    const g = f.skills.find((s) => s.name === "graphql");
+    const path = g?.path ?? "";
+    const raw = `${dirname(dirname(path))}/x/../graphql/SKILL.md`;
+    expect(validateSufficiency(partial("graphql", raw), ctx(f)).map((i) => i.path)).toEqual([
+      "baseSkill",
+    ]);
+    expect(
+      validateSufficiency(partial("graphql", "graphql/SKILL.md"), ctx(f)).map((i) => i.path),
+    ).toEqual(["baseSkill"]);
+    expect(matchBaseSkill({ name: "graphql", path }, f.skills)).toBe(g);
+    expect(matchBaseSkill({ name: "graphql", path: raw }, f.skills)).toBeNull();
   });
 
   it("rejects the bootstrap skill as a base", async () => {
@@ -91,6 +111,18 @@ describe("validateSufficiency", () => {
     expect(validateSufficiency(a, { ...ctx(f), instructionFiles: [] })).toEqual([
       { path: "baseInstructionFile", message: "not a scanned instruction file" },
     ]);
+  });
+
+  it("rejects instruction files outside the scanned set", async () => {
+    const f = await fixture();
+    for (const file of ["../AGENTS.md", "/tmp/AGENTS.md"]) {
+      const a = {
+        ...base,
+        outcome: "sufficient",
+        baseInstructionFile: file,
+      } as SkillSufficiencyAssessment;
+      expect(validateSufficiency(a, ctx(f)).map((i) => i.path)).toEqual(["baseInstructionFile"]);
+    }
   });
 
   it("collects every issue without short-circuiting", async () => {

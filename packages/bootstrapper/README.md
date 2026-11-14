@@ -1,12 +1,12 @@
 # @dynamic-skills/bootstrapper
 
-Finds skills that already exist for a project and its user, and decides whether a task is
-a task has candidate skills, and validates the agent's Skill Sufficiency Assessment.
+Finds skills that already exist for a project and its user, ranks them as candidate hints for a
+task (with invocation-mode gating), and validates the agent's Skill Sufficiency Assessment.
 
 ## API
 
 - **`scanExistingSkills({ repo, home? })`** (`scan.ts`): reads `<dir>/<name>/SKILL.md` from the
-  the three project-level and three personal skill directories from the PRD §11.3 table (see
+  three project-level and three personal skill directories from the PRD §11.3 table (see
   `ROOTS` in `src/scan.ts`). Returns
   `{ skills, instructionFiles, warnings }`. Skills whose frontmatter is missing, broken or
   lacks a string `name` and `description` are skipped with a warning; the same name and body
@@ -20,9 +20,12 @@ a task has candidate skills, and validates the agent's Skill Sufficiency Assessm
 - **`validateSufficiency(assessment, { skills, instructionFiles, mode, explicit })`**
   (`sufficiency.ts`): checks the agent's sufficiency verdict (PRD §5.5) and returns every
   `{ path, message }` issue (empty means valid): base skill must be a scanned skill (name and
-  path) with a valid Agent Skills name and not the bootstrap skill; base instruction file must be
+  path equal by exact string comparison, no resolving) with a valid Agent Skills name and not the bootstrap skill; base instruction file must be
   scanned (repo-relative); an explicit request allows only `partial` or `insufficient`; manual
   mode requires an explicit request.
+- **`matchBaseSkill({ name, path }, skills)`** (`sufficiency.ts`): returns the scanned skill
+  whose name and path both equal the verdict's by exact string comparison, or `null`. Callers
+  persist the returned skill's `path`, never the verdict's string.
 - **`requiresApproval(outcome, mode, explicit)`** (`sufficiency.ts`): true only in `suggest`
   mode without an explicit request for a non-`sufficient` outcome.
 

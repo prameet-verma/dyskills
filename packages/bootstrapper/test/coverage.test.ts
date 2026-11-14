@@ -28,7 +28,7 @@ describe("assessCoverage", () => {
       mode: "auto",
     });
     expect(r.recommendation).toBe("discover");
-    expect(r.candidates[0]?.name).toBe("graphql-schema-review");
+    expect(r.candidates.map((c) => c.name)).toEqual(["graphql-schema-review"]);
     expect(r.candidates[0]?.score).toBeGreaterThanOrEqual(0.5);
   });
 
@@ -56,5 +56,22 @@ describe("assessCoverage", () => {
     const r = assessCoverage("bootstrap dynamic skills", s, { explicit: false, mode: "auto" });
     expect(r.candidates).toEqual([]);
     expect(assessCoverage("a an", s, { explicit: false, mode: "auto" }).candidates).toEqual([]);
+  });
+});
+
+describe("assessCoverage score display", () => {
+  it("rounds the displayed score to two decimals", () => {
+    // 124 of 250 task tokens match: raw 0.496 is displayed as 0.5.
+    const words = Array.from({ length: 250 }, (_, i) => `word${String(i).padStart(3, "0")}`);
+    const skill: ExistingSkill = {
+      name: "s",
+      description: words.slice(0, 124).join(" "),
+      path: "/p",
+      scope: "project",
+      harness: "claude-code",
+      body: "",
+    };
+    const r = assessCoverage(words.join(" "), [skill], { explicit: false, mode: "auto" });
+    expect(r.candidates[0]?.score).toBe(0.5);
   });
 });

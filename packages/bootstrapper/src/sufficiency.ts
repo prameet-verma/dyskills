@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { SkillNameSchema } from "@dynamic-skills/core";
 import type {
   InvocationMode,
   SkillSufficiencyAssessment,
@@ -9,8 +9,20 @@ import type {
 /** Name of the bootstrap skill; it can never be the base of a sufficiency verdict. */
 const BOOTSTRAP_SKILL = "dynamic-skill-bootstrap";
 
-/** Agent Skills name rule. Scanned names come from repo-controlled frontmatter and are unchecked. */
-const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/**
+ * Finds the scanned skill a verdict names. Name and path must both equal the scanned skill's by
+ * exact string comparison: scanned paths are absolute and normalised, while a verdict path is
+ * untrusted and `path.resolve` would accept relative paths (resolved against the cwd) and fold
+ * `..` lexically, which can differ from what the OS opens when a symlink is involved.
+ * Callers must persist the returned scanned skill's `path`, never the verdict's string.
+ * @returns the matching scanned skill, or `null`.
+ */
+export function matchBaseSkill(
+  verdict: { name: string; path: string },
+  skills: SkillsScan["skills"],
+): SkillsScan["skills"][number] | null {
+  return skills.find((s) => s.name === verdict.name && s.path === verdict.path) ?? null;
+}
 
 /**
  * Checks an agent's sufficiency verdict against the session (PRD §5.5: "the core validates it").
@@ -35,10 +47,10 @@ export function validateSufficiency(
 
   if (a.baseSkill) {
     const { name, path } = a.baseSkill;
-    const matched = ctx.skills.find((s) => s.name === name && resolve(s.path) === resolve(path));
+    const matched = matchBaseSkill({ name, path }, ctx.skills);
     if (!matched) {
       issues.push({ path: "baseSkill", message: "base skill is not among the scanned skills" });
-    } else if (!SKILL_NAME.test(matched.name) || matched.name.length > 64) {
+    } else if (!SkillNameSchema.safeParse(matched.name).success) {
       issues.push({
         path: "baseSkill.name",
         message: "base skill name is not a valid Agent Skills name",
