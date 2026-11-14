@@ -5,14 +5,14 @@
 > Only Phase 1 has a detailed plan today; write each later phase's plan (superpowers:writing-plans) when
 > the previous phase's gate passes, because it consumes the interfaces that phase actually shipped.
 
-**Spec:** `PRD.md` (v0.7, commit c3cdba8)
+**Spec:** `PRD.md` (v0.8, commit 61191ef)
 
 ## Architecture decision (applies to every phase)
 
 **Agent-driven CLI.** The TypeScript core is a deterministic CLI (`dynamic-skills <command>`) that emits
 JSON on stdout and the PRD §10.5 status block on stderr. All LLM work — agentic context analysis
 (reading the CLI-built Context Packet and returning a schema-validated Context Analysis Result, PRD §6),
-writing the `SKILL.md` draft, judging behavioural rubrics — is done by the host's root agent (or its
+judging skill sufficiency (sufficient / partial / insufficient, validated by the CLI, PRD §5.5), writing the `SKILL.md` draft, judging behavioural rubrics — is done by the host's root agent (or its
 read-only subagents), instructed by the `dynamic-skill-bootstrap` skill. This matches PRD §13.1: the
 engine "should coordinate through structured contracts rather than building its own independent agent
 orchestration runtime". Consequences:
@@ -72,16 +72,21 @@ SLA clock with pause/resume, ephemeral session store, Evidence Registry with pro
 parallel deterministic discovery with secret exclusion, **hybrid context discovery** (the CLI builds a
 Context Packet, the agent analyses it and returns a schema-validated Context Analysis Result, bounded
 targeted context requests enrich the packet, and consolidation records observed vs inferred evidence,
-assumptions, unknowns and conflicts — PRD §6), gap analysis, coverage assessment, Clarification
+assumptions, unknowns and conflicts — PRD §6), a three-outcome **Skill Sufficiency Assessment** after
+analysis (agent verdict, CLI-validated: reuse an existing skill unchanged, augment it with an ephemeral
+delta-only overlay pinned to the base's sha256 and activated next to the unchanged base, or generate a
+new skill — PRD §5.5), gap analysis, coverage hints, Clarification
 Manager (3 rounds, assumptions), compilation brief + bundle parser, 14 generation evals (including
 evidence classification) + behavioural smoke recording with a parallel runner, activation gating with
 timeout fallback and discovery/evaluation/performance reports, the CLI, the bootstrap skill, and
 performance reporting.
 
-- **FRs:** FR-01–FR-30, FR-33 (single canonical bundle), FR-34.
-- **Exit gate (verifier checks):** PRD §21 items 4–19, 21–25, 28, 29, 30 pass against the CLI end-to-end
+- **FRs:** FR-01–FR-30, FR-33 (single canonical bundle), FR-34, FR-40–FR-42 (sufficiency assessment, augmentation, canonical skills never modified).
+- **Exit gate (verifier checks):** PRD §21 items 4–19, 21–25, 28–33 pass against the CLI end-to-end
   test on fixture repos; the bootstrap skill passes its own evaluator; e2e active processing < 60 s;
-  hybrid discovery produces a validated Context Analysis Result before every `compile`; a timeout run
+  hybrid discovery produces a validated Context Analysis Result and a validated sufficiency verdict
+  before every `compile`; the sufficient and partial paths run end-to-end with the base skill
+  byte-identical afterwards; a timeout run
   never activates; a failing mandatory eval never activates; no file is written to any harness skill
   directory.
 - **Manual gate step:** the human runs the live smoke script once with Claude Code (`claude -p`) to see
@@ -113,7 +118,10 @@ Deliverables: post-task persistence prompt (PRD §11.2 copy), `packages/lifecycl
 metadata, evaluation history, expiry, deprecation, promotion from project → personal), context
 fingerprints stored with saved skills, `packages/freshness-validator` (revision + fingerprint
 comparison → fresh / relevance-check / stale), discovery cache keyed by file fingerprints (populates the
-cache-hit metric), regeneration of stale project context only.
+cache-hit metric), regeneration of stale project context only. Persisting an augmentation (PRD §5.5, §11.2, §12.2
+"Partially sufficient skill") saves it as its own artifact that references the base skill by name and
+by `augments-sha256`, the base version it was evaluated against. The base skill is never edited;
+when the base's hash no longer matches, the freshness validator treats the augmentation as stale.
 
 - **FRs:** FR-35, FR-36, FR-38.
 - **Exit gate:** changing a fingerprinted file marks only the dependent skill stale; an unrelated commit
