@@ -1,12 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createRepoReader, resolveRepoPath, runDiscovery, SKIPPED_DIRS } from "../src/index";
+
+const created: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(created.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+});
 
 async function makeRepo(): Promise<string> {
   const base = await mkdtemp(join(tmpdir(), "ds-safe-"));
+  created.push(base);
   const repo = join(base, "repo");
   await mkdir(join(repo, "config"), { recursive: true });
   await mkdir(join(repo, ".git"), { recursive: true });
