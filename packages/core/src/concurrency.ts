@@ -5,7 +5,7 @@ function abortError(): Error {
 }
 
 /**
- * Map over items with at most `limit` calls in flight (PRD §9.7 bounded parallelism).
+ * Map over items with at most `limit` calls in flight (PRD §10.2 bounded parallelism).
  *
  * Results keep input order regardless of completion order. A limit below 1 is treated as 1.
  * Once any call rejects or the signal aborts, no further items are started; calls already in

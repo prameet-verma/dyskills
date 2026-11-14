@@ -30,7 +30,7 @@ fixes formatting (Markdown included).
 - **TSDoc on every export.** State purpose and contract (inputs, outputs, errors, invariants), not
   a restatement of the name. Lint enforces its presence.
 - **Comment the why.** Non-obvious logic gets a short comment giving the reason and the PRD section
-  it implements, for example `// PRD §9.2: human wait is excluded from the SLA`.
+  it implements, for example `// PRD §10.3: human wait is excluded from the SLA`.
 - **Package README.** Each package has a `README.md` with purpose, a `## API` section, a short
   example and the PRD sections it implements. Update it when the API changes.
 - **Extensionless relative imports.** Write `./sla`, not `./sla.js`. Lint enforces this.

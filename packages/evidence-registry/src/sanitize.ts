@@ -3,7 +3,7 @@ const MAX_VALUE_LENGTH = 500;
 
 /**
  * Secret shapes that must never reach the registry, the agent prompt or a generated skill
- * (PRD §6.4: repository content is untrusted data).
+ * (PRD §7: repository content is untrusted data).
  */
 const SECRET_PATTERNS: readonly RegExp[] = [
   /ghp_[A-Za-z0-9]{36}/g,

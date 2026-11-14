@@ -24,7 +24,7 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   `<home>/sessions/<id>/` with atomic `save`, a `withLock` lock file (stale after 30 s),
   confined artifact read/write and `remove`; errors `SessionNotFoundError` and
   `SessionLockedError` carry a `.code`. Also `recordStage` and `enforceDeadline`.
-- **`renderStatus(state, now)`** (`status.ts`): the user-visible status blocks (PRD §9.5).
+- **`renderStatus(state, now)`** (`status.ts`): the user-visible status blocks (PRD §10.5).
 - **`buildPerformanceReport(state, now)`** (`perf.ts`): wall/active/human-wait time, stage
   timings and cache hit rate (`null` when there were no lookups).
 - **`estimateTokens(text)`** (`tokens.ts`): `ceil(chars / 4)`.
@@ -45,6 +45,6 @@ const sizes = await mapConcurrent(files, EVAL_CONCURRENCY, async (f) => estimate
 
 ## PRD sections implemented
 
-§5.5 (invocation modes), §6.3–6.5 (gaps, evidence), §8.1–8.5 (evaluation outcomes, size limits),
-§9.1–9.4 (budget, SLA clock, clarification limits, assumptions), §9.6–9.7 (stages, bounded parallelism),
-§9.5 (status text), §9.10 (metrics and performance report).
+§5.4 (invocation modes), §6.3, §7 (gaps, evidence), §9.1–9.5 (evaluation outcomes, size limits),
+§10.1, §10.3, §10.4, §10.6 (budget, SLA clock, clarification limits, assumptions), §10.2, §10.8 (stages, bounded parallelism),
+§10.5 (status text), §10.8 (metrics and performance report).

@@ -39,5 +39,5 @@ registry.get("package-manager"); // { value: "pnpm", confidence: "verified", ...
 
 ## PRD sections implemented
 
-§6.1 (discovery), §6.4 (untrusted content, secret exclusion), §9.7 (parallel, task-directed
+§6.1 (discovery), §7 (untrusted content, secret exclusion), §10.2 (parallel, task-directed
 discovery).

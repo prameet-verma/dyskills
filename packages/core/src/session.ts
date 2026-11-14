@@ -58,7 +58,7 @@ function stamp(ms: number): string {
 }
 
 /**
- * File-backed store for ephemeral sessions (PRD §9.5, §9.6). Layout per session:
+ * File-backed store for ephemeral sessions (PRD §10.5, §10.8). Layout per session:
  * `sessions/<id>/{session.json,evidence.json,brief.md,skills/,evals/,reports/}`. Each CLI
  * invocation is a separate process, so state lives on disk and mutation is guarded by a lock file.
  */
@@ -236,13 +236,13 @@ export class SessionStore {
   }
 }
 
-/** Adds `ms` to the accumulated duration of `stage` in the session metrics (PRD §9.10). */
+/** Adds `ms` to the accumulated duration of `stage` in the session metrics (PRD §10.8). */
 export function recordStage(s: SessionState, stage: StageName, ms: number): void {
   s.metrics.stageMs[stage] = (s.metrics.stageMs[stage] ?? 0) + ms;
 }
 
 /**
- * Enforces the active-time budget (PRD §9.1). If the session's clock is expired at `now`, marks
+ * Enforces the active-time budget (PRD §10.1). If the session's clock is expired at `now`, marks
  * `status` and `metrics.outcome` as `timeout`.
  *
  * @returns `true` if the deadline has passed.

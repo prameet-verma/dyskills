@@ -241,7 +241,7 @@ const frameworkDetector: Detector = {
 const databaseDetector: Detector = {
   id: "database",
   categories: ["database"],
-  // Database facts are only worth discovering for data-related tasks (PRD §9.7 task-directed discovery).
+  // Database facts are only worth discovering for data-related tasks (PRD §10.2 task-directed discovery).
   keywords: /migrat|database|schema|sql|orm|\bdb\b|persist/i,
   run: (ctx) => depEvidence(ctx, KNOWN_DATABASES, "database", "database"),
 };

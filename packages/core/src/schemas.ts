@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Zod schema. How well an evidence value is established: directly observed, inferred, contradicted
- * by another source, or assumed (PRD §6.4).
+ * by another source, or assumed (PRD §7, §6.6).
  */
 export const ConfidenceSchema = z.enum(["verified", "inferred", "conflicting", "assumed"]);
 /** Type inferred from {@link ConfidenceSchema}. */
@@ -32,7 +32,7 @@ export type EvidenceCategory = z.infer<typeof EvidenceCategorySchema>;
 
 /**
  * Zod schema. One discovered fact about the repository with its source, confidence and revision,
- * as stored in the evidence registry (PRD §6.4, §6.5). `conflicts` lists keys of contradicting
+ * as stored in the evidence registry (PRD §7). `conflicts` lists keys of contradicting
  * evidence.
  */
 export const EvidenceSchema = z.object({
@@ -51,7 +51,7 @@ export type Evidence = z.infer<typeof EvidenceSchema>;
 /**
  * Zod schema. A piece of context the task needs before a skill can be generated; `humanOnly` marks
  * facts only the user can supply, `material` marks those that change the skill's behaviour (PRD
- * §6.3).
+ * §6.3, FR-15).
  */
 export const RequirementSchema = z.object({
   id: z.string(),
@@ -65,7 +65,7 @@ export type Requirement = z.infer<typeof RequirementSchema>;
 
 /**
  * Zod schema. Result of comparing one requirement against the evidence: its status and how to
- * resolve it (inspect the repo, ask the user, or nothing) (PRD §6.3).
+ * resolve it (inspect the repo, ask the user, or nothing) (PRD §6.3, FR-15).
  */
 export const GapSchema = z.object({
   requirement: z.string(),
@@ -80,7 +80,7 @@ export type Gap = z.infer<typeof GapSchema>;
 
 /**
  * Zod schema. A clarification question for the user, tied to the requirement it resolves;
- * `blocking` questions pause the pipeline (PRD §9.2, §9.3).
+ * `blocking` questions pause the pipeline (PRD §10.3, §10.4).
  */
 export const QuestionSchema = z.object({
   id: z.string(),
@@ -95,7 +95,7 @@ export type Question = z.infer<typeof QuestionSchema>;
 
 /**
  * Zod schema. The user's reply to a question. Declined or skipped answers may carry the assumption
- * to continue on (PRD §9.4).
+ * to continue on (PRD §10.6).
  */
 export const AnswerSchema = z.object({
   questionId: z.string(),
@@ -114,7 +114,7 @@ export type Answer = z.infer<typeof AnswerSchema>;
 
 /**
  * Zod schema. A recorded assumption standing in for an unanswered material question, with its
- * basis and impact, surfaced in the generated skill (PRD §9.4).
+ * basis and impact, surfaced in the generated skill (PRD §10.6).
  */
 export const AssumptionSchema = z.object({
   questionId: z.string(),
@@ -129,7 +129,7 @@ export type Assumption = z.infer<typeof AssumptionSchema>;
 
 /**
  * Zod schema. How the skill may be invoked: automatically, by suggestion, or only on explicit
- * request (PRD §5.5).
+ * request (PRD §5.4).
  */
 export const InvocationModeSchema = z.enum(["auto", "suggest", "manual"]);
 /** Type inferred from {@link InvocationModeSchema}. */
@@ -137,7 +137,7 @@ export type InvocationMode = z.infer<typeof InvocationModeSchema>;
 
 /**
  * Zod schema. Lifecycle state of a session as reported to the user, including the waiting-for-
- * clarification state (PRD §9.5, §9.6).
+ * clarification state (PRD §10.5, §10.8).
  */
 export const PipelineStatusSchema = z.enum([
   "assessing",
@@ -156,7 +156,7 @@ export const PipelineStatusSchema = z.enum([
 export type PipelineStatus = z.infer<typeof PipelineStatusSchema>;
 
 /**
- * Zod schema. Pipeline stages whose durations are measured for instrumentation (PRD §9.6, §9.10).
+ * Zod schema. Pipeline stages whose durations are measured for instrumentation (PRD §10.8).
  */
 export const StageNameSchema = z.enum([
   "assessment",
@@ -170,7 +170,7 @@ export const StageNameSchema = z.enum([
 /** Type inferred from {@link StageNameSchema}. */
 export type StageName = z.infer<typeof StageNameSchema>;
 
-/** Zod schema. Identifier of a generation or behavioural evaluation check (PRD §8.1, §8.2). */
+/** Zod schema. Identifier of a generation or behavioural evaluation check (PRD §9.1, §9.2). */
 export const EvalIdSchema = z.enum([
   "spec",
   "metadata",
@@ -190,14 +190,14 @@ export const EvalIdSchema = z.enum([
 /** Type inferred from {@link EvalIdSchema}. */
 export type EvalId = z.infer<typeof EvalIdSchema>;
 
-/** Zod schema. Result of one evaluation: pass, warning, fail, or not-applicable (PRD §8.4). */
+/** Zod schema. Result of one evaluation: pass, warning, fail, or not-applicable (PRD §9.4). */
 export const EvalOutcomeSchema = z.enum(["pass", "warning", "fail", "not-applicable"]);
 /** Type inferred from {@link EvalOutcomeSchema}. */
 export type EvalOutcome = z.infer<typeof EvalOutcomeSchema>;
 
 /**
  * Zod schema. Outcome of a single evaluation check with its messages and duration; a failing
- * `mandatory` check blocks activation (PRD §8.4).
+ * `mandatory` check blocks activation (PRD §9.4).
  */
 export const EvalResultSchema = z.object({
   id: EvalIdSchema,
@@ -211,7 +211,7 @@ export type EvalResult = z.infer<typeof EvalResultSchema>;
 
 /**
  * Zod schema. A deterministic check applied to behavioural-eval output: substring or regular-
- * expression presence or absence (PRD §8.2).
+ * expression presence or absence (PRD §9.2).
  */
 export const AssertionSchema = z.object({
   type: z.enum(["contains", "not-contains", "regex", "not-regex"]),
@@ -222,7 +222,7 @@ export type Assertion = z.infer<typeof AssertionSchema>;
 
 /**
  * Zod schema. A behavioural smoke scenario for a generated skill: expected behaviour, required and
- * prohibited outputs, assertions and an LLM-judge rubric (PRD §8.2).
+ * prohibited outputs, assertions and an LLM-judge rubric (PRD §9.2).
  */
 export const SmokeEvalSchema = z.object({
   id: z.string(),
@@ -238,8 +238,8 @@ export type SmokeEval = z.infer<typeof SmokeEvalSchema>;
 
 /**
  * Zod schema. Serializable state of the active-time budget. `activeMs` excludes human-wait pauses;
- * `segmentStartedAt` is the epoch ms of the running segment, or null while paused (PRD §9.1,
- * §9.2).
+ * `segmentStartedAt` is the epoch ms of the running segment, or null while paused (PRD §10.1,
+ * §10.3).
  */
 export const SlaSnapshotSchema = z.object({
   budgetMs: z.number(),
@@ -252,7 +252,7 @@ export type SlaSnapshot = z.infer<typeof SlaSnapshotSchema>;
 
 /**
  * Zod schema. Performance counters collected during a session: per-stage time, human wait, LLM
- * calls, parallelism and cache use (PRD §9.10).
+ * calls, parallelism and cache use (PRD §10.8).
  */
 export const SessionMetricsSchema = z.object({
   wallStartedAt: z.number(),
@@ -271,7 +271,7 @@ export type SessionMetrics = z.infer<typeof SessionMetricsSchema>;
 
 /**
  * Zod schema. Complete persisted state of one session, sufficient to resume after a clarification
- * pause (PRD §9.5, §9.6).
+ * pause (PRD §10.5, §10.8).
  */
 export const SessionStateSchema = z.object({
   id: z.string(),
@@ -300,14 +300,14 @@ export const SessionStateSchema = z.object({
 /** Type inferred from {@link SessionStateSchema}. */
 export type SessionState = z.infer<typeof SessionStateSchema>;
 
-/** Zod schema. Agent harness that a skill can target or be discovered from (PRD §10.3, §12.3). */
+/** Zod schema. Agent harness that a skill can target or be discovered from (PRD §11.3, §13.2). */
 export const HarnessSchema = z.enum(["claude-code", "codex", "opencode"]);
 /** Type inferred from {@link HarnessSchema}. */
 export type Harness = z.infer<typeof HarnessSchema>;
 
 /**
  * Zod schema. A skill already present in a project or personal skill directory, considered for
- * reuse or duplication checks (PRD §11.2).
+ * reuse or duplication checks (PRD §12.2).
  */
 export const ExistingSkillSchema = z.object({
   name: z.string(),
@@ -322,7 +322,7 @@ export type ExistingSkill = z.infer<typeof ExistingSkillSchema>;
 
 /**
  * Zod schema. A skill produced by the pipeline: parsed frontmatter and body, the raw `SKILL.md`,
- * referenced files and its token estimate (PRD §7.2).
+ * referenced files and its token estimate (PRD §8.2).
  */
 export const GeneratedSkillSchema = z.object({
   name: z.string(),

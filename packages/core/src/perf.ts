@@ -2,7 +2,7 @@ import type { SessionMetrics, SessionState, StageName } from "./schemas";
 import { SlaClock } from "./sla";
 
 /**
- * Builds the performance report for a session (PRD §9.10).
+ * Builds the performance report for a session (PRD §10.8).
  *
  * `wallMs` is elapsed time since session start; `activeMs` excludes human waits.
  * `cacheHitRate` is `null` (not 0) when no cache lookups happened, so "no data" is distinguishable

@@ -36,4 +36,4 @@ registry.isVerified("package-manager"); // true
 
 ## PRD sections implemented
 
-§6.4 (evidence and confidence, untrusted-content handling), §6.5 (provenance and revision).
+§7 (evidence and confidence, untrusted-content handling, provenance and revision), §6.6 (evidence classification).

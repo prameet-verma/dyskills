@@ -166,7 +166,7 @@ const conventionsDetector: Detector = {
     const present = new Set(ctx.files.files);
 
     // README headings are untrusted repo text: the registry sanitises the value and Task 10
-    // fences it, so it is deliberately reported rather than filtered here (PRD §6.4).
+    // fences it, so it is deliberately reported rather than filtered here (PRD §7).
     const readme = await ctx.readText("README.md");
     const hs = readme === null ? [] : headings(readme, MAX_HEADINGS);
     if (hs.length > 0) out.push(observe(ctx, "conventions.readme", hs.join(" | "), "README.md"));

@@ -21,7 +21,7 @@ const STRENGTH: Record<Confidence, number> = {
 };
 
 /**
- * In-memory store of discovered facts with provenance (PRD §6.4, §6.5). One entry per key;
+ * In-memory store of discovered facts with provenance (PRD §7). One entry per key;
  * disagreement between sources is recorded rather than resolved, so the gap analysis and the
  * user can see it.
  */

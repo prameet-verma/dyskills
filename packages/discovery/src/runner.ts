@@ -11,7 +11,7 @@ import { isSecretPath } from "./secrets";
 const MAX_READ_BYTES = 1_000_000;
 
 /**
- * Picks the detectors relevant to a task (PRD §9.7 task-directed discovery).
+ * Picks the detectors relevant to a task (PRD §10.2 task-directed discovery).
  *
  * @param task - Free-text task description.
  * @param detectors - Candidates.

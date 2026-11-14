@@ -1,7 +1,7 @@
 import type { Gap } from "@dynamic-skills/core";
 import type { RepoFileIndex } from "@dynamic-skills/discovery";
 
-/** A bounded investigation the agent should perform to close an `inspect` gap (PRD §6.3). */
+/** A bounded investigation the agent should perform to close an `inspect` gap (PRD §6.3, FR-15). */
 export interface SemanticProbe {
   /** Id of the requirement being investigated. */
   requirement: string;

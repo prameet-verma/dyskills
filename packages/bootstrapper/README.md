@@ -6,7 +6,7 @@ already covered by one of them or needs a new skill.
 ## API
 
 - **`scanExistingSkills({ repo, home? })`** (`scan.ts`): reads `<dir>/<name>/SKILL.md` from the
-  the three project-level and three personal skill directories from the PRD §10.3 table (see
+  the three project-level and three personal skill directories from the PRD §11.3 table (see
   `ROOTS` in `src/scan.ts`). Returns
   `{ skills, instructionFiles, warnings }`. Skills whose frontmatter is missing, broken or
   lacks a string `name` and `description` are skipped with a warning; the same name and body
@@ -30,4 +30,4 @@ const coverage = assessCoverage(task, skills, { explicit: false, mode: "auto" })
 
 ## PRD sections implemented
 
-§5.2 (existing skill coverage), §10.3 (skill directories), §11.2 (existing skill checks).
+§5.2 (existing skill coverage), §11.3 (skill directories), §12.2 (existing skill checks).

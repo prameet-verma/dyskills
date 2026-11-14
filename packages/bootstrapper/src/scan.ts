@@ -21,7 +21,7 @@ interface SkillRoot {
   dir: string;
 }
 
-// PRD §10.3: the one place in the core packages that names harness storage locations. The order
+// PRD §11.3: the one place in the core packages that names harness storage locations. The order
 // is the dedupe priority: project before personal, then the order listed in the PRD table.
 const ROOTS: SkillRoot[] = [
   { scope: "project", harness: "claude-code", base: "repo", dir: ".claude/skills" },
@@ -69,7 +69,7 @@ async function readOrNull(path: string): Promise<string | null> {
 }
 
 /**
- * Finds skills already installed for the project and the user (PRD §10.3, §11.2) so the pipeline
+ * Finds skills already installed for the project and the user (PRD §11.3, §12.2) so the pipeline
  * can reuse or avoid duplicating them. Read-only; never throws for missing directories or bad
  * files, which become warnings instead.
  * @param opts.repo repository root; project skills and instruction files are read from here.

@@ -2,7 +2,7 @@ import { DEFAULT_BUDGET_MS } from "./constants";
 import type { SlaSnapshot } from "./schemas";
 
 /**
- * Active-time SLA clock (PRD §9.1, §9.2). Active time is wall-clock time since start minus the
+ * Active-time SLA clock (PRD §10.1, §10.3). Active time is wall-clock time since start minus the
  * time spent paused for human input; resuming never resets it, so clarification cannot extend
  * the budget.
  *

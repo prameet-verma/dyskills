@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 /**
- * Reads the repository's current commit so evidence can be tied to a revision (PRD §6.5).
+ * Reads the repository's current commit so evidence can be tied to a revision (PRD §7).
  * Uses `execFile` (no shell) so the path cannot be interpreted as a command.
  *
  * @param repo - Path to the repository root.

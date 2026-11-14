@@ -4,7 +4,7 @@ import type { Evidence, Gap, Requirement } from "@dynamic-skills/core";
 const INSPECT_WHEN_MISSING = new Set(["architecture", "conventions"]);
 
 /**
- * Compares requirements with discovered evidence (PRD §6.3).
+ * Compares requirements with discovered evidence (PRD §6.3, FR-15).
  *
  * Evidence matches a requirement by equal category. A `humanOnly` requirement is answered only
  * by evidence keyed `user.<requirement id>`, otherwise it is `missing`/`ask`. For the rest the

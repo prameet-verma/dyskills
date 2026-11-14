@@ -8,7 +8,7 @@ const req = (
   humanOnly = false,
 ): Requirement => ({ id, category, description, humanOnly, material: true });
 
-/** Context every task needs, regardless of wording (PRD §6.3). */
+/** Context every task needs, regardless of wording (PRD §6.3, FR-15). */
 const BASELINE: Requirement[] = [
   req("language", "language", "Primary programming languages of the repository."),
   req("runtime", "runtime", "Runtime and version the code targets."),
@@ -19,7 +19,7 @@ const BASELINE: Requirement[] = [
 
 /**
  * Keyword rules, matched case-insensitively against the task text. A rule may add several
- * requirements; `humanOnly` ones can only be answered by the user (PRD §6.3).
+ * requirements; `humanOnly` ones can only be answered by the user (PRD §6.3, FR-15).
  */
 const RULES: { pattern: RegExp; add: Requirement[] }[] = [
   {

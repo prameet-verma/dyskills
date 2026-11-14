@@ -16,7 +16,7 @@ const LABELS: Partial<Record<PipelineStatus, string>> = {
 };
 
 /**
- * Renders the user-visible status block (PRD §9.5). The waiting and resuming blocks match the PRD
+ * Renders the user-visible status block (PRD §10.5). The waiting and resuming blocks match the PRD
  * text exactly; every other status uses the generic block. Seconds are floored and the budget is
  * printed from the session's own SLA so a non-default budget is reported truthfully.
  */

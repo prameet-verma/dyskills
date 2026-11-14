@@ -32,4 +32,4 @@ const probes = planSemanticProbes(gaps, files);
 
 ## PRD sections implemented
 
-§6.3 (context requirements, gap analysis, semantic probes).
+§6.3, FR-15 (context requirements, gap analysis, semantic probes).

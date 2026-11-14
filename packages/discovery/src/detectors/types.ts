@@ -6,7 +6,7 @@ import type { RepoFileIndex } from "../file-index";
 export interface DetectorContext {
   /** Absolute repository root. */
   repo: string;
-  /** Repository revision stamped on every observation (PRD §6.5). */
+  /** Repository revision stamped on every observation (PRD §7). */
   revision: string;
   /** Bounded, secret-free file listing. */
   files: RepoFileIndex;
