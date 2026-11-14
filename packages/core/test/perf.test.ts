@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { SlaClock, buildPerformanceReport, type SessionState } from "../src/index";
+import {
+  PerformanceReportSchema,
+  SlaClock,
+  buildPerformanceReport,
+  type SessionState,
+} from "../src/index";
 
 function state(): SessionState {
   return {
+    schemaVersion: "1",
     id: "ds-1",
     task: "t",
     mode: "auto",
@@ -18,6 +24,8 @@ function state(): SessionState {
     gaps: [],
     blockedBy: [],
     evalAttempts: 0,
+    requirements: [],
+    sufficiency: null,
     metrics: {
       wallStartedAt: 1_000,
       stageMs: { discovery: 5 },
@@ -28,6 +36,11 @@ function state(): SessionState {
       cacheLookups: 0,
       evaluationMs: 7,
       activationMs: 9,
+      contextRequests: 2,
+      contextRequestRounds: 1,
+      analysisSubmissions: 1,
+      packetTokens: 900,
+      analysisStartedAtActiveMs: null,
       outcome: "activated",
     },
   };
@@ -37,6 +50,7 @@ describe("buildPerformanceReport", () => {
   it("builds a report with null cache hit rate when no lookups", () => {
     const r = buildPerformanceReport(state(), 11_000);
     expect(r).toEqual({
+      schemaVersion: "1",
       sessionId: "ds-1",
       wallMs: 10_000,
       activeMs: 10_000,
@@ -48,8 +62,13 @@ describe("buildPerformanceReport", () => {
       cacheHitRate: null,
       evaluationMs: 7,
       activationMs: 9,
+      contextRequests: 2,
+      contextRequestRounds: 1,
+      analysisSubmissions: 1,
+      packetTokens: 900,
       outcome: "activated",
     });
+    expect(PerformanceReportSchema.safeParse(r).success).toBe(true);
   });
 
   it("computes the cache hit rate", () => {

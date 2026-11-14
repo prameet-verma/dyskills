@@ -1,15 +1,7 @@
-import type { Gap } from "@dynamic-skills/core";
+import type { Gap, SemanticProbe } from "@dynamic-skills/core";
 import type { RepoFileIndex } from "@dynamic-skills/discovery";
 
-/** A bounded investigation the agent should perform to close an `inspect` gap (PRD §6.3, FR-15). */
-export interface SemanticProbe {
-  /** Id of the requirement being investigated. */
-  requirement: string;
-  /** Short instruction for the agent. */
-  question: string;
-  /** Up to 5 repo-relative (shallowest first, then alphabetical) files, all present in the index, worth reading first. */
-  suggestedFiles: string[];
-}
+export type { SemanticProbe };
 
 const MAX_FILES = 5;
 

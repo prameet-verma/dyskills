@@ -1,7 +1,12 @@
 {
+  "$id": "dynamic-skills/v1/session-state.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
     "id": {
       "type": "string"
     },
@@ -33,6 +38,7 @@
         "generating",
         "evaluating",
         "waiting-for-clarification",
+        "waiting-for-approval",
         "resuming",
         "activating",
         "completed",
@@ -232,7 +238,8 @@
             "enum": [
               "declined",
               "skipped",
-              "unanswered"
+              "unanswered",
+              "not-asked"
             ]
           }
         },
@@ -323,6 +330,125 @@
     "skillName": {
       "type": "string"
     },
+    "requirements": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic",
+              "user"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "humanOnly": {
+            "type": "boolean"
+          },
+          "material": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "description",
+          "humanOnly",
+          "material"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sufficiency": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "sufficient",
+                "partial",
+                "insufficient"
+              ]
+            },
+            "baseSkill": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "path",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "baseInstructionFile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "approval": {
+              "type": "string",
+              "enum": [
+                "not-required",
+                "pending",
+                "approved",
+                "declined"
+              ]
+            }
+          },
+          "required": [
+            "outcome",
+            "baseSkill",
+            "baseInstructionFile",
+            "approval"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "metrics": {
       "type": "object",
       "properties": {
@@ -368,10 +494,35 @@
         "activationMs": {
           "type": "number"
         },
+        "contextRequests": {
+          "default": 0,
+          "type": "number"
+        },
+        "contextRequestRounds": {
+          "default": 0,
+          "type": "number"
+        },
+        "analysisSubmissions": {
+          "default": 0,
+          "type": "number"
+        },
+        "packetTokens": {
+          "default": 0,
+          "type": "number"
+        },
+        "analysisStartedAtActiveMs": {
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "outcome": {
           "type": "string",
           "enum": [
             "activated",
+            "augmented",
+            "reused",
             "timeout",
             "failed",
             "skipped"
@@ -387,12 +538,18 @@
         "cacheHits",
         "cacheLookups",
         "evaluationMs",
-        "activationMs"
+        "activationMs",
+        "contextRequests",
+        "contextRequestRounds",
+        "analysisSubmissions",
+        "packetTokens",
+        "analysisStartedAtActiveMs"
       ],
       "additionalProperties": false
     }
   },
   "required": [
+    "schemaVersion",
     "id",
     "task",
     "mode",
@@ -408,6 +565,8 @@
     "gaps",
     "blockedBy",
     "evalAttempts",
+    "requirements",
+    "sufficiency",
     "metrics"
   ],
   "additionalProperties": false

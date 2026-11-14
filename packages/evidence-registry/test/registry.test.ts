@@ -86,4 +86,39 @@ describe("EvidenceRegistry", () => {
     });
     expect(e.value).toBe("‹b› x ‹/b›");
   });
+
+  it("defaults origin to programmatic and includes it in toJSON", () => {
+    const r = new EvidenceRegistry();
+    r.add({ ...base, key: "k", value: "v", source: "s", confidence: "verified" });
+    expect(r.toJSON()[0]?.origin).toBe("programmatic");
+  });
+
+  it("keeps the first origin when identical observations merge", () => {
+    const r = new EvidenceRegistry();
+    r.add({ ...base, key: "k", value: "v", source: "s", confidence: "verified" });
+    r.add({
+      ...base,
+      key: "k",
+      value: "v",
+      source: "s2",
+      confidence: "verified",
+      origin: "agentic",
+    });
+    expect(r.get("k")?.origin).toBe("programmatic");
+  });
+
+  it("stores supplied conflicts on a fresh conflicting entry, sanitised", () => {
+    const r = new EvidenceRegistry();
+    const e = r.add({
+      ...base,
+      key: "k",
+      value: "v",
+      source: "s",
+      confidence: "conflicting",
+      origin: "agentic",
+      conflicts: ["a (x)", "<b> (y)"],
+    });
+    expect(e.conflicts).toEqual(["a (x)", "‹b› (y)"]);
+    expect(e.origin).toBe("agentic");
+  });
 });

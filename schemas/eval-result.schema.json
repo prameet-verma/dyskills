@@ -1,4 +1,5 @@
 {
+  "$id": "dynamic-skills/v1/eval-result.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
@@ -11,6 +12,7 @@
         "completeness",
         "scope",
         "role",
+        "evidence-classification",
         "assumptions",
         "duplication",
         "conciseness",

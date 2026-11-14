@@ -1,29 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
-import {
-  AnswerSchema,
-  AssumptionSchema,
-  EvalResultSchema,
-  EvidenceSchema,
-  QuestionSchema,
-  SessionStateSchema,
-  SmokeEvalSchema,
-} from "../packages/core/src/index";
+import { generateSchemas } from "../packages/core/src/index";
 
-/** File name -> JSON Schema for the externally visible contracts. */
-export function generateSchemas(): Record<string, object> {
-  return {
-    "evidence.schema.json": z.toJSONSchema(EvidenceSchema),
-    "question.schema.json": z.toJSONSchema(QuestionSchema),
-    "answer.schema.json": z.toJSONSchema(AnswerSchema),
-    "assumption.schema.json": z.toJSONSchema(AssumptionSchema),
-    "smoke-eval.schema.json": z.toJSONSchema(SmokeEvalSchema),
-    "eval-result.schema.json": z.toJSONSchema(EvalResultSchema),
-    "session-state.schema.json": z.toJSONSchema(SessionStateSchema),
-  };
-}
+/** Re-exported so existing callers and tests keep a stable import path. */
+export { generateSchemas };
 
 const isMain =
   process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);

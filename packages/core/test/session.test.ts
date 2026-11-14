@@ -33,6 +33,20 @@ describe("SessionStore", () => {
     expect(await store.load(s.id)).toEqual(s);
   });
 
+  it("new sessions carry schemaVersion '1', empty requirements, null sufficiency and zeroed context counters", async () => {
+    const s = await store.create(init);
+    expect(s.schemaVersion).toBe("1");
+    expect(s.requirements).toEqual([]);
+    expect(s.sufficiency).toBeNull();
+    expect(s.metrics).toMatchObject({
+      contextRequests: 0,
+      contextRequestRounds: 0,
+      analysisSubmissions: 0,
+      packetTokens: 0,
+      analysisStartedAtActiveMs: null,
+    });
+  });
+
   it("throws SESSION_NOT_FOUND for unknown ids", async () => {
     await expect(store.load("ds-x")).rejects.toMatchObject({ code: "SESSION_NOT_FOUND" });
   });

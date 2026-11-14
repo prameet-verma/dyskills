@@ -41,13 +41,25 @@ export function renderStatus(s: SessionState, now: number): string {
     ].join("\n");
   }
 
+  if (s.status === "waiting-for-approval") {
+    return [
+      "Dynamic Skills",
+      "",
+      "Status: Waiting for approval",
+      "",
+      "Processing SLA: PAUSED",
+      `Active processing used: ${used}s / ${budget}s`,
+    ].join("\n");
+  }
+
   if (s.status === "resuming") {
     return [
       "Dynamic Skills",
       "",
       "Status: Resuming generation",
       "",
-      "Clarification: Received",
+      // The CLI appends the step before rendering, so the last step tells which pause ended.
+      `${s.completedSteps.at(-1) === "sufficiency-approve" ? "Approval" : "Clarification"}: Received`,
       "Processing SLA: RESUMED",
       "",
       `Active processing remaining: ${Math.floor(clock.remainingMs(now) / 1000)}s`,

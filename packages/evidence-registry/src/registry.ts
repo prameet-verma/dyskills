@@ -1,4 +1,4 @@
-import type { Confidence, Evidence, EvidenceCategory } from "@dynamic-skills/core";
+import type { Confidence, Evidence, EvidenceCategory, EvidenceOrigin } from "@dynamic-skills/core";
 import { sanitizeEvidenceValue } from "./sanitize";
 
 /** Input accepted by {@link EvidenceRegistry.add}; `timestamp` defaults to now. */
@@ -10,6 +10,13 @@ export interface EvidenceInput {
   confidence: Confidence;
   revision: string;
   timestamp?: string;
+  /** Who established the fact; defaults to `"programmatic"` (PRD §7). */
+  origin?: EvidenceOrigin;
+  /**
+   * Contradicting observations, used only when a fresh entry is added with confidence
+   * `"conflicting"`; each string is sanitised.
+   */
+  conflicts?: string[];
 }
 
 /** Strength order used when identical observations merge; higher wins. */
@@ -34,7 +41,8 @@ export class EvidenceRegistry {
    * Merge rule: same key and value keeps one entry (strongest confidence, first source).
    * A different value turns the entry `conflicting`; `conflicts` then lists
    * `"<value> (<source>)"` for every distinct observation and `value` stays the first one seen.
-   * A conflicting entry stays conflicting.
+   * A conflicting entry stays conflicting. Merges keep the first entry's `origin`. A fresh
+   * `conflicting` entry takes `e.conflicts` (sanitised) as supplied.
    *
    * @param e - The observation.
    * @returns The resulting (merged) entry.
@@ -51,7 +59,9 @@ export class EvidenceRegistry {
         confidence: e.confidence,
         timestamp: e.timestamp ?? new Date().toISOString(),
         revision: e.revision,
-        conflicts: [],
+        conflicts:
+          e.confidence === "conflicting" ? (e.conflicts ?? []).map(sanitizeEvidenceValue) : [],
+        origin: e.origin ?? "programmatic",
       };
       this.entries.set(e.key, created);
       return { ...created };

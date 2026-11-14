@@ -1,4 +1,11 @@
 import { z } from "zod";
+import { CONTRACT_VERSION } from "./constants";
+
+/**
+ * Zod schema. The contract version every persisted or exchanged document carries as
+ * `schemaVersion`; a breaking change bumps {@link CONTRACT_VERSION} (PRD §6.6, §13.2).
+ */
+export const SchemaVersionSchema = z.literal(CONTRACT_VERSION);
 
 /**
  * Zod schema. How well an evidence value is established: directly observed, inferred, contradicted
@@ -31,6 +38,14 @@ export const EvidenceCategorySchema = z.enum([
 export type EvidenceCategory = z.infer<typeof EvidenceCategorySchema>;
 
 /**
+ * Zod schema. Who established an evidence item: programmatic discovery, the analysis agent, or
+ * the user (PRD §7: evidence consolidates programmatic discoveries and agentic inferences).
+ */
+export const EvidenceOriginSchema = z.enum(["programmatic", "agentic", "user"]);
+/** Type inferred from {@link EvidenceOriginSchema}. */
+export type EvidenceOrigin = z.infer<typeof EvidenceOriginSchema>;
+
+/**
  * Zod schema. One discovered fact about the repository with its source, confidence and revision,
  * as stored in the evidence registry (PRD §7). `conflicts` lists keys of contradicting
  * evidence.
@@ -44,6 +59,7 @@ export const EvidenceSchema = z.object({
   timestamp: z.string(),
   revision: z.string(),
   conflicts: z.array(z.string()),
+  origin: EvidenceOriginSchema.default("programmatic"),
 });
 /** Type inferred from {@link EvidenceSchema}. */
 export type Evidence = z.infer<typeof EvidenceSchema>;
@@ -122,7 +138,8 @@ export const AssumptionSchema = z.object({
   assumption: z.string(),
   basis: z.string(),
   impact: z.string(),
-  status: z.enum(["declined", "skipped", "unanswered"]),
+  // "not-asked": recorded by the analysis agent rather than from a user reply (PRD §6.6, §10.6).
+  status: z.enum(["declined", "skipped", "unanswered", "not-asked"]),
 });
 /** Type inferred from {@link AssumptionSchema}. */
 export type Assumption = z.infer<typeof AssumptionSchema>;
@@ -145,6 +162,8 @@ export const PipelineStatusSchema = z.enum([
   "generating",
   "evaluating",
   "waiting-for-clarification",
+  // Suggest mode: the user approves synthesis; the SLA is paused (PRD §5.4, §10.3).
+  "waiting-for-approval",
   "resuming",
   "activating",
   "completed",
@@ -178,6 +197,7 @@ export const EvalIdSchema = z.enum([
   "completeness",
   "scope",
   "role",
+  "evidence-classification",
   "assumptions",
   "duplication",
   "conciseness",
@@ -264,16 +284,39 @@ export const SessionMetricsSchema = z.object({
   cacheLookups: z.number(),
   evaluationMs: z.number(),
   activationMs: z.number(),
-  outcome: z.enum(["activated", "timeout", "failed", "skipped"]).optional(),
+  contextRequests: z.number().default(0),
+  contextRequestRounds: z.number().default(0),
+  analysisSubmissions: z.number().default(0),
+  packetTokens: z.number().default(0),
+  /** Active ms at the end of `discover`; start of the analysis stage (PRD §10.8). */
+  analysisStartedAtActiveMs: z.number().nullable().default(null),
+  outcome: z.enum(["activated", "augmented", "reused", "timeout", "failed", "skipped"]).optional(),
 });
 /** Type inferred from {@link SessionMetricsSchema}. */
 export type SessionMetrics = z.infer<typeof SessionMetricsSchema>;
+
+/**
+ * Zod schema. Verdict on whether an existing skill covers the task: fully, partially or not at
+ * all (PRD §5.5).
+ */
+export const SufficiencyOutcomeSchema = z.enum(["sufficient", "partial", "insufficient"]);
+/** Type inferred from {@link SufficiencyOutcomeSchema}. */
+export type SufficiencyOutcome = z.infer<typeof SufficiencyOutcomeSchema>;
+
+/**
+ * Zod schema. Whether the user's approval of synthesis is needed and where it stands (PRD §5.4,
+ * §5.5).
+ */
+export const ApprovalStateSchema = z.enum(["not-required", "pending", "approved", "declined"]);
+/** Type inferred from {@link ApprovalStateSchema}. */
+export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
 
 /**
  * Zod schema. Complete persisted state of one session, sufficient to resume after a clarification
  * pause (PRD §10.5, §10.8).
  */
 export const SessionStateSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
   id: z.string(),
   task: z.string(),
   mode: InvocationModeSchema,
@@ -295,6 +338,26 @@ export const SessionStateSchema = z.object({
   blockedBy: z.array(z.string()),
   evalAttempts: z.number(),
   skillName: z.string().optional(),
+  requirements: z.array(RequirementSchema).default([]),
+  // PRD §5.5: the recorded sufficiency verdict, with the base skill pinned by sha256.
+  sufficiency: z
+    .object({
+      outcome: SufficiencyOutcomeSchema,
+      baseSkill: z
+        .object({
+          name: z
+            .string()
+            .max(64)
+            .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+          path: z.string(),
+          sha256: z.string(),
+        })
+        .nullable(),
+      baseInstructionFile: z.string().nullable(),
+      approval: ApprovalStateSchema,
+    })
+    .nullable()
+    .default(null),
   metrics: SessionMetricsSchema,
 });
 /** Type inferred from {@link SessionStateSchema}. */
@@ -334,6 +397,8 @@ export const GeneratedSkillSchema = z.object({
   raw: z.string(),
   references: z.array(z.string()),
   tokenEstimate: z.number(),
+  // PRD §13.2: set when the skill augments an existing one (metadata.augments / augments-sha256).
+  augments: z.object({ name: z.string(), sha256: z.string() }).nullable().default(null),
 });
 /** Type inferred from {@link GeneratedSkillSchema}. */
 export type GeneratedSkill = z.infer<typeof GeneratedSkillSchema>;

@@ -6,6 +6,7 @@ function state(
   sla = SlaClock.start(60_000, 0).snapshot(0),
 ): SessionState {
   return {
+    schemaVersion: "1",
     id: "ds-1",
     task: "t",
     mode: "auto",
@@ -21,6 +22,8 @@ function state(
     gaps: [],
     blockedBy: [],
     evalAttempts: 0,
+    requirements: [],
+    sufficiency: null,
     metrics: {
       wallStartedAt: 0,
       stageMs: {},
@@ -31,6 +34,11 @@ function state(
       cacheLookups: 0,
       evaluationMs: 0,
       activationMs: 0,
+      contextRequests: 0,
+      contextRequestRounds: 0,
+      analysisSubmissions: 0,
+      packetTokens: 0,
+      analysisStartedAtActiveMs: null,
     },
     ...over,
   };
@@ -58,6 +66,11 @@ Processing SLA: RESUMED
 
 Active processing remaining: 42s`;
 
+const RESUMING_APPROVAL_TEXT = RESUMING_TEXT.replace(
+  "Clarification: Received",
+  "Approval: Received",
+);
+
 describe("renderStatus", () => {
   it("renders the waiting block exactly", () => {
     const clock = SlaClock.start(60_000, 0);
@@ -76,6 +89,27 @@ describe("renderStatus", () => {
     clock.resume(100_000);
     const s = state({ status: "resuming", sla: clock.snapshot(100_000) });
     expect(renderStatus(s, 100_000)).toBe(RESUMING_TEXT);
+  });
+
+  it("renders the waiting-for-approval block with a paused SLA", () => {
+    const clock = SlaClock.start(60_000, 0);
+    clock.pause(18_000);
+    const s = state({ status: "waiting-for-approval", sla: clock.snapshot(18_000) });
+    expect(renderStatus(s, 100_000)).toBe(
+      "Dynamic Skills\n\nStatus: Waiting for approval\n\nProcessing SLA: PAUSED\nActive processing used: 18s / 60s",
+    );
+  });
+
+  it("renders 'Approval: Received' when resuming after sufficiency-approve", () => {
+    const clock = SlaClock.start(60_000, 0);
+    clock.pause(18_000);
+    clock.resume(100_000);
+    const s = state({
+      status: "resuming",
+      sla: clock.snapshot(100_000),
+      completedSteps: ["sufficiency-approve"],
+    });
+    expect(renderStatus(s, 100_000)).toBe(RESUMING_APPROVAL_TEXT);
   });
 
   it("renders running statuses with floored seconds", () => {

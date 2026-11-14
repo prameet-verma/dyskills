@@ -1,4 +1,5 @@
 {
+  "$id": "dynamic-skills/v1/evidence.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
@@ -49,6 +50,15 @@
       "items": {
         "type": "string"
       }
+    },
+    "origin": {
+      "default": "programmatic",
+      "type": "string",
+      "enum": [
+        "programmatic",
+        "agentic",
+        "user"
+      ]
     }
   },
   "required": [
@@ -59,7 +69,8 @@
     "confidence",
     "timestamp",
     "revision",
-    "conflicts"
+    "conflicts",
+    "origin"
   ],
   "additionalProperties": false
 }

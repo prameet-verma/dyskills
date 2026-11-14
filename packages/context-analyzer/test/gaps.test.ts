@@ -17,6 +17,7 @@ const ev = (
   timestamp: "",
   revision: "r",
   conflicts: [],
+  origin: "programmatic",
 });
 const req = (id: string, category: Requirement["category"], humanOnly = false): Requirement => ({
   id,

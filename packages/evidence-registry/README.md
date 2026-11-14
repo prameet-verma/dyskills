@@ -11,6 +11,9 @@ repository content cannot leak secrets or break out of the fenced evidence block
   `toJSON`, `EvidenceRegistry.fromJSON`. Identical observations merge (strongest confidence
   wins: verified > inferred > assumed; first source kept). A different value for a key makes
   it `conflicting`, with `conflicts` listing `"<value> (<source>)"` for each observation.
+  `add` accepts `origin` (`programmatic` default, `agentic`, `user`; the first entry's origin is
+  kept on merge, and `toJSON` includes it) and `conflicts` (sanitised, used only when a fresh
+  entry is added as `conflicting`).
 - **`sanitizeEvidenceValue(raw)`** (`sanitize.ts`): redacts GitHub tokens, `sk-` keys, AWS
   access keys and private-key headers, collapses whitespace, replaces `<` `>` with `‹` `›`
   and truncates to 500 characters.

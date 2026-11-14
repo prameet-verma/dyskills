@@ -1,0 +1,52 @@
+{
+  "$id": "dynamic-skills/v1/clarification-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "questions": {
+      "minItems": 1,
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "requirement": {
+            "type": "string"
+          },
+          "evidenceKey": {
+            "type": "string"
+          },
+          "material": {
+            "type": "boolean"
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "requirement",
+          "material",
+          "blocking"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "questions"
+  ],
+  "additionalProperties": false
+}

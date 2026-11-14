@@ -1,0 +1,526 @@
+{
+  "$id": "dynamic-skills/v1/context-packet.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "packetRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string",
+      "const": "untrusted"
+    },
+    "notice": {
+      "type": "string"
+    },
+    "task": {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "type": "string"
+        },
+        "expectedOutcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    "repository": {
+      "type": "object",
+      "properties": {
+        "identity": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity",
+        "root",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "technology": {
+      "type": "object",
+      "properties": {
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "frameworks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtimes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packageManagers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "languages",
+        "frameworks",
+        "runtimes",
+        "packageManagers"
+      ],
+      "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "evidenceKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "evidenceKey"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "projectInstructions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "truncated"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "configuration": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "build",
+              "test",
+              "ci",
+              "monorepo",
+              "runtime",
+              "other"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "architecture": {
+      "type": "object",
+      "properties": {
+        "topLevelDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "entrypoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "topLevelDirs",
+        "entrypoints"
+      ],
+      "additionalProperties": false
+    },
+    "relevantFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "addedInRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "path",
+          "reason",
+          "truncated",
+          "addedInRevision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "existingSkills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "project",
+              "personal"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "scope"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic",
+              "user"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "inferred",
+              "conflicting",
+              "assumed"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "origin": {
+            "default": "programmatic",
+            "type": "string",
+            "enum": [
+              "programmatic",
+              "agentic",
+              "user"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "category",
+          "source",
+          "confidence",
+          "timestamp",
+          "revision",
+          "conflicts",
+          "origin"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "requirement": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic",
+              "user"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "needs-investigation",
+              "missing",
+              "conflicting"
+            ]
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "none",
+              "inspect",
+              "ask"
+            ]
+          },
+          "evidenceKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "material": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirement",
+          "category",
+          "status",
+          "resolution",
+          "evidenceKeys",
+          "material"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "probes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "requirement": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "suggestedFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "requirement",
+          "question",
+          "suggestedFiles"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "limitations": {
+      "type": "object",
+      "properties": {
+        "indexTruncated": {
+          "type": "boolean"
+        },
+        "depthLimited": {
+          "type": "boolean"
+        },
+        "filesIndexed": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "skippedDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "secretPolicy": {
+          "type": "string"
+        },
+        "detectorErrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "detector": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "detector",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "detectorsNotRun": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excerptsDropped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "indexTruncated",
+        "depthLimited",
+        "filesIndexed",
+        "skippedDirs",
+        "secretPolicy",
+        "detectorErrors",
+        "detectorsNotRun",
+        "excerptsDropped"
+      ],
+      "additionalProperties": false
+    },
+    "size": {
+      "type": "object",
+      "properties": {
+        "chars": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "estimatedTokens": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "chars",
+        "estimatedTokens"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "packetRevision",
+    "createdAt",
+    "trust",
+    "notice",
+    "task",
+    "repository",
+    "technology",
+    "dependencies",
+    "projectInstructions",
+    "configuration",
+    "architecture",
+    "relevantFiles",
+    "existingSkills",
+    "evidence",
+    "gaps",
+    "probes",
+    "limitations",
+    "size"
+  ],
+  "additionalProperties": false
+}

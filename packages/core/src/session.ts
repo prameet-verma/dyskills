@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { DEFAULT_BUDGET_MS } from "./constants";
+import { CONTRACT_VERSION, DEFAULT_BUDGET_MS } from "./constants";
 import { SessionStateSchema } from "./schemas";
 import type { InvocationMode, SessionState, StageName } from "./schemas";
 import { SlaClock } from "./sla";
@@ -104,6 +104,7 @@ export class SessionStore {
     const now = init.now ?? Date.now();
     const id = `ds-${stamp(now)}-${randomBytes(3).toString("hex")}`;
     const state: SessionState = {
+      schemaVersion: CONTRACT_VERSION,
       id,
       task: init.task,
       mode: init.mode,
@@ -119,6 +120,8 @@ export class SessionStore {
       gaps: [],
       blockedBy: [],
       evalAttempts: 0,
+      requirements: [],
+      sufficiency: null,
       metrics: {
         wallStartedAt: now,
         stageMs: {},
@@ -129,6 +132,11 @@ export class SessionStore {
         cacheLookups: 0,
         evaluationMs: 0,
         activationMs: 0,
+        contextRequests: 0,
+        contextRequestRounds: 0,
+        analysisSubmissions: 0,
+        packetTokens: 0,
+        analysisStartedAtActiveMs: null,
       },
     };
     await mkdir(this.dir(id), { recursive: true });

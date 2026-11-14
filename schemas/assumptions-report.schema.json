@@ -1,0 +1,57 @@
+{
+  "$id": "dynamic-skills/v1/assumptions-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "questionId": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "assumption": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "declined",
+              "skipped",
+              "unanswered",
+              "not-asked"
+            ]
+          }
+        },
+        "required": [
+          "questionId",
+          "question",
+          "assumption",
+          "basis",
+          "impact",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "items"
+  ],
+  "additionalProperties": false
+}

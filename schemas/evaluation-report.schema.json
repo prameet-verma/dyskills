@@ -1,0 +1,163 @@
+{
+  "$id": "dynamic-skills/v1/evaluation-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "spec",
+              "metadata",
+              "grounding",
+              "completeness",
+              "scope",
+              "role",
+              "evidence-classification",
+              "assumptions",
+              "duplication",
+              "conciseness",
+              "references",
+              "portability",
+              "security",
+              "behavioural-definition",
+              "behavioural"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "warning",
+              "fail",
+              "not-applicable"
+            ]
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "durationMs": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "mandatory",
+          "messages",
+          "durationMs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "overall": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "warning",
+        "fail",
+        "not-applicable"
+      ]
+    },
+    "activatable": {
+      "type": "boolean"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "revisionHints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "durationMs": {
+      "type": "number"
+    },
+    "parallelOps": {
+      "type": "number"
+    },
+    "behavioural": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "spec",
+            "metadata",
+            "grounding",
+            "completeness",
+            "scope",
+            "role",
+            "evidence-classification",
+            "assumptions",
+            "duplication",
+            "conciseness",
+            "references",
+            "portability",
+            "security",
+            "behavioural-definition",
+            "behavioural"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "warning",
+            "fail",
+            "not-applicable"
+          ]
+        },
+        "mandatory": {
+          "type": "boolean"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "durationMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "outcome",
+        "mandatory",
+        "messages",
+        "durationMs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "results",
+    "overall",
+    "activatable",
+    "limitations",
+    "revisionHints",
+    "durationMs",
+    "parallelOps"
+  ],
+  "additionalProperties": false
+}
