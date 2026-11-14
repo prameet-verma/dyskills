@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Evidence } from "@dynamic-skills/core";
 import { EvidenceRegistry } from "../src/index";
 
 const base = { category: "package-manager", revision: "x" } as const;
@@ -120,5 +121,19 @@ describe("EvidenceRegistry", () => {
     });
     expect(e.conflicts).toEqual(["a (x)", "‹b› (y)"]);
     expect(e.origin).toBe("agentic");
+  });
+
+  it("defaults origin to programmatic when loading legacy evidence", () => {
+    const legacy = {
+      key: "k",
+      value: "v",
+      category: "build",
+      source: "s",
+      confidence: "verified",
+      timestamp: "t",
+      revision: "r",
+      conflicts: [],
+    } as unknown as Evidence;
+    expect(EvidenceRegistry.fromJSON([legacy]).get("k")?.origin).toBe("programmatic");
   });
 });

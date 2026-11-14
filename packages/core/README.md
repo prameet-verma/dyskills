@@ -24,8 +24,11 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   `SufficiencyReportSchema`, `EvaluationReportSchema`, `SemanticProbeSchema`,
   `AnalysisCategorySchema`, each with an inferred type, plus the PRD §13.2 aliases
   `ContextEvidence`, `ContextGap`, `SkillEvaluationReport`. Agent-submitted documents are strict.
-  `SkillBootstrapRequest` (the `assess` flags) and `SkillBootstrapResult` (the `activate` stdout)
-  are documented in ADR 0004 rather than given schemas.
+  `SkillBootstrapRequest` is the set of `assess` flags (task, mode, explicit, repo, budget) that
+  starts a session; `SkillBootstrapResult` is the JSON object the `activate` and
+  `sufficiency submit` commands print on stdout (`ok`, `schemaVersion` and the outcome fields).
+  Both are documented in ADR 0004 rather than given schemas. `SkillNameSchema` is the single
+  Agent Skills name validator.
 - **`generateSchemas()`** (`json-schemas.ts`): the 20 JSON Schemas written to `/schemas`, each
   with `$id: "dynamic-skills/v1/<file>"`; agent-submitted documents use input mode.
 - **Constants** (`constants.ts`): `DEFAULT_BUDGET_MS`, `MAX_CLARIFICATION_ROUNDS`,

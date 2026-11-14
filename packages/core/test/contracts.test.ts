@@ -335,6 +335,34 @@ describe("ContextRequest and ClarificationRequest", () => {
   });
 });
 
+describe("ClarificationResponse strictness", () => {
+  it("rejects an extra key inside answers[].assumption", () => {
+    const doc = (assumption: object) => ({
+      schemaVersion: "1",
+      answers: [{ questionId: "q", status: "skipped", assumption }],
+    });
+    const a = { assumption: "a", basis: "b", impact: "i" };
+    expect(ClarificationResponseSchema.safeParse(doc(a)).success).toBe(true);
+    expect(ClarificationResponseSchema.safeParse(doc({ ...a, extra: 1 })).success).toBe(false);
+  });
+});
+
+describe("SessionState sufficiency base skill name", () => {
+  it("rejects a path-like name", () => {
+    const withName = (name: string) => ({
+      ...session,
+      sufficiency: {
+        outcome: "partial",
+        baseSkill: { name, path: "/p", sha256: "x" },
+        baseInstructionFile: null,
+        approval: "pending",
+      },
+    });
+    expect(SessionStateSchema.safeParse(withName("order-caching")).success).toBe(true);
+    expect(SessionStateSchema.safeParse(withName("../evil")).success).toBe(false);
+  });
+});
+
 describe("SkillSufficiencyAssessment", () => {
   const base = { schemaVersion: "1", rationale: "r" };
   const skill = { name: "order-caching", path: "/h/order-caching/SKILL.md" };

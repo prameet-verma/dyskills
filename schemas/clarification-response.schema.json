@@ -45,7 +45,8 @@
               "assumption",
               "basis",
               "impact"
-            ]
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

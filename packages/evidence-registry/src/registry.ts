@@ -133,7 +133,13 @@ export class EvidenceRegistry {
    */
   static fromJSON(items: Evidence[]): EvidenceRegistry {
     const r = new EvidenceRegistry();
-    for (const e of items) r.entries.set(e.key, { ...e, conflicts: [...e.conflicts] });
+    for (const e of items)
+      // Legacy evidence written before `origin` existed is programmatic by construction.
+      r.entries.set(e.key, {
+        ...e,
+        origin: e.origin ?? "programmatic",
+        conflicts: [...e.conflicts],
+      });
     return r;
   }
 }

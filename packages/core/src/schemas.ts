@@ -296,6 +296,15 @@ export const SessionMetricsSchema = z.object({
 export type SessionMetrics = z.infer<typeof SessionMetricsSchema>;
 
 /**
+ * Zod schema. Agent Skills name: 1-64 kebab-case characters, so no path separators or quotes can
+ * reach a path or frontmatter (PRD §5.5). Single definition shared by every contract.
+ */
+export const SkillNameSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+
+/**
  * Zod schema. Verdict on whether an existing skill covers the task: fully, partially or not at
  * all (PRD §5.5).
  */
@@ -345,10 +354,7 @@ export const SessionStateSchema = z.object({
       outcome: SufficiencyOutcomeSchema,
       baseSkill: z
         .object({
-          name: z
-            .string()
-            .max(64)
-            .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+          name: SkillNameSchema,
           path: z.string(),
           sha256: z.string(),
         })

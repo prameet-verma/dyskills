@@ -17,6 +17,7 @@ import {
   QuestionSchema,
   SchemaVersionSchema,
   SessionMetricsSchema,
+  SkillNameSchema,
   StageNameSchema,
   SufficiencyOutcomeSchema,
 } from "./schemas";
@@ -30,11 +31,6 @@ const Text = z.string().min(1).max(500);
 const List = z.array(Text).max(MAX_ANALYSIS_LIST_ITEMS);
 /** Source reference (path or evidence key). */
 const Src = z.string().min(1).max(300);
-/** Agent Skills name: no path separators or quotes (PRD §5.5). */
-const SkillName = z
-  .string()
-  .max(64)
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 
 /**
  * Zod schema. A bounded investigation the agent should perform to close an `inspect` gap (PRD
@@ -148,11 +144,7 @@ export const ContextAnalysisResultSchema = z.strictObject({
   evidence: z
     .array(
       z.strictObject({
-        key: z
-          .string()
-          .max(40)
-          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
-          .optional(),
+        key: SkillNameSchema.max(40).optional(),
         claim: Text,
         source: Src,
         type: z.enum(["observed", "inferred"]),
@@ -212,7 +204,7 @@ export type ContextRequest = z.infer<typeof ContextRequestSchema>;
 /** Zod schema. Accepted `--file` input listing clarification questions for the user (PRD §10.4). */
 export const ClarificationRequestSchema = z.strictObject({
   schemaVersion: SchemaVersionSchema,
-  questions: z.array(QuestionSchema.strict()).min(1).max(10),
+  questions: z.array(z.strictObject(QuestionSchema.shape)).min(1).max(10),
 });
 /** Type inferred from {@link ClarificationRequestSchema}. */
 export type ClarificationRequest = z.infer<typeof ClarificationRequestSchema>;
@@ -220,7 +212,18 @@ export type ClarificationRequest = z.infer<typeof ClarificationRequestSchema>;
 /** Zod schema. Accepted `--file` input carrying the user's answers (PRD §10.4, §10.6). */
 export const ClarificationResponseSchema = z.strictObject({
   schemaVersion: SchemaVersionSchema,
-  answers: z.array(AnswerSchema.strict()).min(1).max(10),
+  answers: z
+    .array(
+      // Strict at both levels: the nested assumption must reject unknown keys too (PRD §6.5).
+      z.strictObject({
+        ...AnswerSchema.shape,
+        assumption: z
+          .strictObject({ assumption: z.string(), basis: z.string(), impact: z.string() })
+          .optional(),
+      }),
+    )
+    .min(1)
+    .max(10),
 });
 /** Type inferred from {@link ClarificationResponseSchema}. */
 export type ClarificationResponse = z.infer<typeof ClarificationResponseSchema>;
@@ -303,7 +306,9 @@ export const SkillSufficiencyAssessmentSchema = z
   .strictObject({
     schemaVersion: SchemaVersionSchema,
     outcome: SufficiencyOutcomeSchema,
-    baseSkill: z.strictObject({ name: SkillName, path: z.string().min(1).max(1024) }).optional(),
+    baseSkill: z
+      .strictObject({ name: SkillNameSchema, path: z.string().min(1).max(1024) })
+      .optional(),
     baseInstructionFile: Src.optional(),
     rationale: z.string().min(1).max(1000),
     missingAspects: z.array(Text).max(MAX_SUFFICIENCY_ASPECTS).default([]),
