@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve, sep } from "node:path";
 import { SKIPPED_DIRS } from "./file-index";
 import { isSecretPath } from "./secrets";
@@ -17,6 +17,8 @@ export type ResolvedRepoPath =
       rel: string;
       /** Real (symlink-resolved) absolute path. */
       abs: string;
+      /** Real POSIX path relative to the real repo root; use it to detect aliases of one file. */
+      realRel: string;
     }
   | { ok: false; reason: RepoPathRejection };
 
@@ -28,6 +30,27 @@ function isInside(rel: string): boolean {
 /** True when any segment of a POSIX path is a skipped directory (dependencies, build output). */
 function hasSkippedSegment(rel: string): boolean {
   return rel.split("/").some((s) => SKIPPED_DIRS.includes(s));
+}
+
+/**
+ * Reads a file through a single handle so the regular-file and size checks apply to exactly
+ * the bytes read (no gap between a `stat` and a later read).
+ *
+ * @param abs - Absolute (real) path.
+ * @returns UTF-8 text, or `null` when not a regular file, over 1 MB or unreadable.
+ */
+export async function readRealFile(abs: string): Promise<string | null> {
+  let handle;
+  try {
+    handle = await open(abs, "r");
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > MAX_READ_BYTES) return null;
+    return await handle.readFile("utf8");
+  } catch {
+    return null;
+  } finally {
+    await handle?.close();
+  }
 }
 
 /**
@@ -63,9 +86,8 @@ export async function resolveRepoPath(repo: string, rel: string): Promise<Resolv
     const backPosix = back.split(sep).join("/");
     if (isSecretPath(backPosix)) return { ok: false, reason: "secret" };
     if (hasSkippedSegment(backPosix)) return { ok: false, reason: "excluded" };
-    const info = await stat(real);
-    if (!info.isFile() || info.size > MAX_READ_BYTES) return { ok: false, reason: "missing" };
-    return { ok: true, rel: normalised, abs: real };
+    if ((await readRealFile(real)) === null) return { ok: false, reason: "missing" };
+    return { ok: true, rel: normalised, abs: real, realRel: backPosix };
   } catch {
     return { ok: false, reason: "missing" };
   }
@@ -82,10 +104,6 @@ export function createRepoReader(repo: string): (rel: string) => Promise<string 
   return async (rel) => {
     const r = await resolveRepoPath(repo, rel);
     if (!r.ok) return null;
-    try {
-      return await readFile(r.abs, "utf8");
-    } catch {
-      return null;
-    }
+    return readRealFile(r.abs);
   };
 }

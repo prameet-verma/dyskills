@@ -134,12 +134,13 @@ export function consolidateAnalysis(input: ConsolidateInput): ConsolidateOutput 
   const evidenceAdded: string[] = [];
   const downgraded: string[] = [];
   const warnings: string[] = [];
-  const seen = new Map<string, number>();
+  // Every emitted key, so a generated `-2` suffix cannot collide with an agent-chosen key.
+  const emitted = new Set<string>();
   for (const item of input.result.evidence) {
     const base = `agentic.${item.category}.${item.key ?? slugify(item.claim)}`;
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    const key = n === 1 ? base : `${base}-${n}`;
+    let key = base;
+    for (let n = 2; emitted.has(key); n++) key = `${base}-${n}`;
+    emitted.add(key);
     let confidence: Evidence["confidence"] = "inferred";
     if (item.type === "observed") {
       if (resolvable(item.source)) confidence = "verified";

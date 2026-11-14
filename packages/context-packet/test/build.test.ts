@@ -37,7 +37,6 @@ describe("buildContextPacket", () => {
   it("contains no secrets and no harness identifiers", async () => {
     const repo = await tmpRepo();
     await put(repo, ".claude/skills/x/SKILL.md", "---\nname: x\ndescription: d\n---\nbody");
-    await put(repo, "packages/orders/src/index.ts", "export const k = 'FAKE_SECRET_VALUE_123';\n");
     await put(repo, ".env", "TOKEN=FAKE_SECRET_VALUE_123");
     const scan: SkillsScan = {
       ...EMPTY_SCAN,
@@ -52,6 +51,7 @@ describe("buildContextPacket", () => {
     };
     const p = await buildFor(repo, CACHING_TASK, { scan });
     const json = JSON.stringify(p);
+    expect(json).not.toContain("FAKE_SECRET_VALUE_123");
     expect(json).not.toContain('.env"');
     expect(json).not.toContain('"harness"');
     expect(json).not.toContain(".claude/");

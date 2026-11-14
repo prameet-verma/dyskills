@@ -9,7 +9,11 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /ghp_[A-Za-z0-9]{36}/g,
   /sk-[A-Za-z0-9_-]{20,}/g,
   /AKIA[0-9A-Z]{16}/g,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,
+  // Whole PEM block (header, base64 body, footer); an unterminated block is redacted to the end.
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+  /github_pat_[A-Za-z0-9_]{22,}/g,
+  /gh[osu]_[A-Za-z0-9]{36}/g,
+  /xox[bp]-[A-Za-z0-9-]{10,}/g,
 ];
 
 /**

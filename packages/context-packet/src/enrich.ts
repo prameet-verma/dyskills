@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import {
   DISCOVERY_CONCURRENCY,
   MAX_CONTEXT_REQUEST_ROUNDS,
@@ -8,7 +7,7 @@ import {
   type ContextPacket,
   type ContextRequest,
 } from "@dynamic-skills/core";
-import { resolveRepoPath } from "@dynamic-skills/discovery";
+import { readRealFile, resolveRepoPath } from "@dynamic-skills/discovery";
 import { sanitizeEvidenceValue } from "@dynamic-skills/evidence-registry";
 import { measurePacket } from "./build";
 import { sanitizeExcerpt } from "./excerpt";
@@ -19,7 +18,7 @@ export type EnrichRejection =
 
 /** Result of {@link enrichContextPacket}. */
 export interface EnrichResult {
-  /** The enriched packet (the input object itself when nothing changed on a round-limit). */
+  /** The enriched packet; the input object itself whenever nothing was added. */
   packet: ContextPacket;
   /** Normalised paths added, in request order. */
   added: string[];
@@ -65,20 +64,18 @@ export async function enrichContextPacket(
   for (const [index, item] of request.requests.entries()) {
     const r = await resolveRepoPath(ctx.repo, item.path);
     if (!r.ok) outcome.set(index, r.reason);
-    else if (known.has(r.rel)) outcome.set(index, "duplicate");
+    // Dedupe on the real path too, so a symlink or case alias of a known file is a duplicate.
+    else if (known.has(r.rel) || known.has(r.realRel)) outcome.set(index, "duplicate");
     else {
       known.add(r.rel);
+      known.add(r.realRel);
       accepted.push({ index, rel: r.rel, abs: r.abs, reason: item.reason });
     }
   }
 
   // Phase 2: bounded concurrent reads.
   const texts = await mapConcurrent(accepted, DISCOVERY_CONCURRENCY, async (a) => {
-    try {
-      return await readFile(a.abs, "utf8");
-    } catch {
-      return null;
-    }
+    return readRealFile(a.abs);
   });
 
   // Phase 3: assemble in request order, enforcing the budget file by file.

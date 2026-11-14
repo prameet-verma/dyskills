@@ -40,3 +40,19 @@ describe("buildFileIndex", () => {
     expect(idx.files).toEqual(["top.txt"]);
   });
 });
+
+describe("depthLimited", () => {
+  it("is true when directories below maxDepth were not walked", () => {
+    const repo = mkdtempSync(join(tmpdir(), "ds-deep-"));
+    const deep = join(repo, "a/b/c/d/e/f/g/h");
+    mkdirSync(deep, { recursive: true });
+    writeFileSync(join(deep, "x.ts"), "x");
+    return buildFileIndex(repo).then(async (idx) => {
+      expect(idx.depthLimited).toBe(true);
+      expect(idx.files).not.toContain("a/b/c/d/e/f/g/h/x.ts");
+      const full = await buildFileIndex(repo, { maxDepth: 20 });
+      expect(full.depthLimited).toBe(false);
+      expect(full.files).toContain("a/b/c/d/e/f/g/h/x.ts");
+    });
+  });
+});

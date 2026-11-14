@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ContextPacket, SkillsScan } from "@dynamic-skills/core";
@@ -7,7 +7,7 @@ import {
   deriveRequirements,
   planSemanticProbes,
 } from "@dynamic-skills/context-analyzer";
-import { ALL_DETECTORS, runDiscovery } from "@dynamic-skills/discovery";
+import { runDiscovery } from "@dynamic-skills/discovery";
 import { buildContextPacket } from "../src/index";
 
 /** Absolute path of a fixture repository under `fixtures/repos`. */
@@ -59,5 +59,3 @@ export async function buildFor(
     ...extra,
   });
 }
-
-export { ALL_DETECTORS, symlink, writeFile };

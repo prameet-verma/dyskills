@@ -182,6 +182,30 @@ describe("consolidateAnalysis", () => {
     expect(out.downgraded).toEqual([]);
   });
 
+  it("keeps generated key suffixes distinct from agent-chosen keys", async () => {
+    const s = await setup();
+    const item = (key: string, claim: string) => ({
+      key,
+      claim,
+      source: "packages/orders/src/index.ts",
+      type: "inferred" as const,
+      category: "architecture" as const,
+    });
+    const out = consolidateAnalysis({
+      result: withResult({ evidence: [item("x-2", "a"), item("x", "b"), item("x", "c")] }),
+      registry: s.registry,
+      packet: makePacket(),
+      files: s.files,
+      requirements: s.requirements,
+      assumptions: [],
+      revision: "x",
+    });
+    expect(new Set(out.evidenceAdded).size).toBe(3);
+    for (const k of out.evidenceAdded) {
+      expect(s.registry.get(k)?.confidence).toBe("inferred");
+    }
+  });
+
   it("turns a critical unknown into a material ask gap", async () => {
     const s = await setup();
     const out = consolidateAnalysis({

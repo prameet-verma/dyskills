@@ -70,6 +70,23 @@ describe("enrichContextPacket", () => {
     expect(JSON.stringify(packet)).toBe(before);
   });
 
+  it("treats a symlink alias of a known file as a duplicate", async () => {
+    const { repo, packet } = await setup();
+    await symlink("packages/orders/src/index.ts", join(repo, "alias.ts"));
+    await symlink("README.md", join(repo, "readme-link.md"));
+    const first = await enrichContextPacket(packet, req(["README.md"]), { repo, roundsUsed: 0 });
+    expect(first.added).toEqual(["README.md"]);
+    const r = await enrichContextPacket(first.packet, req(["readme-link.md", "alias.ts"]), {
+      repo,
+      roundsUsed: 1,
+    });
+    expect(r.rejected).toEqual([
+      { path: "readme-link.md", reason: "duplicate" },
+      { path: "alias.ts", reason: "duplicate" },
+    ]);
+    expect(r.added).toEqual([]);
+  });
+
   it("rejects everything after three rounds", async () => {
     const { repo, packet } = await setup();
     const r = await enrichContextPacket(packet, req(["README.md", "nx.json"]), {
@@ -90,7 +107,7 @@ describe("enrichContextPacket", () => {
       roundsUsed: 0,
       budgetTokens,
     });
-    // README.md is small, so use a large file for the over-budget case.
+    expect(r.rejected).toEqual([{ path: "README.md", reason: "over-budget" }]);
     await put(repo, "big.ts", "z".repeat(5_000));
     const r2 = await enrichContextPacket(packet, req(["big.ts"]), {
       repo,
@@ -100,6 +117,5 @@ describe("enrichContextPacket", () => {
     expect(r2.rejected).toEqual([{ path: "big.ts", reason: "over-budget" }]);
     expect(r2.added).toEqual([]);
     expect(r2.packet.packetRevision).toBe(1);
-    expect(r.rejected.length + r.added.length).toBe(1);
   });
 });
