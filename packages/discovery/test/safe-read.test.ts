@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createRepoReader, resolveRepoPath, SKIPPED_DIRS } from "../src/index";
+import { createRepoReader, resolveRepoPath, runDiscovery, SKIPPED_DIRS } from "../src/index";
 
 async function makeRepo(): Promise<string> {
   const base = await mkdtemp(join(tmpdir(), "ds-safe-"));
@@ -65,5 +66,18 @@ describe("createRepoReader", () => {
     expect(await read("README.md")).toBe("hello");
     expect(await read("link.txt")).toBeNull();
     expect(await read("nope")).toBeNull();
+  });
+});
+
+describe.skipIf(process.platform === "win32")("FIFOs", () => {
+  it("never block resolution, reads or discovery", { timeout: 3000 }, async () => {
+    const repo = await makeRepo();
+    execFileSync("mkfifo", [join(repo, "pipe.txt")]);
+    execFileSync("mkfifo", [join(repo, "package.json")]);
+    expect(await resolveRepoPath(repo, "pipe.txt")).toEqual({ ok: false, reason: "missing" });
+    expect(await createRepoReader(repo)("pipe.txt")).toBeNull();
+    const d = await runDiscovery({ repo, task: "x" });
+    expect(d.errors).toEqual([]);
+    expect(d.registry.get("package-manager")).toBeUndefined();
   });
 });

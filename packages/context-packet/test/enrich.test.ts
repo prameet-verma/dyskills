@@ -87,6 +87,18 @@ describe("enrichContextPacket", () => {
     expect(r.added).toEqual([]);
   });
 
+  it("treats the target of an earlier alias as a duplicate", async () => {
+    const { repo, packet } = await setup();
+    await symlink("README.md", join(repo, "readme-link.md"));
+    const first = await enrichContextPacket(packet, req(["readme-link.md"]), {
+      repo,
+      roundsUsed: 0,
+    });
+    expect(first.added).toEqual(["readme-link.md"]);
+    const r = await enrichContextPacket(first.packet, req(["README.md"]), { repo, roundsUsed: 1 });
+    expect(r.rejected).toEqual([{ path: "README.md", reason: "duplicate" }]);
+  });
+
   it("rejects everything after three rounds", async () => {
     const { repo, packet } = await setup();
     const r = await enrichContextPacket(packet, req(["README.md", "nx.json"]), {

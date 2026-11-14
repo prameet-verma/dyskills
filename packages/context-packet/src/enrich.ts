@@ -54,7 +54,13 @@ export async function enrichContextPacket(
     };
   }
   const budget = ctx.budgetTokens ?? MAX_PACKET_TOKENS;
+  // Seed with each existing entry's real path too, so a later request for the target of an
+  // earlier symlink alias (or vice versa) is a duplicate.
   const known = new Set(packet.relevantFiles.map((f) => f.path));
+  for (const f of packet.relevantFiles) {
+    const r = await resolveRepoPath(ctx.repo, f.path);
+    if (r.ok) known.add(r.realRel);
+  }
   const rejected: EnrichResult["rejected"] = [];
 
   // Phase 1: path safety and duplicates, sequential and I/O-light, preserving request order.

@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve, sep } from "node:path";
 import { SKIPPED_DIRS } from "./file-index";
@@ -32,25 +33,38 @@ function hasSkippedSegment(rel: string): boolean {
   return rel.split("/").some((s) => SKIPPED_DIRS.includes(s));
 }
 
+/** O_NONBLOCK so opening a FIFO or device never blocks; the type check then rejects it. */
+const OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
+
 /**
- * Reads a file through a single handle so the regular-file and size checks apply to exactly
- * the bytes read (no gap between a `stat` and a later read).
+ * Opens non-blocking, checks it is a regular file within the size limit, and optionally reads
+ * it through the same handle (so the checks apply to exactly the bytes read).
  *
- * @param abs - Absolute (real) path.
- * @returns UTF-8 text, or `null` when not a regular file, over 1 MB or unreadable.
+ * @returns Text when `read`, `""` when only validating, `null` when rejected or unreadable.
  */
-export async function readRealFile(abs: string): Promise<string | null> {
+async function openChecked(abs: string, read: boolean): Promise<string | null> {
   let handle;
   try {
-    handle = await open(abs, "r");
+    handle = await open(abs, OPEN_FLAGS);
     const info = await handle.stat();
     if (!info.isFile() || info.size > MAX_READ_BYTES) return null;
-    return await handle.readFile("utf8");
+    return read ? await handle.readFile("utf8") : "";
   } catch {
     return null;
   } finally {
-    await handle?.close();
+    await handle?.close().catch(() => undefined);
   }
+}
+
+/**
+ * Reads a file through a single non-blocking handle.
+ *
+ * @param abs - Absolute (real) path.
+ * @returns UTF-8 text, or `null` when not a regular file (FIFOs included), over 1 MB or
+ *   unreadable. Never throws or blocks.
+ */
+export function readRealFile(abs: string): Promise<string | null> {
+  return openChecked(abs, true);
 }
 
 /**
@@ -86,7 +100,7 @@ export async function resolveRepoPath(repo: string, rel: string): Promise<Resolv
     const backPosix = back.split(sep).join("/");
     if (isSecretPath(backPosix)) return { ok: false, reason: "secret" };
     if (hasSkippedSegment(backPosix)) return { ok: false, reason: "excluded" };
-    if ((await readRealFile(real)) === null) return { ok: false, reason: "missing" };
+    if ((await openChecked(real, false)) === null) return { ok: false, reason: "missing" };
     return { ok: true, rel: normalised, abs: real, realRel: backPosix };
   } catch {
     return { ok: false, reason: "missing" };
