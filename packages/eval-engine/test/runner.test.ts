@@ -91,4 +91,81 @@ describe("runEvaluations", () => {
     expect(report.activatable).toBe(true);
     expect(report.limitations).toEqual(["thin"]);
   });
+  it("keeps the rationale of a mandatory not-applicable", async () => {
+    const evals = [
+      fake("spec", true, async () => ({ outcome: "not-applicable", messages: ["no docs"] })),
+    ];
+    const report = await runEvaluations(await makeContext(), { evals });
+    expect(report.results[0]?.messages).toEqual(["mandatory check cannot be skipped", "no docs"]);
+  });
+  it("handles a thrown value that cannot be stringified", async () => {
+    const evals = [
+      fake("spec", true, async () => {
+        throw Object.create(null);
+      }),
+    ];
+    const report = await runEvaluations(await makeContext(), { evals });
+    expect(report.results[0]?.messages).toEqual(["eval crashed: unknown error"]);
+  });
+  it("sanitises crash messages", async () => {
+    const evals = [
+      fake("spec", true, async () => {
+        throw new Error(`a\nb ${"x".repeat(500)}`);
+      }),
+    ];
+    const report = await runEvaluations(await makeContext(), { evals });
+    const m = report.results[0]?.messages[0] as string;
+    expect(m).not.toContain("\n");
+    expect(m.length).toBeLessThan(260);
+    expect(m.endsWith("…")).toBe(true);
+  });
+  it("caps revisionHints and limitations at 50", async () => {
+    const many = Array.from({ length: 80 }, (_, i) => `m${i}`);
+    const failing = [fake("spec", true, async () => ({ outcome: "fail", messages: many }))];
+    const warning = [fake("scope", false, async () => ({ outcome: "warning", messages: many }))];
+    expect(
+      (await runEvaluations(await makeContext(), { evals: failing })).revisionHints,
+    ).toHaveLength(50);
+    expect(
+      (await runEvaluations(await makeContext(), { evals: warning })).limitations,
+    ).toHaveLength(50);
+  });
+  it("rejects an empty eval list", async () => {
+    await expect(runEvaluations(await makeContext(), { evals: [] })).rejects.toThrow(
+      "no evaluations to run",
+    );
+  });
+  it("rejects when aborted before start and mid-run", async () => {
+    const slow = () =>
+      fake("spec", true, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return { outcome: "pass" as const, messages: [] };
+      });
+    const pre = new AbortController();
+    pre.abort();
+    await expect(
+      runEvaluations(await makeContext(), { evals: [slow()], signal: pre.signal }),
+    ).rejects.toThrow();
+    const mid = new AbortController();
+    const p = runEvaluations(await makeContext(), {
+      evals: [slow(), slow(), slow()],
+      concurrency: 1,
+      signal: mid.signal,
+    });
+    setTimeout(() => mid.abort(), 20);
+    await expect(p).rejects.toThrow();
+  });
+  it("keeps input order with staggered delays and distinct ids", async () => {
+    const ids = ["spec", "metadata", "grounding", "scope"] as const;
+    const delays = [40, 5, 30, 1];
+    const evals = ids.map((id, i) =>
+      fake(id, false, async () => {
+        await new Promise((r) => setTimeout(r, delays[i]));
+        return { outcome: "pass" as const, messages: [`done ${id}`] };
+      }),
+    );
+    const report = await runEvaluations(await makeContext(), { evals, concurrency: 4 });
+    expect(report.results.map((r) => r.id)).toEqual([...ids]);
+    expect(report.results.map((r) => r.messages[0])).toEqual(ids.map((i) => `done ${i}`));
+  });
 });

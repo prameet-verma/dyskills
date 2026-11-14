@@ -13,18 +13,21 @@
       "type": "string"
     },
     "requiredOutputs": {
+      "maxItems": 50,
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "prohibited": {
+      "maxItems": 50,
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "assertions": {
+      "maxItems": 50,
       "type": "array",
       "items": {
         "type": "object",
@@ -50,6 +53,7 @@
       }
     },
     "rubric": {
+      "maxItems": 50,
       "type": "array",
       "items": {
         "type": "string"

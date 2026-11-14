@@ -23,6 +23,7 @@ import {
   securityEval,
   specEval,
 } from "./evals/structural";
+import { MAX_REPORT_ENTRIES, sanitiseForMessage } from "./behavioural";
 import type { EvalContext, GenerationEval } from "./types";
 
 /**
@@ -57,6 +58,15 @@ export interface RunOptions {
   signal?: AbortSignal;
 }
 
+/** Stringifies a thrown value without ever throwing (e.g. `Object.create(null)` has no toString). */
+function describeThrown(err: unknown): string {
+  try {
+    return err instanceof Error ? err.message : String(err);
+  } catch {
+    return "unknown error";
+  }
+}
+
 /** Runs one eval, converting a throw or a forbidden skip into a `fail` (PRD §9.4). */
 async function runOne(ev: GenerationEval, ctx: EvalContext): Promise<EvalResult> {
   const started = Date.now();
@@ -68,11 +78,11 @@ async function runOne(ev: GenerationEval, ctx: EvalContext): Promise<EvalResult>
     messages = run.messages;
     if (ev.mandatory && outcome === "not-applicable") {
       outcome = "fail";
-      messages = ["mandatory check cannot be skipped"];
+      messages = ["mandatory check cannot be skipped", ...messages];
     }
   } catch (err) {
     outcome = "fail";
-    messages = [`eval crashed: ${err instanceof Error ? err.message : String(err)}`];
+    messages = [`eval crashed: ${sanitiseForMessage(describeThrown(err))}`];
   }
   return {
     id: ev.id,
@@ -91,13 +101,14 @@ async function runOne(ev: GenerationEval, ctx: EvalContext): Promise<EvalResult>
  * @param ctx - The evaluation context.
  * @param opts - Optional eval list, concurrency and abort signal.
  * @returns The evaluation report; results keep eval order.
- * @throws `AbortError` when the signal aborts.
+ * @throws `Error` ("no evaluations to run") for an empty eval list; `AbortError` when the signal aborts.
  */
 export async function runEvaluations(
   ctx: EvalContext,
   opts: RunOptions = {},
 ): Promise<EvaluationReport> {
   const evals = opts.evals ?? ALL_EVALS;
+  if (evals.length === 0) throw new Error("no evaluations to run");
   const limit = opts.concurrency ?? EVAL_CONCURRENCY;
   const started = Date.now();
   const results = await mapConcurrent(evals, limit, (ev) => runOne(ev, ctx), {
@@ -110,10 +121,14 @@ export async function runEvaluations(
     results,
     overall: failed ? "fail" : warned ? "warning" : "pass",
     activatable: !failed,
-    limitations: results.filter((r) => r.outcome === "warning").flatMap((r) => r.messages),
+    limitations: results
+      .filter((r) => r.outcome === "warning")
+      .flatMap((r) => r.messages)
+      .slice(0, MAX_REPORT_ENTRIES),
     revisionHints: results
       .filter((r) => r.outcome === "fail")
-      .flatMap((r) => r.messages.map((m) => `${r.id}: ${m}`)),
+      .flatMap((r) => r.messages.map((m) => `${r.id}: ${m}`))
+      .slice(0, MAX_REPORT_ENTRIES),
     durationMs: Date.now() - started,
     parallelOps: Math.max(1, Math.min(limit, evals.length)),
   };

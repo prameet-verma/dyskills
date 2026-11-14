@@ -25,6 +25,24 @@ describe("schemas", () => {
     expect(SmokeEvalSchema.parse(validSmoke)).toEqual(validSmoke);
     expect(() => SmokeEvalSchema.parse({ ...validSmoke, scenario: undefined })).toThrow();
   });
+  it("caps SmokeEval lists at 50 entries", () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => `v${i}`);
+    expect(SmokeEvalSchema.safeParse({ ...validSmoke, prohibited: fifty }).success).toBe(true);
+    expect(SmokeEvalSchema.safeParse({ ...validSmoke, prohibited: [...fifty, "x"] }).success).toBe(
+      false,
+    );
+    expect(
+      SmokeEvalSchema.safeParse({ ...validSmoke, requiredOutputs: [...fifty, "x"] }).success,
+    ).toBe(false);
+    expect(SmokeEvalSchema.safeParse({ ...validSmoke, rubric: [...fifty, "x"] }).success).toBe(
+      false,
+    );
+    const assertions = Array.from({ length: 51 }, () => ({
+      type: "contains" as const,
+      value: "a",
+    }));
+    expect(SmokeEvalSchema.safeParse({ ...validSmoke, assertions }).success).toBe(false);
+  });
   it("rejects an unknown answer status", () =>
     expect(() => AnswerSchema.parse({ questionId: "q1", status: "maybe" })).toThrow());
   it("defaults evidence origin to programmatic", () => {

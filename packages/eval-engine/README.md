@@ -54,11 +54,15 @@ behavioural smoke recorder; it implements PRD §5.5
   mandatory `not-applicable` becomes `fail` ("mandatory check cannot be skipped"). Overall is
   fail > warning > pass; `activatable` means no `fail`; `limitations` are warning messages and
   `revisionHints` are failure messages prefixed by eval id.
-- `recordBehaviouralResult(smoke, output, verdict, notes?)`: mandatory `behavioural` result.
-  Output is capped at 100,000 characters. Assertion regexes longer than 200 characters or with a
-  quantified group containing a quantifier (such as `(a+)+`) are rejected as unsafe, and invalid
-  patterns fail with a clear message; both are reported as failed assertions, never thrown. The
-  heuristic is conservative, not a proof of safety.
+- `recordBehaviouralResult(smoke, output, verdict, notes?)`: async; resolves to the mandatory
+  `behavioural` result. `contains` / `not-contains` scan the full output. Regex assertions run in
+  one worker thread under a total budget of `ASSERTION_REGEX_BUDGET_MS` (1,000 ms); on timeout the
+  worker is terminated and every not-yet-evaluated regex assertion fails ("regex evaluation timed
+  out"). Output longer than `MAX_BEHAVIOURAL_OUTPUT_CHARS` (100,000) fails regex assertions without
+  evaluating them. As a UX layer only, patterns longer than `MAX_ASSERTION_REGEX_CHARS` (200),
+  quantified groups containing a quantifier (including `?`) or alternation, and invalid patterns
+  are rejected up front. Values and notes in messages are whitespace-collapsed and cut to 200
+  characters. Failures are reported as failed assertions, never thrown.
 - `isActivatable(report, behavioural)`: the report is activatable and the behavioural result is
   `pass` or `warning`.
 

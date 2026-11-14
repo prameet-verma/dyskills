@@ -248,10 +248,10 @@ export const SmokeEvalSchema = z.object({
   id: z.string(),
   scenario: z.string(),
   expectedBehaviour: z.string(),
-  requiredOutputs: z.array(z.string()),
-  prohibited: z.array(z.string()),
-  assertions: z.array(AssertionSchema),
-  rubric: z.array(z.string()),
+  requiredOutputs: z.array(z.string()).max(50),
+  prohibited: z.array(z.string()).max(50),
+  assertions: z.array(AssertionSchema).max(50),
+  rubric: z.array(z.string()).max(50),
 });
 /** Type inferred from {@link SmokeEvalSchema}. */
 export type SmokeEval = z.infer<typeof SmokeEvalSchema>;
