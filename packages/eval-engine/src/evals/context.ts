@@ -53,10 +53,23 @@ function malformedCitations(text: string): string[] {
   for (const re of [CITATION_PATTERN, INFERENCE_PATTERN, ASSUMPTION_PATTERN]) {
     for (const m of text.matchAll(re)) starts.add(m.index);
   }
+  // Zero-width characters and emphasis markers are stripped only for opener detection, so
+  // `[**evidence**: k]` or a zero-width-split tag is seen as an opener but is never well-formed.
+  let flat = "";
+  const origin: number[] = [];
+  let at = 0;
+  for (const ch of text) {
+    if (!/[\p{Cf}*_]/u.test(ch)) {
+      for (let i = 0; i < ch.length; i++) origin.push(at + i);
+      flat += ch;
+    }
+    at += ch.length;
+  }
   const out: string[] = [];
-  for (const m of text.matchAll(OPENER)) {
-    if (!starts.has(m.index)) {
-      out.push(text.slice(m.index, m.index + 40).replace(/[^\x20-\x7e]/g, " "));
+  for (const m of flat.matchAll(OPENER)) {
+    const from = origin[m.index] ?? 0;
+    if (!starts.has(from)) {
+      out.push(text.slice(from, from + 40).replace(/[^\x20-\x7e]/g, " "));
     }
   }
   return out;
@@ -81,7 +94,10 @@ interface Section {
 
 /** Heading comparison form: trimmed, lowercase, trailing `:` removed (PRD §8.1). */
 function normaliseHeading(h: string): string {
-  return h.trim().toLowerCase().replace(/:+$/, "").trim();
+  // A loop, not `/:+$/`: that regex is quadratic on a long colon run that does not end the heading.
+  let s = h.trim().toLowerCase();
+  while (s.endsWith(":")) s = s.slice(0, -1);
+  return s.trim();
 }
 
 /**
@@ -95,10 +111,13 @@ function sectionsOf(body: string): Section[] {
   const fenced: boolean[] = new Array<boolean>(lines.length).fill(false);
   let open: { run: string; at: number } | null = null;
   lines.forEach((line, i) => {
-    const run = /^\s*(`{3,}|~{3,})/.exec(line)?.[1] ?? "";
+    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    const run = m?.[1] ?? "";
+    // CommonMark: only an opening fence may carry an info string.
+    const bare = m !== null && line.slice(m[0].length).trim() === "";
     if (open === null) {
       if (run !== "") open = { run, at: i };
-    } else if (run !== "" && run[0] === open.run[0] && run.length >= open.run.length) {
+    } else if (bare && run[0] === open.run[0] && run.length >= open.run.length) {
       for (let j = open.at; j <= i; j++) fenced[j] = true;
       open = null;
     }
@@ -197,7 +216,7 @@ export const evidenceClassificationEval: GenerationEval = {
 const VERSION = /(?<![\w.§])v?(\d+\.\d+(?:\.\d+)?)(?!\w|\.\d)/g;
 
 /** Dotted numbers in support text; deliberately looser than {@link VERSION}. */
-const SUPPORT_VERSION = /\d+(?:\.\d+)+/g;
+const SUPPORT_VERSION = /(?<!\d)\d+(?:\.\d+)+/g;
 
 /**
  * Word patterns for framework names. Scoped packages use explicit aliases so the generic word
@@ -232,8 +251,14 @@ export const assumptionsEval: GenerationEval = {
       ...ctx.evidence.filter((e) => e.confidence !== "conflicting").map((e) => e.value),
       ...ctx.assumptions.flatMap((a) => [a.assumption, a.basis, a.impact]),
     ].join("\n");
-    const known = [...new Set(support.match(SUPPORT_VERSION) ?? [])];
-    const supports = (v: string): boolean => known.some((k) => k === v || k.startsWith(`${v}.`));
+    // Every supported version plus each dotted prefix, so a lookup is O(1).
+    const supported = new Set<string>();
+    for (const k of support.match(SUPPORT_VERSION) ?? []) {
+      supported.add(k);
+      for (let i = k.indexOf("."); i !== -1; i = k.indexOf(".", i + 1))
+        supported.add(k.slice(0, i));
+    }
+    const supports = (v: string): boolean => supported.has(v);
     const claimed = new Set([...ctx.skill.body.matchAll(VERSION)].map((m) => m[1] ?? ""));
     for (const v of claimed) {
       if (!supports(v)) failures.push(`unsupported version claim ${v}`);

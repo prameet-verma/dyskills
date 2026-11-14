@@ -183,6 +183,33 @@ describe("grounding", () => {
     expect(performance.now() - t0).toBeLessThan(200);
   });
 
+  it("fails zero-width and emphasis-split citation openers", async () => {
+    for (const tag of [
+      "[\u200Bevidence: language.typescript]",
+      "[**evidence**: language.typescript]",
+    ]) {
+      const r = await groundingEval.run(
+        await makeContext({ raw: withBullet(GOLDEN_RAW, `X ${tag}.`) }),
+      );
+      expect(r.outcome).toBe("fail");
+      expect(r.messages.join("\n")).toContain("malformed citation near:");
+    }
+  });
+
+  it("does not let a fence line with an info string close a fence", async () => {
+    const raw = `${GOLDEN_RAW.trimEnd()}\n\n\`\`\`\n\`\`\`js\n## Project context\n- hidden\n\`\`\`\n`;
+    expect((await groundingEval.run(await makeContext({ raw }))).outcome).toBe("pass");
+  });
+
+  it("normalises a long colon run in a heading in linear time", async () => {
+    const raw = `${GOLDEN_RAW.trimEnd()}\n\n## a${":".repeat(90_000)} b\n`;
+    const ctx = await makeContext({ raw });
+    const t0 = performance.now();
+    await groundingEval.run(ctx);
+    await roleEval.run(ctx);
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+
   it("stays linear on an unterminated tag followed by whitespace", async () => {
     const ctx = await makeContext({
       raw: withBullet(GOLDEN_RAW, `[evidence:${" ".repeat(90_000)}`),
@@ -276,6 +303,15 @@ describe("assumptions", () => {
       evidence: [...base.evidence, nest],
     });
     expect((await assumptionsEval.run(ok)).outcome).toBe("pass");
+  });
+
+  it("reads a 100k-digit evidence value in linear time", async () => {
+    const base = await makeContext();
+    const evidence = [{ ...base.evidence[0]!, key: "x.y", value: "1".repeat(100_000) }];
+    const ctx = await makeContext({ evidence });
+    const t0 = performance.now();
+    await assumptionsEval.run(ctx);
+    expect(performance.now() - t0).toBeLessThan(200);
   });
 
   it("applies the version rule", async () => {
