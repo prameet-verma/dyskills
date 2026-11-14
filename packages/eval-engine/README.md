@@ -17,13 +17,13 @@ package currently holds the eval types and the structural evals; it implements P
 - `referencesEval`: every bundle link resolves to an existing file inside the skill directory.
 - `concisenessEval` (mandatory): 2,000 tokens passes, up to 5,000 warns, above fails; generic
   filler advice warns.
-- `portabilityEval` (mandatory): scans SKILL.md and referenced files; fails on harness product names, harness-specific directories and
-  instruction-file names, harness tool names, and slash commands. The exact patterns live next to
-  the code in `src/evals/structural.ts`.
+- `portabilityEval` (mandatory): scans SKILL.md and referenced files; fails on harness product
+  names, harness-specific directories and instruction-file names, harness tool names, and slash
+  commands. The exact patterns live next to the code in `src/evals/structural.ts`.
 - `securityEval` (mandatory): fails on piping downloads into a shell, destructive deletes, unsafe
   flags, prompt-injection phrases, reading secrets, weakening the sandbox, global installs and
   MCP server installation; warns on force pushes. Referenced files inside the skill directory
-  are scanned too (up to 400,000 bytes each). Cautionary or negated mentions fail on purpose,
+  are scanned too (up to 50,000 bytes each; lines over 2,000 characters fail). Cautionary or negated mentions fail on purpose,
   because negation is easy to evade: restrictions must be phrased without quoting the command.
 
 ## Example
