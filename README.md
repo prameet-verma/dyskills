@@ -40,6 +40,7 @@ the repository contains the library packages below. The design rationale is in t
 | [`@dynamic-skills/context-packet`](packages/context-packet/README.md)               | Context Packet builder, safe targeted enrichment and excerpt sanitising.                                       |
 | [`@dynamic-skills/bootstrapper`](packages/bootstrapper/README.md)                   | Existing skill scan and coverage assessment (reuse, synthesize, suggest or none).                              |
 | [`@dynamic-skills/clarification-manager`](packages/clarification-manager/README.md) | Clarification rounds, SLA pause/resume and assumption recording.                                               |
+| [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                       |
 
 Further packages land as Phase 1 progresses.
 

@@ -270,6 +270,25 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/skill-compiler:
+    dependencies:
+      '@dynamic-skills/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dynamic-skills/evidence-registry':
+        specifier: workspace:*
+        version: link:../evidence-registry
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+    devDependencies:
+      '@dynamic-skills/context-analyzer':
+        specifier: workspace:*
+        version: link:../context-analyzer
+      '@dynamic-skills/discovery':
+        specifier: workspace:*
+        version: link:../discovery
+
 packages:
 
   '@cacheable/memory@2.2.0':

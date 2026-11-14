@@ -1,0 +1,18 @@
+{
+  "name": "@dynamic-skills/skill-compiler",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dynamic-skills/core": "workspace:*",
+    "@dynamic-skills/evidence-registry": "workspace:*",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@dynamic-skills/context-analyzer": "workspace:*",
+    "@dynamic-skills/discovery": "workspace:*"
+  }
+}
