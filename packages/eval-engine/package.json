@@ -8,11 +8,11 @@
   },
   "dependencies": {
     "@dynamic-skills/core": "workspace:*",
-    "@dynamic-skills/skill-compiler": "workspace:*"
+    "@dynamic-skills/skill-compiler": "workspace:*",
+    "@dynamic-skills/discovery": "workspace:*"
   },
   "devDependencies": {
     "@dynamic-skills/context-analyzer": "workspace:*",
-    "@dynamic-skills/context-packet": "workspace:*",
-    "@dynamic-skills/discovery": "workspace:*"
+    "@dynamic-skills/context-packet": "workspace:*"
   }
 }

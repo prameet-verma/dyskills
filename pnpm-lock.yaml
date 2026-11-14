@@ -269,6 +269,9 @@ importers:
       '@dynamic-skills/core':
         specifier: workspace:*
         version: link:../core
+      '@dynamic-skills/discovery':
+        specifier: workspace:*
+        version: link:../discovery
       '@dynamic-skills/skill-compiler':
         specifier: workspace:*
         version: link:../skill-compiler
@@ -279,9 +282,6 @@ importers:
       '@dynamic-skills/context-packet':
         specifier: workspace:*
         version: link:../context-packet
-      '@dynamic-skills/discovery':
-        specifier: workspace:*
-        version: link:../discovery
 
   packages/evidence-registry:
     dependencies:

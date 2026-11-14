@@ -1,8 +1,9 @@
 # @dynamic-skills/eval-engine
 
 Deterministic evals that gate a generated skill before activation. No LLM is called. This
-package currently holds the eval types and the structural evals; it implements PRD §5.5
-(augmentation consistency), §9.1 (generation evals) and §9.5 (security rules).
+package holds the eval types, the structural evals and the context evals; it implements PRD §5.5
+(augmentation consistency), §6.6 (evidence classification), §9.1 (generation evals) and §9.5
+(security rules).
 
 ## API
 
@@ -26,6 +27,22 @@ package currently holds the eval types and the structural evals; it implements P
   are scanned too (up to 50,000 bytes each; lines over 2,000 characters fail). Cautionary or
   negated mentions fail on purpose, because negation is easy to evade: restrictions must be
   phrased without quoting the command.
+
+- `groundingEval` (mandatory): every `[evidence:]`/`[inferred:]` key exists and is not conflicting,
+  every `[assumption:]` id is a recorded assumption, every `## Project context` bullet is cited.
+- `evidenceClassificationEval` (mandatory): `[evidence:]` on an inferred or assumed key fails;
+  `[inferred:]` on a verified key warns.
+- `assumptionsEval`: version numbers must appear in evidence or assumptions; known frameworks
+  need `framework.<name>` evidence (warning).
+- `completenessEval`: each answerable gap category is cited (warning); user evidence must be
+  cited (fail).
+- `scopeEval`: the description shares a content word with the task.
+- `roleEval`: five role sections for a new skill; task contract, project context and optional
+  additions only, for an augmentation.
+- `duplicationEval`: 8-word shingle containment against existing skills and instruction text;
+  an augmentation is also checked base-side (0.3 fails, 0.15 warns).
+- `behaviouralDefinitionEval` (mandatory): a smoke eval with prohibited behaviour and an
+  assertion or rubric item exists.
 
 ## Example
 
