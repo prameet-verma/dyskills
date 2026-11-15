@@ -1,7 +1,10 @@
 # CLI reference
 
 `dynamic-skills` is driven one command at a time by a host agent. This page is the contract:
-commands, flags, preconditions, stdout fields, exit codes and error codes. The architecture is in
+commands, flags, preconditions, stdout fields, exit codes and error codes. The agent runs the bare
+`dynamic-skills` command from `PATH`. Package runners are deliberately not used: they can fetch
+and run an unrelated registry package of the same name without asking (Ruling R19). If the
+command is missing, the agent stops and asks the user to install it. The architecture is in
 [architecture.md](architecture.md) and the package view in the [CLI README](../packages/cli/README.md).
 
 ## Output contract
@@ -10,9 +13,11 @@ commands, flags, preconditions, stdout fields, exit codes and error codes. The a
   `schemaVersion: "1"`. A failure adds `error` (a code from the table below) and `message`.
 - stderr carries a human status block, with these variants. A thrown error (for example
   `INVALID_STATE` or `SCHEMA_INVALID`) prints only the one-line `Error <CODE>: <message>`, with no
-  status block. `TIMEOUT` and a refused `activate` print the status block without an `Error` line.
-  A saved `EVAL_ATTEMPTS_EXHAUSTED` or an `evaluate` `BUNDLE_INVALID` prints the `Error` line and
-  then the status block. Control characters other than newline are removed from everything written
+  status block. `TIMEOUT` prints the status block without an `Error` line. A saved failure
+  (`EVAL_ATTEMPTS_EXHAUSTED`, an `evaluate` `BUNDLE_INVALID`, `compile`'s `BASE_CHANGED`, a refused
+  `activate`) prints the `Error` line and then the status block. A session that has ended
+  (`completed`, `warning`, `failed`, `timeout`) shows `Processing SLA: STOPPED`: its clock stops
+  when it ends, so the active time shown stays the same afterwards. Control characters other than newline are removed from everything written
   to stderr.
 - Two commands differ. `status` prints its status block as **plain text on stdout** (nothing on
   stderr). `report perf` prints JSON on stdout and **no status block** on stderr, because it has no
@@ -27,8 +32,8 @@ commands, flags, preconditions, stdout fields, exit codes and error codes. The a
 | Code | Meaning                                                                                          |
 | ---- | ------------------------------------------------------------------------------------------------ |
 | 0    | Success. An evaluation that finds problems still exits 0 (`activatable` says whether to revise). |
-| 1    | Usage or state error: nothing was saved                                                          |
-| 2    | Evaluation gate failed: `BUNDLE_INVALID`, `EVAL_ATTEMPTS_EXHAUSTED` or a refused `activate`      |
+| 1    | Usage or state error: nothing was saved, except `compile`'s `BASE_CHANGED` (a saved failure)     |
+| 2    | Evaluation gate failed: `BUNDLE_INVALID`, `EVAL_ATTEMPTS_EXHAUSTED` or `ACTIVATION_REFUSED`      |
 | 3    | Timeout: the active budget was exceeded, or `activate` refused with reason `timeout`             |
 
 ## Commands
@@ -144,13 +149,21 @@ Applies the user's answers and resumes the SLA. Answered questions become verifi
 evidence (plus `user.<requirement>` for a human-only requirement); declined, skipped or unanswered
 ones become recorded assumptions. Unknown or blank answers are a `USAGE` error.
 
-stdout: `evidenceAdded`, `assumptions`, `blockingUnresolved`, `warnings`.
+A blocking question left unresolved (declined, skipped or unanswered) can never be cleared and
+activation would be refused, so the CLI ends the session there, as for a declined approval
+(Ruling R20): status `completed`, outcome `skipped`, `reports/performance.json`, `discovery.json`
+and `assumptions.json` written. Any later pipeline command is `INVALID_STATE` with `expected: []`.
+
+stdout: `evidenceAdded`, `assumptions`, `blockingUnresolved`, `warnings`, and `fallback` when the
+session ended.
 
 ### `compile --session <id>`
 
 Writes `brief.md` and creates `skills/` and `evals/`. Requires a validated analysis. For an
-augmentation the base must still hash to the pinned sha256, otherwise `BASE_CHANGED`. `compile` may
-also run after `evaluate`, to start over from the brief.
+augmentation the base must still hash to the pinned sha256, otherwise `BASE_CHANGED`. Because one
+verdict is allowed per session, a changed base can never be fixed, so `BASE_CHANGED` is a **saved
+terminal failure** (Ruling R20): status and outcome `failed`, reports written, `fallback` on
+stdout, exit 1. `compile` may also run after `evaluate`, to start over from the brief.
 
 stdout: `briefPath`, `skillsDir`, `skillPath` (augmentation only), `mode` (`new` or `augmentation`),
 `smokeEvalPath`, `remainingMs`.
@@ -193,9 +206,11 @@ integrity, the evaluation report, the behavioural result.
 - Success: `activated: true`, `kind` (`generated` or `augmented`), `skillPath`, `content`, `base`
   (the unchanged base, `augmented` only), `loadOrder` (base first), `limitations`, `notice`.
 - Refusal (saved, session ends as failed, exit 2; exit 3 when `reason` is `timeout`):
-  `activated: false`, `reason` (`timeout`, `blocked-by-clarification`, `base-changed`,
-  `evaluation-failed`, `behavioural-missing`), `fallback`. A refusal with reason `timeout` leaves
-  the session status as `timeout`.
+  `ok: false`, `error` (`ACTIVATION_REFUSED`, or `TIMEOUT` when `reason` is `timeout`), `message`
+  (derived from the reason), `activated: false`, `reason` (`timeout`, `blocked-by-clarification`,
+  `base-changed`, `evaluation-failed`, `behavioural-missing`), `fallback`. A refusal with reason
+  `timeout` leaves the session status as `timeout`. Reports (`performance.json`, `discovery.json`,
+  `assumptions.json`, and `evaluation.json` when one exists) are written for every outcome.
 
 ### `status --session <id>`
 
@@ -204,14 +219,20 @@ that has timed out.
 
 ### `clean --session <id>`
 
-Removes the session directory. Always allowed, including on a timed-out session.
+First archives the session's `reports/performance.json`, when the session has ended with a valid
+report, to `<home>/reports/<sessionId>.json` (file mode 0600, directory 0700, never through a
+symlink), then removes the session directory (Ruling R21: cleaning never erases the metrics).
+Always allowed, including on a timed-out session. If the archive cannot be written the command
+fails and nothing is removed.
 
-stdout: `removed: true`.
+stdout: `removed: true`, `archived` (whether a report was archived).
 
 ### `report perf`
 
 Needs no session or lock and is allowed anywhere; read-only. Aggregates
-`reports/performance.json` over all sessions under the session home.
+`reports/performance.json` over all sessions under the session home together with the reports
+archived by `clean` in `<home>/reports/`, counting each session id once. Symlinked, special,
+oversized, unparseable or wrong-version reports are skipped.
 
 stdout: `count`, `p50ActiveMs`, `p95ActiveMs`, `maxActiveMs`, `timeoutRate`, `fallbackRate`,
 `reuseRate`, `augmentationRate`, `cacheHitRate`, `avgClarificationRounds`, `avgContextRequests`.
@@ -224,11 +245,13 @@ Percentiles are `null` when there are no sessions.
 | `USAGE`                   | 1    | Bad flag, empty value, unreadable `--file`, blank answer                          | no        |
 | `SESSION_NOT_FOUND`       | 1    | No such session (a symlinked session directory counts as unknown)                 | no        |
 | `SESSION_LOCKED`          | 1    | Another command holds the session lock                                            | no        |
+| `HOME_UNSAFE`             | 1    | The session home or `sessions/` is a symlink, not a directory, or another user's  | no        |
 | `INVALID_STATE`           | 1    | The state machine refuses the command; `expected` lists the allowed steps         | no        |
 | `SCHEMA_INVALID`          | 1    | A document failed strict validation; `issues: [{path, message}]`                  | no        |
 | `VERDICT_INVALID`         | 1    | The sufficiency verdict failed validation against the scan, mode or explicit flag | no        |
 | `ANALYSIS_LIMIT`          | 1    | `context submit` or `context request` after 4 accepted analyses                   | no        |
-| `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)               | no        |
+| `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)               | yes       |
+| `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                      | yes       |
 | `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate`                    | see below |
 | `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations                                         | yes       |
 | `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                | yes       |
@@ -241,4 +264,14 @@ which do save state because the session or the attempt count must change, are:
 - `EVAL_ATTEMPTS_EXHAUSTED`: the session is saved as `failed` with reports.
 - `BUNDLE_INVALID` from `evaluate`: the attempt is consumed and the pin cleared, so a broken bundle
   cannot be retried without bound. From `eval record` and `activate` it saves nothing.
-- A refused `activate`: the session is saved as `failed` and reports are written; no step is recorded.
+- `BASE_CHANGED` from `compile`: the session is saved as `failed` with reports; no step is recorded.
+- A refused `activate` (`ACTIVATION_REFUSED`, or `TIMEOUT` for reason `timeout`): the session is
+  saved as `failed` (or `timeout`) and reports are written; no step is recorded.
+
+## Session home
+
+Sessions live in `DYNAMIC_SKILLS_HOME`, by default `<os tmpdir>/dynamic-skills-<uid>` (a per-user
+directory). Before the first write of each command the home and `<home>/sessions` are checked: a
+symlink, a non-directory or (where the platform has uids) a directory owned by another user is
+refused with `HOME_UNSAFE`; group or other permission bits are removed (mode 0700). Session
+directories are created 0700 and files 0600.

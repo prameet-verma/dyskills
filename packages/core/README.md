@@ -45,9 +45,16 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
 - **`SessionStore`, `resolveHome`** (`session.ts`): file-backed ephemeral sessions under
   `<home>/sessions/<id>/` with atomic `save`, a `withLock` lock file (stale after 30 s),
   confined artifact read/write and `remove`; errors `SessionNotFoundError` and
-  `SessionLockedError` carry a `.code`. Also `recordStage` and `enforceDeadline`.
+  `SessionLockedError` carry a `.code`. The default home is `<os tmpdir>/dynamic-skills-<uid>`.
+  `prepare()` (run by `create` and `withLock`) checks the home and `sessions/` with
+  **`ensurePrivateDir(path, probe?)`**: a symlink, non-directory or foreign-owned directory throws
+  `UnsafeHomeError` (code `HOME_UNSAFE`); group/other bits are removed. Directories are created
+  `PRIVATE_DIR_MODE` (0700) and files `PRIVATE_FILE_MODE` (0600). Also `recordStage`,
+  `enforceDeadline` (marks `timeout` and stops the clock), `hasEnded` and `stopClock` (freezes the
+  SLA of an ended session).
 - **`renderStatus(state, now)`** (`status.ts`): the user-visible status blocks (PRD §10.5),
-  including waiting-for-approval and "Approval: Received" after `sufficiency-approve`.
+  including waiting-for-approval and "Approval: Received" after `sufficiency-approve`; an ended
+  session prints `Processing SLA: STOPPED`.
 - **`buildPerformanceReport(state, now)`** (`perf.ts`): a `PerformanceReport` with
   `schemaVersion`, wall/active/human-wait time, stage timings, context counters and cache hit
   rate (`null` when there were no lookups).
@@ -56,12 +63,19 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   programmatic over verified programmatic plus agentic; `null` when there are none).
 - **`estimateTokens(text)`** (`tokens.ts`): `ceil(chars / 4)`.
 - **`aggregatePerformance(home)`** (`perf-aggregate.ts`): reads every
-  `<home>/sessions/*/reports/performance.json` and returns a `PerformanceAggregate`: `count`,
+  `<home>/sessions/*/reports/performance.json` and every archived `<home>/reports/*.json`
+  (de-duplicated by session id, a live session winning) and returns a `PerformanceAggregate`: `count`,
   nearest-rank `p50ActiveMs`/`p95ActiveMs`/`maxActiveMs` (`null` when empty), `timeoutRate`,
   `fallbackRate` (timeout or failed), `reuseRate`, `augmentationRate`, `cacheHitRate` (mean over
   sessions with lookups, else `null`) and the mean clarification rounds and context requests.
   Symlinked session directories, oversized (> 1 MiB), unparseable and non-`"1"` `schemaVersion`
   files are skipped; it never throws on bad data.
+- **`archivePerformanceReport(home, sessionId)`** (`perf-aggregate.ts`): copies a session's
+  validated `reports/performance.json` to `<home>/reports/<sessionId>.json` (0600, directory
+  0700, never through a symlink) so `clean` keeps the metrics (Ruling R21); `false` when there is
+  no valid report.
+- **`MAX_BASE_FILE_BYTES`** (`constants.ts`): the 200,000-byte cap on an existing `SKILL.md` or
+  instruction file read as a base (and on a `SKILL.md` read by the skills scan).
 
 ## Example
 

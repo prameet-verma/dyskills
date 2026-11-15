@@ -21,10 +21,17 @@ failing detector never stops the others.
 - **`readRealFile(abs)`** (`safe-read.ts`): reads one already-resolved file through a single
   non-blocking handle; `null` for a non-regular file (FIFOs included), a file over 1 MB or an
   unreadable one. It never throws or blocks.
+- **`readRegularFile(abs, maxBytes?)`** (`safe-read.ts`): the same single-handle read with a
+  caller-chosen cap, returning `{ ok: true, text }` or `{ ok: false, reason }` (`missing`,
+  `not-a-file`, `too-large`, `unreadable`) so callers can warn about what they skipped. Used by
+  the bootstrapper's skills scan.
 - **`SKIPPED_DIRS`**, and `RepoFileIndex.depthLimited` (true when directories at `maxDepth`
   were not walked).
-- **`isSecretPath(rel)`** (`secrets.ts`): true for `.env*`/`.envrc`/`.netrc` (case-insensitive), keys, certificates, SSH keys,
-  `*.pfx`/`*.jks`, `credentials.json`, `secrets/**`, `.npmrc`, `.pypirc`.
+- **`isSecretPath(rel)`** (`secrets.ts`): true (case-insensitive) for `.env*`/`.envrc`/`.netrc`,
+  keys, certificates, SSH keys, `*.pfx`/`*.jks`/`*.keystore`, `credentials.json`, `.npmrc`,
+  `.pypirc`, `*.tfvars`(`.json`), `*.tfstate`(`.backup`), `.git-credentials`, `secrets.*`,
+  `kubeconfig`, `.htpasswd`, `.pgpass`, `.docker/config.json`, `.kube/config`, and anything under
+  a `secrets/` or `.aws/` directory. Every pattern is an anchored literal, so matching is linear.
 - **`MANIFEST_DETECTORS`, `STRUCTURE_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime,
   package manager, framework, database (data tasks only), testing, monorepo and build
   detectors, plus language, CI, architecture and convention detectors.

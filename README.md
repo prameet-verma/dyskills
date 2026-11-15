@@ -57,6 +57,8 @@ The repository contains the library packages below. The design rationale is in t
 Every command prints one JSON object on stdout (with `ok` and `schemaVersion`) and a status block
 on stderr, with two exceptions: `status` prints its block as plain text on stdout, and `report perf`
 prints JSON on stdout with no status block on stderr (it has no session). Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed, `3` timeout.
+Sessions live in a private per-user home (`DYNAMIC_SKILLS_HOME`, default
+`<os tmpdir>/dynamic-skills-<uid>`).
 Full detail is in the [CLI README](packages/cli/README.md).
 
 | Command                                                          | Purpose                                                                  |
@@ -73,15 +75,17 @@ Full detail is in the [CLI README](packages/cli/README.md).
 | `eval record --session <id> --output <f> --verdict pass\|fail`   | Record the behavioural smoke-eval result.                                |
 | `activate --session <id>`                                        | Gated activation: returns the skill, or refuses with a fallback.         |
 | `status --session <id>`                                          | Print the status block as plain text on stdout.                          |
-| `clean --session <id>`                                           | Remove the session directory.                                            |
+| `clean --session <id>`                                           | Archive the performance report, then remove the session directory.       |
 | `report perf`                                                    | Aggregate performance over all sessions (no session needed, read-only).  |
 
 ## Phase 1 limitations
 
 - Activation is ephemeral and agent-mediated: `activate` returns the skill content and load order;
   nothing is installed into any agent harness or skill directory (native activation is Phase 2).
-- Nothing is persisted beyond the session directory (saved skills, versioning and caching are
-  Phase 3), and there is no installer.
+- Nothing is persisted beyond the session directory and the archived performance reports
+  (saved skills, versioning and caching are Phase 3), and there is no installer: put the built
+  `dynamic-skills` bin on `PATH` yourself. The bootstrap skill runs that bare command and never a
+  package runner.
 - There is no model call, network access or database anywhere in the packages.
 
 ## Packages

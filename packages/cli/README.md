@@ -28,16 +28,18 @@ newline) removed, because session ids and option values are agent-controlled.
   approval before `clarify ask` and `compile`, and that finished sessions accept nothing but
   `status` and `clean`.
 - **`CliError`** and **`parseDocument(schema, text)`** (internal, `src/io.ts`): expected failures
-  with a stable code (`SESSION_NOT_FOUND`, `SESSION_LOCKED`, `INVALID_STATE`, `USAGE`,
-  `ANALYSIS_LIMIT`, `BASE_CHANGED`, `SCHEMA_INVALID`, `VERDICT_INVALID`, `BUNDLE_INVALID`,
-  `EVAL_ATTEMPTS_EXHAUSTED`, `TIMEOUT`) and strict validation of agent documents with
+  with a stable code (`SESSION_NOT_FOUND`, `SESSION_LOCKED`, `HOME_UNSAFE`, `INVALID_STATE`,
+  `USAGE`, `ANALYSIS_LIMIT`, `BASE_CHANGED`, `ACTIVATION_REFUSED`, `SCHEMA_INVALID`,
+  `VERDICT_INVALID`, `BUNDLE_INVALID`, `EVAL_ATTEMPTS_EXHAUSTED`, `TIMEOUT`) and strict validation of agent documents with
   `issues: { path, message }[]`.
 - **`COMMANDS`** (internal, `src/commands/index.ts`): the command registry. A command is a
   `CommandDef` (name, options, completed step, stage and a `run` handler); the shared wrapper loads
   the session under its lock, enforces the active-time deadline, checks the state machine, runs the
   handler, records the stage and step, saves and prints. A handler that throws saves nothing; one
-  that returns `exitCode` and `error` is a gate failure that is saved (a failed evaluation attempt,
-  a refused activation). To add a command, append a definition to `COMMANDS` and a name to
+  that returns `exitCode` and `error` is a failure that is saved (a failed evaluation attempt, a
+  refused activation, a changed base at `compile`). When the handler ends the session the wrapper
+  stops its SLA clock before writing the terminal reports (`performance`, `discovery`,
+  `assumptions`). To add a command, append a definition to `COMMANDS` and a name to
   `CliCommand`. A definition's `kind` is `session` (loaded under the lock), `create` (`assess`)
   or `global` (no session, no lock, no state machine: `report perf`).
 
@@ -60,14 +62,14 @@ newline) removed, because session ids and option values are agent-controlled.
 | `sufficiency submit --session <id> --file <f>`                               | Records the verdict; `sufficient` reuses the base unchanged and ends the session.                                                                                                                  |
 | `sufficiency approve --session <id> --decision approve\|decline`             | Suggest mode: resumes the SLA; a decline ends the session as `skipped`.                                                                                                                            |
 | `clarify ask --session <id> --file <f>`                                      | Asks up to 3 rounds of questions and pauses the SLA.                                                                                                                                               |
-| `clarify answer --session <id> --file <f>`                                   | Applies answers (evidence or assumptions) and resumes the SLA.                                                                                                                                     |
-| `compile --session <id>`                                                     | Writes `brief.md` (needs a validated analysis; an augmentation also needs the base unchanged) and prepares `skills/` and `evals/`.                                                                 |
+| `clarify answer --session <id> --file <f>`                                   | Applies answers (evidence or assumptions) and resumes the SLA; a blocking question left unresolved ends the session (skipped, `fallback`).                                                         |
+| `compile --session <id>`                                                     | Writes `brief.md` (needs a validated analysis) and prepares `skills/` and `evals/`; a changed augmentation base ends the session (`BASE_CHANGED`, saved).                                          |
 | `evaluate --session <id>`                                                    | Runs the 14 generation evals (3 attempts; allowed again after `eval record`) and pins the bundle digest; exit 2 `BUNDLE_INVALID` or `EVAL_ATTEMPTS_EXHAUSTED`.                                     |
 | `eval record --session <id> --output <f> --verdict pass\|fail [--notes <t>]` | Checks the smoke-eval assertions against the agent's output (regexes run in a bounded worker) and stores the `behavioural` result. Exit 2 `BUNDLE_INVALID` if the bundle changed since `evaluate`. |
-| `activate --session <id>`                                                    | Gated activation (also `BUNDLE_INVALID` if the bundle changed since `evaluate`): returns the skill (and the unchanged base first); exit 2 on refusal, 3 on timeout.                                |
+| `activate --session <id>`                                                    | Gated activation (also `BUNDLE_INVALID` if the bundle changed since `evaluate`): returns the skill (and the unchanged base first); `ACTIVATION_REFUSED` exit 2, 3 on timeout.                      |
 | `status --session <id>`                                                      | Prints the status block as plain text on stdout; read-only.                                                                                                                                        |
-| `clean --session <id>`                                                       | Removes the session directory.                                                                                                                                                                     |
-| `report perf`                                                                | Aggregates `reports/performance.json` across all sessions (count, p50/p95/max active ms, timeout, fallback, reuse and augmentation rates). Needs no session or lock; allowed anywhere; read-only.  |
+| `clean --session <id>`                                                       | Archives `reports/performance.json` to `<home>/reports/<id>.json`, then removes the session directory.                                                                                             |
+| `report perf`                                                                | Aggregates live and archived performance reports, once per session (count, p50/p95/max active ms, timeout, fallback, reuse, augmentation rates). No session or lock; read-only.                    |
 
 ## Example
 

@@ -10,8 +10,12 @@ task (with invocation-mode gating), and validates the agent's Skill Sufficiency 
   `ROOTS` in `src/scan.ts`). Returns
   `{ skills, instructionFiles, warnings }`. Skills whose frontmatter is missing, broken or
   lacks a string `name` and `description` are skipped with a warning; the same name and body
-  found twice is kept once (project before personal). `instructionFiles` lists `AGENTS.md`
-  and `CLAUDE.md` at the repo root when present. `home` defaults to `os.homedir()`.
+  found twice is kept once (project before personal). Each `SKILL.md` is read through
+  discovery's `readRegularFile`, one non-blocking handle that accepts only a regular file of at
+  most `MAX_BASE_FILE_BYTES`, so a FIFO, a device symlink or an oversized file is skipped with a
+  warning instead of hanging or exhausting memory. `instructionFiles` lists `AGENTS.md` and
+  `CLAUDE.md` at the repo root when they are regular files; they are only `stat`-ed, never opened
+  (anything else is skipped with a warning). `home` defaults to `os.homedir()`.
 - **`assessCoverage(task, skills, { explicit, mode })`** (`coverage.ts`): scores each skill by
   the share of task tokens found in its name and description and returns a
   `CoverageAssessment` (`recommendation`, up to 3 `candidates`, `reason`). Candidates are

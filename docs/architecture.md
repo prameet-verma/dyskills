@@ -80,8 +80,14 @@ running `evaluate` again, bounded by `MAX_EVAL_ATTEMPTS` (ADR 0006).
 ## Session directory
 
 Phase 1 writes only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_SKILLS_HOME` or
-`<os tmpdir>/dynamic-skills`. Nothing is written into any harness skill directory or into the
-repository, and existing skills and instruction files are only read.
+`<os tmpdir>/dynamic-skills-<uid>`, plus one archived metrics file per cleaned session,
+`<home>/reports/<id>.json` (Ruling R21). Nothing is written into any harness skill directory or
+into the repository, and existing skills and instruction files are only read.
+
+The home is private to its user. Each command checks it and `<home>/sessions` before the first
+write: a symlink, a non-directory or a directory owned by another uid is refused with
+`HOME_UNSAFE`, and group or other permission bits are removed. Every directory the CLI creates is
+mode 0700 and every file it writes is 0600.
 
 | Path                    | Written by                                                                                        | Content                                                                                                                                                                                               |
 | ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -95,7 +101,7 @@ repository, and existing skills and instruction files are only read.
 | `brief.md`              | `compile`                                                                                         | The compilation brief                                                                                                                                                                                 |
 | `skills/`               | the agent                                                                                         | The generated skill bundle (one directory)                                                                                                                                                            |
 | `evals/smoke.json`      | the agent                                                                                         | The smoke eval (scenario, assertions, rubric)                                                                                                                                                         |
-| `reports/`              | `evaluate`, `eval record`, `sufficiency submit` and `approve` (`sufficiency`), and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`                                                                                                                                |
+| `reports/`              | `evaluate`, `eval record`, `sufficiency submit` and `approve` (`sufficiency`), and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`; `clean` archives `performance` to `<home>/reports/<id>.json` before removing the session                                      |
 
 ## SLA clock model
 
@@ -109,11 +115,40 @@ none). On expiry the unvalidated `skills/` directory is deleted, reports are wri
 session is saved as `timeout` and the command exits 3 with a fallback. `status` and `clean` bypass
 the timeout check, and a session that has already finished keeps its outcome.
 
+When a session ends (`completed`, `warning`, `failed` or `timeout`) its clock is stopped: the
+wrapper, the deadline check and activation pause it at the moment the session ended, before the
+reports are written, so the reported active time is final and `status` shows the same number
+later with `Processing SLA: STOPPED`.
+
+## Terminal outcomes
+
+Every path that can no longer progress ends the session, writes `reports/performance.json`,
+`discovery.json` and `assumptions.json`, and hands the agent a `fallback` (Ruling R20):
+
+| Path                                                            | Status      | Outcome     | Exit |
+| --------------------------------------------------------------- | ----------- | ----------- | ---- |
+| `assess` with recommendation `none`                             | `completed` | `skipped`   | 0    |
+| `sufficiency submit` with `sufficient`                          | `completed` | `reused`    | 0    |
+| `sufficiency approve --decision decline`                        | `completed` | `skipped`   | 0    |
+| `clarify answer` leaving a blocking question unresolved         | `completed` | `skipped`   | 0    |
+| `compile` with a changed base (`BASE_CHANGED`)                  | `failed`    | `failed`    | 1    |
+| `evaluate` beyond the attempt limit (`EVAL_ATTEMPTS_EXHAUSTED`) | `failed`    | `failed`    | 2    |
+| `activate` refused (`ACTIVATION_REFUSED`)                       | `failed`    | `failed`    | 2    |
+| deadline passed (`TIMEOUT`)                                     | `timeout`   | `timeout`   | 3    |
+| `activate` succeeded                                            | `completed` | `activated` | 0    |
+
+`activate` may also end as `warning` (with limitations) or with outcome `augmented`. `clean`
+archives the performance report before it removes the session, and `report perf` reads live and
+archived reports, so no ended session disappears from the PRD §17 metrics.
+
 ## Trust boundaries
 
 - **Repository content is untrusted data.** Secret files are never read (`isSecretPath`), every
   evidence value is sanitised, and anything sent to the agent is fenced and marked untrusted. The
-  packet carries `trust: "untrusted"`.
+  packet carries `trust: "untrusted"`. Every repository read, including the skills scan, goes
+  through one non-blocking handle that accepts only a regular file under a size cap, so a FIFO, a
+  device symlink or a huge file is skipped instead of hanging or exhausting memory; instruction
+  files are only `stat`-ed by the scan.
 - **Agent output is untrusted until validated.** Every agent document is parsed with a strict zod
   schema (unknown keys rejected) before anything is stored. An agent `observed` claim becomes
   `verified` only when its source resolves to a non-secret indexed file, a packet path or an existing

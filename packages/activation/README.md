@@ -16,9 +16,11 @@ Writes only inside the session directory. The base skill is only ever read, neve
   `augmented`. A refusal returns `reason` (`timeout`, `blocked-by-clarification`, `base-changed`,
   `evaluation-failed`, `behavioural-missing`) and the fallback "Continue the original task with
   existing capabilities."
-- Every call sets `metrics.activationMs` and writes `reports/performance.json`,
+- Every call sets `metrics.activationMs`, stops the SLA clock (the session has ended) and writes
+  `reports/performance.json`,
   `reports/discovery.json`, `reports/assumptions.json` and (when a report exists)
-  `reports/evaluation.json` as `{ ...report, behavioural }`. The caller persists the mutated state.
+  `reports/evaluation.json` as `{ ...report, behavioural }` (directory 0700, files 0600). The
+  caller persists the mutated state.
 - A timeout deletes `<sessionDir>/skills/` and keeps `evidence.json`, `context-packet.json` and
   `context-analysis.json`.
 - Types: `ActivationResult`, `ActivationInput`, `RefusalReason`.
