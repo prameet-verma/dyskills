@@ -36,6 +36,16 @@ export type SafeRead =
 export type SafeCheck = { ok: true } | { ok: false; reason: SafeReadRejection };
 
 /**
+ * Rejects a nonsensical cap up front: a bad `maxBytes` is a programming error, not a file problem.
+ * @throws {TypeError} Unless `maxBytes` is undefined or a finite non-negative integer.
+ */
+function assertMaxBytes(maxBytes: number | undefined): void {
+  if (maxBytes !== undefined && !(Number.isInteger(maxBytes) && maxBytes >= 0)) {
+    throw new TypeError("maxBytes must be a finite non-negative integer");
+  }
+}
+
+/**
  * Opens one non-blocking handle, checks the file is a regular file within the size cap, and (when
  * `read` is set) reads it through that same handle. Never throws.
  */
@@ -63,17 +73,25 @@ async function openChecked(path: string, opts: SafeReadOptions, read: boolean): 
     if (!info.isFile()) return { ok: false, reason: "not-a-file" };
     if (info.size > maxBytes) return { ok: false, reason: "too-large" };
     if (!read) return { ok: true, bytes: Buffer.alloc(0), text: "", sha256: "" };
-    // Read at most maxBytes + 1 bytes: a file that grew after stat (or lies about its size) is
-    // rejected without ever buffering more than the cap.
-    const buf = Buffer.alloc(maxBytes + 1);
+    // Size the buffer from stat (plus one byte to detect growth) rather than from the cap, so a
+    // small file never allocates the whole cap. If more bytes arrive than stat reported, grow up
+    // to maxBytes + 1; one byte past the cap means too-large.
+    let buf = Buffer.allocUnsafe(Math.min(info.size, maxBytes) + 1);
     let length = 0;
-    while (length < buf.length) {
+    for (;;) {
+      if (length === buf.length) {
+        if (buf.length > maxBytes) break;
+        const grown = Buffer.allocUnsafe(Math.min(buf.length * 2, maxBytes + 1));
+        buf.copy(grown, 0, 0, length);
+        buf = grown;
+      }
       const { bytesRead } = await handle.read(buf, length, buf.length - length, null);
       if (bytesRead === 0) break;
       length += bytesRead;
     }
     if (length > maxBytes) return { ok: false, reason: "too-large" };
-    const bytes = buf.subarray(0, length);
+    // An exact-length copy: only bytes that were read, and no pinned spare capacity.
+    const bytes = Buffer.from(buf.subarray(0, length));
     return {
       ok: true,
       bytes,
@@ -96,10 +114,12 @@ async function openChecked(path: string, opts: SafeReadOptions, read: boolean): 
  *
  * @param path - Absolute path.
  * @param opts - Size cap and optional required real basename.
+ * @throws {TypeError} When `maxBytes` is not a finite non-negative integer (synchronously).
  * @returns The bytes, text and sha256, or `{ ok: false, reason }` (`missing`, `not-a-file`,
  *   `too-large`, `wrong-name`, `unreadable`). Never throws.
  */
 export function readSafeFile(path: string, opts: SafeReadOptions = {}): Promise<SafeRead> {
+  assertMaxBytes(opts.maxBytes);
   return openChecked(path, opts, true);
 }
 
@@ -108,9 +128,10 @@ export function readSafeFile(path: string, opts: SafeReadOptions = {}): Promise<
  *
  * @param path - Absolute path.
  * @param opts - Size cap and optional required real basename.
- * @returns `{ ok: true }` or the rejection. Never throws.
+ * @throws {TypeError} When `maxBytes` is not a finite non-negative integer (synchronously).
+ * @returns `{ ok: true }` or the rejection.
  */
-export async function checkSafeFile(path: string, opts: SafeReadOptions = {}): Promise<SafeCheck> {
-  const r = await openChecked(path, opts, false);
-  return r.ok ? { ok: true } : r;
+export function checkSafeFile(path: string, opts: SafeReadOptions = {}): Promise<SafeCheck> {
+  assertMaxBytes(opts.maxBytes);
+  return openChecked(path, opts, false).then((r) => (r.ok ? { ok: true } : r));
 }

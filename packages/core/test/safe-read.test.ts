@@ -85,6 +85,7 @@ describe("readSafeFile limits", () => {
     await writeFile(p, "x".repeat(10));
     const r = await readSafeFile(p, { maxBytes: 10 });
     expect(r.ok && r.bytes.length).toBe(10);
+    expect(r.ok && r.sha256).toBe(createHash("sha256").update("x".repeat(10)).digest("hex"));
   });
 
   it("follows a link only through its resolved target when a real basename is required", async () => {
@@ -93,6 +94,13 @@ describe("readSafeFile limits", () => {
     await symlink(real, join(dir, "alias"));
     // The name check resolves the link; the open then targets the resolved file, not the link.
     expect((await readSafeFile(join(dir, "alias"), { realBasename: "SKILL.md" })).ok).toBe(true);
+  });
+});
+
+describe("maxBytes validation", () => {
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])("throws a TypeError for %s", (n) => {
+    expect(() => readSafeFile(join(dir, "f"), { maxBytes: n })).toThrow(TypeError);
+    expect(() => checkSafeFile(join(dir, "f"), { maxBytes: n })).toThrow(TypeError);
   });
 });
 

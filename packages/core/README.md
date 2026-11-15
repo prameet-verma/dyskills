@@ -79,7 +79,8 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   only, a size cap (default 1 MB), and an optional required real basename (so a symlinked
   `SKILL.md` cannot reach `.env`). Returns `{ ok: true, bytes, text, sha256 }`, the hash being of
   exactly the bytes decoded, or `{ ok: false, reason }` (`missing`, `not-a-file`, `too-large`,
-  `wrong-name`, `unreadable`). Never throws. `checkSafeFile` validates without reading.
+  `wrong-name`, `unreadable`). Never rejects for file problems; a `maxBytes` that is not a finite non-negative integer throws a
+  `TypeError`. `checkSafeFile` validates without reading.
 - **`BOOTSTRAP_SKILL_NAME`, `FALLBACK_MESSAGE`, `REUSE_NOTICE`, `NOTICE_GENERATED`,
   `NOTICE_AUGMENTED`** (`constants.ts`): the bootstrap skill's name and the fixed texts shown to
   the agent, defined once.
