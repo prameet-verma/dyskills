@@ -1,4 +1,7 @@
-/** Directory names whose entire subtree is treated as secret material (`.secrets`: `act` credentials; `.aws`: credentials, config). */
+/**
+ * Directory names whose entire subtree is treated as secret material
+ * (`.secrets`: `act` credentials; `.aws`: credentials, config).
+ */
 const SECRET_DIRS = new Set(["secrets", ".secrets", ".aws"]);
 
 /**

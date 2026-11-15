@@ -103,7 +103,7 @@ describe("runDiscovery", () => {
       expect(inflight.max).toBeLessThanOrEqual(DISCOVERY_CONCURRENCY);
     });
 
-    it("merges evidence and errors in detector order even when detectors finish in reverse", async () => {
+    it("merges evidence in detector order and records errors as detectors fail", async () => {
       const n = 6;
       const detectors: Detector[] = Array.from({ length: n }, (_, i) => ({
         id: `d${i}`,
