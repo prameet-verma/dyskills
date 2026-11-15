@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { appendFile, cp, readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { appendFile, cp, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DiscoveryReportSchema, PerformanceReportSchema } from "../../packages/core/src/index";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -279,7 +280,11 @@ describe("existing skills (AC 31 to 33, FR-40 to 42)", () => {
     expect((await w.readJson(id, "reports/performance.json")).outcome).toBe("augmented");
     const sufficiency = await w.readJson(id, "reports/sufficiency.json");
     expect(sufficiency.outcome).toBe("partial");
-    expect(JSON.stringify(sufficiency)).toMatch(/[0-9a-f]{64}/);
+    expect(sufficiency.baseSkill.sha256).toBe(
+      createHash("sha256")
+        .update(await readFile(base.path))
+        .digest("hex"),
+    );
     await expectNoHarnessDirs({ agentsAllowed: true });
   });
 
@@ -340,6 +345,26 @@ describe("timeout (AC 30)", () => {
     const activate = await w.run(sid(id, "activate"));
     expect(activate.exitCode).toBe(3);
     expect(activate.out.error).toBe("TIMEOUT");
+    expect(await w.exists(join(w.session(id), "skills"))).toBe(false);
+    expect((await w.readJson(id, "reports/performance.json")).outcome).toBe("timeout");
+  });
+
+  it("removes the compiled skills and answers 3 with a fallback when the budget runs out after compile", async () => {
+    const id = await assessDiscover();
+    await submitAnalysis(id);
+    await submitVerdict(id, { outcome: "insufficient", rationale: "Nothing covers it" });
+    const { skillPath } = await compileAndEvaluate(id, GOLDEN);
+    await recordPass(id);
+    expect(await w.exists(skillPath)).toBe(true);
+    // Spend the budget: a 1 ms budget with a running segment is long expired.
+    const statePath = join(w.session(id), "session.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    state.sla.budgetMs = 1;
+    await writeFile(statePath, JSON.stringify(state));
+    const r = await w.run(sid(id, "activate"));
+    expect(r.exitCode).toBe(3);
+    expect(r.out).toMatchObject({ ok: false, error: "TIMEOUT" });
+    expect(typeof r.out.fallback).toBe("string");
     expect(await w.exists(join(w.session(id), "skills"))).toBe(false);
     expect((await w.readJson(id, "reports/performance.json")).outcome).toBe("timeout");
   });

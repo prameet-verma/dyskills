@@ -110,7 +110,7 @@ export interface CreateCommandDef extends CommandBase {
  */
 export interface GlobalCommandDef extends CommandBase {
   kind: "global";
-  /** Runs the command; only `data` of the result is used. */
+  /** Runs the command; the wrapper uses only `data` and `exitCode` of the result. */
   run(ctx: { home: string; opts: CommandContext["opts"] }): Promise<CommandResult>;
 }
 

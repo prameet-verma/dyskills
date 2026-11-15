@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,6 +98,36 @@ describe("aggregatePerformance", () => {
       fallbackRate: 2 / 6,
     });
   });
+
+  it("computes the reuse and augmentation rates", async () => {
+    for (const outcome of ["activated", "augmented", "reused", "reused"] as const) {
+      await put(report({ outcome }));
+    }
+    expect(await aggregatePerformance(home)).toMatchObject({
+      reuseRate: 0.5,
+      augmentationRate: 0.25,
+    });
+  });
+
+  it("skips a symlinked reports directory", async () => {
+    await put(report({ activeMs: 5 }));
+    const outside = await mkdtemp(join(tmpdir(), "ds-agg-out-"));
+    try {
+      await writeFile(join(outside, "performance.json"), JSON.stringify(report()));
+      await mkdir(join(home, "sessions", "ds-rl"), { recursive: true });
+      await symlink(outside, join(home, "sessions", "ds-rl", "reports"));
+      expect((await aggregatePerformance(home)).count).toBe(1);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a FIFO performance.json without blocking", async () => {
+    await put(report({ activeMs: 5 }));
+    await mkdir(join(home, "sessions", "ds-fifo", "reports"), { recursive: true });
+    execFileSync("mkfifo", [join(home, "sessions", "ds-fifo", "reports", "performance.json")]);
+    expect((await aggregatePerformance(home)).count).toBe(1);
+  }, 5_000);
 
   it("averages the cache hit rate over sessions that had lookups", async () => {
     await put(report({ cacheHitRate: 0.5 }));

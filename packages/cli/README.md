@@ -7,8 +7,8 @@ command framework, the session state machine and every command, from `assess` to
 `status`, `clean` and `report perf`.
 
 Every command prints exactly one JSON object on stdout (always with `ok` and `schemaVersion: "1"`)
-and a human status block on stderr; the only exception is `status`, which prints its block as plain
-text on stdout. `--help` prints `{"ok":true,"schemaVersion":"1","help":true}` on stdout and the help
+and a human status block on stderr; the exceptions are `status`, which prints its block as plain
+text on stdout, and `report perf`, which has no session and so writes no status block to stderr. `--help` prints `{"ok":true,"schemaVersion":"1","help":true}` on stdout and the help
 text on stderr. Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed (including
 a refused activation), `3` timeout. Everything written to stderr has control characters (other than
 newline) removed, because session ids and option values are agent-controlled.

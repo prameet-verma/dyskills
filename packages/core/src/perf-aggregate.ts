@@ -1,4 +1,5 @@
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PerformanceReportSchema } from "./contracts";
 import type { PerformanceReport } from "./contracts";
@@ -47,19 +48,30 @@ function mean(values: number[]): number {
 
 /**
  * Reads one session's performance report, or `null` when it is absent or untrusted. The session
- * directory and the file are checked with `lstat` so a symlink planted under the home cannot make
- * this read outside it; oversized, unparseable or wrong-`schemaVersion` files are skipped.
+ * directory and `reports/` are checked with `lstat` (a symlink in either is skipped, so nothing
+ * outside the home is read). The file is then opened once with `O_NOFOLLOW | O_NONBLOCK` and
+ * checked through that same handle (regular file, size cap), so the file checked is the file read
+ * and a FIFO swapped in cannot hang the command. Oversized, unparseable or wrong-`schemaVersion`
+ * files are skipped.
  */
 async function readReport(sessionDir: string): Promise<PerformanceReport | null> {
+  let handle;
   try {
     if (!(await lstat(sessionDir)).isDirectory()) return null;
-    const file = join(sessionDir, "reports", "performance.json");
-    const st = await lstat(file);
-    if (!st.isFile() || st.size > MAX_REPORT_BYTES) return null;
-    const parsed = PerformanceReportSchema.safeParse(JSON.parse(await readFile(file, "utf8")));
+    const reportsDir = join(sessionDir, "reports");
+    if (!(await lstat(reportsDir)).isDirectory()) return null;
+    handle = await open(
+      join(reportsDir, "performance.json"),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > MAX_REPORT_BYTES) return null;
+    const parsed = PerformanceReportSchema.safeParse(JSON.parse(await handle.readFile("utf8")));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 

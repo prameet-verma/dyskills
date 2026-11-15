@@ -53,7 +53,8 @@ The repository contains the library packages below. The design rationale is in t
 ## Commands
 
 Every command prints one JSON object on stdout (with `ok` and `schemaVersion`) and a status block
-on stderr. Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed, `3` timeout.
+on stderr, with two exceptions: `status` prints its block as plain text on stdout, and `report perf`
+prints JSON on stdout with no status block on stderr (it has no session). Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed, `3` timeout.
 Full detail is in the [CLI README](packages/cli/README.md).
 
 | Command                                                          | Purpose                                                                  |
@@ -117,7 +118,7 @@ skill; it is not part of the test suite and needs that agent installed.
 
 ## Roadmap
 
-1. **Phase 1, JIT Core Engine (in progress):** contracts, SLA clock, session store, evidence,
+1. **Phase 1, JIT Core Engine:** contracts, SLA clock, session store, evidence,
    discovery, gap analysis, clarification, evals, activation gating, CLI and bootstrap skill.
 2. **Phase 2, Harness Integrations:** adapter contract and adapters, native activation, installer.
 3. **Phase 3, Persistence and Lifecycle:** saving skills, versioning, freshness checks, caching.

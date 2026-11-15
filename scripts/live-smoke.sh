@@ -8,9 +8,11 @@
 #
 # Everything happens inside one temporary directory that is removed on exit: a copy of the
 # TypeScript fixture repository (with the bootstrap skill installed in that copy only) and a
-# throwaway session home. Your real HOME is left in place so the agent stays logged in, but
-# nothing is written to it, to your real skill directories or to this checkout. This is the only
-# file in the repository that names a specific agent harness.
+# throwaway session home. Your real HOME is left in place so the agent stays logged in: nothing
+# is written to your skill directories or to this checkout, but the agent CLI keeps its own
+# transcripts and config under the real home as usual. The agent runs with a narrow tool
+# allow-list (never a skip-all-permissions flag). This is the only file in the repository that
+# names a specific agent harness.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,7 +49,13 @@ ln -s "$CLI" "$REPO/node_modules/.bin/dynamic-skills"
 export PATH="$BIN:$PATH"
 
 echo "Running the agent in $REPO (sessions in $DYNAMIC_SKILLS_HOME)..." >&2
-(cd "$REPO" && claude -p "$TASK") || echo "claude exited non-zero; reporting what was recorded." >&2
+# Narrow allow-list: the CLI (by either spelling), file tools, and write access to the session
+# home. Without it print mode denies the Bash calls and the session home is outside the cwd.
+CLAUDE_ARGS=(
+  --allowedTools "Bash(npx dynamic-skills:*)" "Bash(dynamic-skills:*)" Read Write Edit Glob Grep
+  --add-dir "$DYNAMIC_SKILLS_HOME"
+)
+(cd "$REPO" && claude -p "$TASK" "${CLAUDE_ARGS[@]}") || echo "claude exited non-zero; reporting what was recorded." >&2
 
 echo
 echo "== dynamic-skills report perf =="
@@ -55,9 +63,13 @@ dynamic-skills report perf 2>/dev/null
 
 SESSION="$(ls -1t "$DYNAMIC_SKILLS_HOME/sessions" 2>/dev/null | head -n 1 || true)"
 if [[ -z "$SESSION" ]]; then
-  echo "No session was created: the agent did not invoke the bootstrap skill."
+  echo "No session was created: the agent did not invoke the skill, or a tool call was denied."
   exit 0
 fi
+echo
+echo "== $SESSION reports/performance.json =="
+cat "$DYNAMIC_SKILLS_HOME/sessions/$SESSION/reports/performance.json" 2>/dev/null \
+  || echo "(no performance report: the session did not finish)"
 echo
 echo "== $SESSION reports/discovery.json =="
 cat "$DYNAMIC_SKILLS_HOME/sessions/$SESSION/reports/discovery.json" 2>/dev/null \
