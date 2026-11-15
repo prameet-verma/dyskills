@@ -85,4 +85,25 @@ describe("documentation set", () => {
     expect(adrs.length).toBeGreaterThanOrEqual(5);
     for (const adr of adrs) expect(index, adr).toContain(adr);
   });
+
+  it("never invokes the CLI through a package runner (Ruling R19)", () => {
+    const files = [
+      "skills/dynamic-skill-bootstrap/SKILL.md",
+      "scripts/live-smoke.sh",
+      "README.md",
+      "CONTRIBUTING.md",
+      "SECURITY.md",
+      "docs/superpowers/plans/2026-11-14-phase-1-jit-core-engine.md",
+      ...readdirSync(join(ROOT, "docs"))
+        .filter((f) => f.endsWith(".md"))
+        .map((f) => `docs/${f}`),
+      ...readdirSync(join(ROOT, "packages")).map((d) => `packages/${d}/README.md`),
+    ];
+    for (const f of files) {
+      const text = readFileSync(join(ROOT, f), "utf8");
+      expect(text, f).not.toMatch(
+        /\b(?:npx|pnpx|bunx|pnpm\s+dlx|yarn\s+dlx|npm\s+exec)\s+dynamic-skills\b/,
+      );
+    }
+  });
 });

@@ -5,7 +5,7 @@ description: Use before starting a task that needs specialised or project-specif
 
 # Dynamic skill bootstrap
 
-Routing only: run `npx dynamic-skills <command>` and follow its output. Every command prints one JSON object on stdout and a status block on stderr (`status` prints plain text). Show the status block to the user when it matters.
+Routing only: run `dynamic-skills <command>` and follow its output. If the command is not found, stop and tell the user to install it; never fetch it with a package runner. Every command prints one JSON object on stdout and a status block on stderr (`status` prints plain text). Show the status block to the user when it matters.
 
 ## Ownership
 
@@ -23,9 +23,9 @@ You own the decision to synthesise and the quality of what you submit. The comma
 - Never edit `skills/` or `evals/smoke.json` in the session after `evaluate` except through another `evaluate`: an edited bundle is refused with `BUNDLE_INVALID`.
 - Never modify the base skill or any existing skill or instruction file.
 - Exit code 3: stop synthesis, continue the original task.
-- `activate` exit 2: report `reason`, follow `fallback`. `evaluate` or `eval record` with `BUNDLE_INVALID`: fix the bundle and run `evaluate` again. `EVAL_ATTEMPTS_EXHAUSTED`: stop synthesis, tell the user, `clean`, continue the task.
+- `activate` exit 2: report `reason`, follow `fallback`. `evaluate` or `eval record` with `BUNDLE_INVALID`: fix the bundle and run `evaluate` again. `EVAL_ATTEMPTS_EXHAUSTED`: stop synthesis, tell the user, continue the task. `clean` is always safe: metrics are archived.
 - `ANALYSIS_LIMIT`: proceed with what was consolidated. Never run `context request` once `submissionsRemaining` is 0.
-- `BASE_CHANGED` or `base-changed`: submit no new verdict; continue with the existing skill as it now is and tell the user.
+- `BASE_CHANGED` or `base-changed`: the session has ended; continue with the existing skill as it now is and tell the user.
 
 ## Methodology
 
@@ -43,9 +43,9 @@ Every command except `assess` takes `--session <id>`; documents go in files pass
    - An explicit request to create a skill allows only partial or insufficient.
    - On `SCHEMA_INVALID` or `VERDICT_INVALID` fix `issues` and resubmit.
    - If `next` is `approve`: show the status block, ask the user, then `sufficiency approve --decision approve` or `--decision decline`; on decline continue the task without a new skill.
-7. `clarify ask` then `clarify answer`, only for gaps whose resolution is `ask`. Documents carry `schemaVersion`; use the `clarificationRequest` and `clarificationResponse` schemas. Question ids are unique across the session: use `r1-q1`, `r2-q1`. Answer only pending questions; `answered` needs a non-empty value, otherwise `declined` or `skipped` with an `assumption` (`assumption`, `basis`, `impact`). Mark `blocking` only if you truly cannot write a safe skill without the answer. If `blockingUnresolved` is non-empty, stop synthesis and continue the task (activation would be refused with `blocked-by-clarification`).
+7. `clarify ask` then `clarify answer`, only for gaps whose resolution is `ask`. Documents carry `schemaVersion`; use the `clarificationRequest` and `clarificationResponse` schemas. Question ids are unique across the session: use `r1-q1`, `r2-q1`. Answer only pending questions; `answered` needs a non-empty value, otherwise `declined` or `skipped` with an `assumption` (`assumption`, `basis`, `impact`). Mark `blocking` only if you truly cannot write a safe skill without the answer. If `blockingUnresolved` is non-empty, the session has ended: follow `fallback` and continue the task.
 8. `compile`: read `brief.md`, then write the skill and the smoke eval in one pass. New skill: `<skillsDir>/<name>/SKILL.md`, name equal to its directory, from `brief.md`. Partial: only the augmentation (delta only) at `skillPath`. Write `smokeEvalPath` valid for the `smokeEval` schema; `prohibited` must be non-empty, and the eval needs at least one assertion or rubric item.
-9. `evaluate` exits 0 even on failure. If `activatable` is false, revise per `revisionHints` (reduce length if over budget) and run `evaluate` again while `attemptsRemaining` > 0; at 0, stop synthesis, tell the user, `clean`, continue the task.
+9. `evaluate` exits 0 even on failure. If `activatable` is false, revise per `revisionHints` (reduce length if over budget) and run `evaluate` again while `attemptsRemaining` > 0; at 0, stop synthesis, tell the user, continue the task.
 10. Run the smoke scenario with the skill loaded (base and augmentation together for partial), preferably in a fresh subagent, save its output to a file, judge the rubric honestly, then `eval record --output <file> --verdict pass|fail [--notes <text>]`. If `eval record` returns `outcome: fail` (assertions can fail even when your verdict was pass), revise and run `evaluate` again while attempts remain.
 11. `activate`: load the files in `loadOrder` (base first). Run `clean` when the skill is discarded.
 

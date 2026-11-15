@@ -42,17 +42,21 @@ cp -R "$ROOT/fixtures/repos/ts-monorepo" "$REPO"
 mkdir -p "$REPO/.claude/skills"
 cp -R "$ROOT/skills/dynamic-skill-bootstrap" "$REPO/.claude/skills/dynamic-skill-bootstrap"
 
-# Make `dynamic-skills` resolvable both on PATH and for `npx dynamic-skills` inside the copy.
+# Put the built CLI on PATH as the bare `dynamic-skills` command, the only spelling the skill
+# uses (Ruling R19: never a package runner, which could fetch an unrelated registry package).
+# The agent inherits this PATH.
 ln -s "$CLI" "$BIN/dynamic-skills"
-mkdir -p "$REPO/node_modules/.bin"
-ln -s "$CLI" "$REPO/node_modules/.bin/dynamic-skills"
 export PATH="$BIN:$PATH"
+if [[ "$(command -v dynamic-skills)" != "$BIN/dynamic-skills" ]]; then
+  echo "The linked dynamic-skills is not first on PATH." >&2
+  exit 1
+fi
 
 echo "Running the agent in $REPO (sessions in $DYNAMIC_SKILLS_HOME)..." >&2
-# Narrow allow-list: the CLI (by either spelling), file tools, and write access to the session
-# home. Without it print mode denies the Bash calls and the session home is outside the cwd.
+# Narrow allow-list: the bare CLI only, file tools, and write access to the session home.
+# Without it print mode denies the Bash calls and the session home is outside the cwd.
 CLAUDE_ARGS=(
-  --allowedTools "Bash(npx dynamic-skills:*)" "Bash(dynamic-skills:*)" Read Write Edit Glob Grep
+  --allowedTools "Bash(dynamic-skills:*)" Read Write Edit Glob Grep
   --add-dir "$DYNAMIC_SKILLS_HOME"
 )
 (cd "$REPO" && claude -p "$TASK" "${CLAUDE_ARGS[@]}") || echo "claude exited non-zero; reporting what was recorded." >&2
@@ -63,6 +67,14 @@ dynamic-skills report perf 2>/dev/null
 
 SESSION="$(ls -1t "$DYNAMIC_SKILLS_HOME/sessions" 2>/dev/null | head -n 1 || true)"
 if [[ -z "$SESSION" ]]; then
+  # A cleaned session leaves only its archived performance report (Ruling R21).
+  ARCHIVED="$(ls -1t "$DYNAMIC_SKILLS_HOME/reports" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$ARCHIVED" ]]; then
+    echo
+    echo "== archived reports/$ARCHIVED (the session was cleaned) =="
+    cat "$DYNAMIC_SKILLS_HOME/reports/$ARCHIVED"
+    exit 0
+  fi
   echo "No session was created: the agent did not invoke the skill, or a tool call was denied."
   exit 0
 fi

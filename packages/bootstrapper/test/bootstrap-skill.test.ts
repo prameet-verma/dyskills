@@ -65,6 +65,10 @@ describe("dynamic-skill-bootstrap", () => {
     expect(body).not.toContain("no rounds remain");
     for (const o of ["sufficient", "partial", "insufficient"]) expect(body).toContain(o);
     expect(body).not.toContain("evidence add");
+    // Ruling R19: the bare command only; a package runner could fetch an unrelated package.
+    expect(body).not.toMatch(/\b(?:npx|pnpx|bunx|yarn\s+dlx|pnpm\s+dlx|npm\s+exec)\b/);
+    expect(body).toContain("`dynamic-skills <command>`");
+    expect(body).toMatch(/not found, stop and tell the user to install it/);
     for (const t of [
       "--decision",
       "--verdict",
