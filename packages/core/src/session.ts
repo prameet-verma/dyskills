@@ -364,9 +364,36 @@ export function recordStage(s: SessionState, stage: StageName, ms: number): void
   s.metrics.stageMs[stage] = (s.metrics.stageMs[stage] ?? 0) + ms;
 }
 
+/** Statuses that end a session; the SLA clock of such a session is stopped. */
+const ENDED: ReadonlySet<SessionState["status"]> = new Set([
+  "completed",
+  "warning",
+  "failed",
+  "timeout",
+]);
+
+/** True when the session has ended: `completed`, `warning`, `failed` or `timeout`. */
+export function hasEnded(s: SessionState): boolean {
+  return ENDED.has(s.status);
+}
+
+/**
+ * Stops the SLA clock of a session that has ended, so its active time no longer grows: the clock
+ * is paused at `now` and stays paused, because no command can resume an ended session. Idempotent
+ * (a clock that is already paused keeps its time).
+ *
+ * @param s - The session; `s.sla` is replaced by the frozen snapshot.
+ * @param now - Epoch ms at which the session ended.
+ */
+export function stopClock(s: SessionState, now: number): void {
+  const clock = SlaClock.from(s.sla);
+  clock.pause(now);
+  s.sla = clock.snapshot(now);
+}
+
 /**
  * Enforces the active-time budget (PRD §10.1). If the session's clock is expired at `now`, marks
- * `status` and `metrics.outcome` as `timeout`.
+ * `status` and `metrics.outcome` as `timeout` and stops the clock.
  *
  * @returns `true` if the deadline has passed.
  */
@@ -374,5 +401,6 @@ export function enforceDeadline(s: SessionState, now: number): boolean {
   if (!SlaClock.from(s.sla).isExpired(now)) return false;
   s.status = "timeout";
   s.metrics.outcome = "timeout";
+  stopClock(s, now);
   return true;
 }

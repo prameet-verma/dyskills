@@ -1,5 +1,6 @@
 import { MAX_CLARIFICATION_ROUNDS } from "./constants";
 import type { PipelineStatus, SessionState } from "./schemas";
+import { hasEnded } from "./session";
 import { SlaClock } from "./sla";
 
 /** Human labels for statuses rendered with the generic running block. */
@@ -18,7 +19,9 @@ const LABELS: Partial<Record<PipelineStatus, string>> = {
 /**
  * Renders the user-visible status block (PRD §10.5). The waiting and resuming blocks match the PRD
  * text exactly; every other status uses the generic block. Seconds are floored and the budget is
- * printed from the session's own SLA so a non-default budget is reported truthfully.
+ * printed from the session's own SLA so a non-default budget is reported truthfully. An ended
+ * session (`completed`, `warning`, `failed`, `timeout`) reports `Processing SLA: STOPPED` with
+ * the active time frozen when it ended.
  */
 export function renderStatus(s: SessionState, now: number): string {
   const clock = SlaClock.from(s.sla);
@@ -66,7 +69,7 @@ export function renderStatus(s: SessionState, now: number): string {
     ].join("\n");
   }
 
-  const sla = s.status === "timeout" ? "EXCEEDED" : "RUNNING";
+  const sla = hasEnded(s) ? "STOPPED" : "RUNNING";
   return [
     "Dynamic Skills",
     "",

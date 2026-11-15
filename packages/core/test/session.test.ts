@@ -8,8 +8,10 @@ import {
   UnsafeHomeError,
   enforceDeadline,
   ensurePrivateDir,
+  SlaClock,
   recordStage,
   resolveHome,
+  stopClock,
 } from "../src/index";
 
 let home: string;
@@ -160,6 +162,19 @@ describe("recordStage / enforceDeadline", () => {
     expect(enforceDeadline(s, 60_000)).toBe(true);
     expect(s.status).toBe("timeout");
     expect(s.metrics.outcome).toBe("timeout");
+  });
+
+  it("enforceDeadline stops the clock at the deadline check (M2)", async () => {
+    const s = await store.create({ ...init, now: 0 });
+    enforceDeadline(s, 61_000);
+    expect(SlaClock.from(s.sla).activeMs(61_000 + 3_600_000)).toBe(61_000);
+  });
+
+  it("stopClock freezes active time and is idempotent", async () => {
+    const s = await store.create({ ...init, now: 0 });
+    stopClock(s, 5_000);
+    stopClock(s, 9_000);
+    expect(SlaClock.from(s.sla).activeMs(10_000_000)).toBe(5_000);
   });
 });
 

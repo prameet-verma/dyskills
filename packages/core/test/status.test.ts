@@ -119,10 +119,18 @@ describe("renderStatus", () => {
     );
   });
 
-  it("renders timeout as EXCEEDED and failed with its long label", () => {
-    expect(renderStatus(state({ status: "timeout" }), 60_000)).toContain(
-      "Processing SLA: EXCEEDED",
-    );
+  it("renders every terminal status as STOPPED with the frozen active time (M2)", () => {
+    const clock = SlaClock.start(60_000, 0);
+    clock.pause(7_500);
+    const frozen = clock.snapshot(7_500);
+    for (const status of ["completed", "warning", "failed", "timeout"] as const) {
+      const text = renderStatus(state({ status }, frozen), 7_500 + 3_600_000);
+      expect(text, status).toContain("Processing SLA: STOPPED");
+      expect(text, status).toContain("Active processing used: 7s / 60s");
+    }
+  });
+
+  it("renders failed with its long label", () => {
     expect(renderStatus(state({ status: "failed" }), 1000)).toContain(
       "Status: Failed — returning control to the root agent",
     );

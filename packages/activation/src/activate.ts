@@ -9,6 +9,7 @@ import {
   buildDiscoveryReport,
   buildPerformanceReport,
   enforceDeadline,
+  stopClock,
   type ContextPacket,
   type EvalResult,
   type EvaluationReport,
@@ -180,6 +181,8 @@ export async function activate(input: ActivationInput): Promise<ActivationResult
   }
 
   state.metrics.activationMs = Date.now() - started;
+  // Every outcome ends the session: freeze the clock so the report's active time is final.
+  stopClock(state, now);
   await writeReports(input);
   return result ?? refuse("evaluation-failed");
 }

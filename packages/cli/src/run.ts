@@ -6,9 +6,11 @@ import {
   SessionNotFoundError,
   SessionStore,
   enforceDeadline,
+  hasEnded,
   recordStage,
   renderStatus,
   resolveHome,
+  stopClock,
 } from "@dynamic-skills/core";
 import type { SessionState } from "@dynamic-skills/core";
 import { Command, CommanderError, Option } from "commander";
@@ -91,6 +93,9 @@ async function finish(
 ): Promise<RunOutput> {
   const end = now();
   if (def.stage) recordStage(state, def.stage, Math.max(0, end - startedAt));
+  // An ended session stops its clock before the reports are built, so the reported active time
+  // is final and `status` shows the same number later (no-op if the handler already stopped it).
+  if (hasEnded(state)) stopClock(state, end);
   if (def.step && result.recordStep !== false) state.completedSteps.push(def.step);
   try {
     if (result.writeReports) await writeTerminalReports(store, state, end);
@@ -146,8 +151,8 @@ async function runSessionCommand(
     const state = await store.load(id);
     const startedAt = env.now();
 
-    // A finished session keeps its outcome: the clock keeps running after completion, so the
-    // deadline only applies to sessions that are still in progress (PRD §10.1).
+    // A finished session keeps its outcome: its clock is stopped when it ends, and the deadline
+    // only applies to sessions that are still in progress (PRD §10.1).
     if (!def.bypassDeadline && !isTerminal(state)) {
       const already = state.status === "timeout";
       if (already || enforceDeadline(state, startedAt)) {
