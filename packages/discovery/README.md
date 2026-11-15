@@ -18,6 +18,9 @@ failing detector never stops the others.
   reads. Rejects secret paths, `SKIPPED_DIRS` segments and anything outside the repository,
   re-checking the real path after symlink resolution; returns `ok` or a reason
   (`secret`, `outside-repo`, `excluded`, `missing`). Files over 1 MB are `missing`.
+- **`readRealFile(abs)`** (`safe-read.ts`): reads one already-resolved file through a single
+  non-blocking handle; `null` for a non-regular file (FIFOs included), a file over 1 MB or an
+  unreadable one. It never throws or blocks.
 - **`SKIPPED_DIRS`**, and `RepoFileIndex.depthLimited` (true when directories at `maxDepth`
   were not walked).
 - **`isSecretPath(rel)`** (`secrets.ts`): true for `.env*`/`.envrc`/`.netrc` (case-insensitive), keys, certificates, SSH keys,

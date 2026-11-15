@@ -1,0 +1,33 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you got. Include the command and its JSON output.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+  - type: textarea
+    id: logs
+    attributes:
+      label: Status block or logs
+      description: Do not paste secrets or private repository content.
+      render: text

@@ -41,6 +41,14 @@ newline) removed, because session ids and option values are agent-controlled.
   `CliCommand`. A definition's `kind` is `session` (loaded under the lock), `create` (`assess`)
   or `global` (no session, no lock, no state machine: `report perf`).
 
+- **`bundleDigest(sessionDir)`, `assertBundlePinned(state, sessionDir)`, `MAX_BUNDLE_BYTES`**
+  (internal, `src/commands/bundle.ts`): the bundle pin. `bundleDigest` hashes everything under
+  `skills/` plus `evals/smoke.json` (directories included) and refuses symlinks and non-regular
+  files, more than 500 entries (files and directories) and more than `MAX_BUNDLE_BYTES`
+  (5,000,000) in total, each as `BUNDLE_INVALID`. `evaluate` stores the digest;
+  `assertBundlePinned` makes `eval record` and `activate` fail with `BUNDLE_INVALID`, saving
+  nothing, when the bundle changed or was never pinned.
+
 ### Commands
 
 | Command                                                                      | Effect                                                                                                                                                                                             |

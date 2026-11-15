@@ -58,11 +58,17 @@ behavioural smoke recorder; it implements PRD §5.5
   `behavioural` result. `contains` / `not-contains` scan the full output. Regex assertions run in
   one worker thread under a total budget of `ASSERTION_REGEX_BUDGET_MS` (1,000 ms); on timeout the
   worker is terminated and every not-yet-evaluated regex assertion fails ("regex evaluation timed
-  out"). Output longer than `MAX_BEHAVIOURAL_OUTPUT_CHARS` (100,000) fails regex assertions without
-  evaluating them. As a UX layer only, patterns longer than `MAX_ASSERTION_REGEX_CHARS` (200),
-  quantified groups containing a quantifier (including `?`) or alternation, and invalid patterns
-  are rejected up front. Values and notes in messages are whitespace-collapsed and cut to 200
-  characters. Failures are reported as failed assertions, never thrown.
+  out"). A worker crash or early exit is reported the same way, so a failure of the worker fails
+  closed rather than passing. Output longer than `MAX_BEHAVIOURAL_OUTPUT_CHARS` (100,000) fails
+  regex assertions without evaluating them. As a UX layer only, patterns longer than
+  `MAX_ASSERTION_REGEX_CHARS` (200), quantified groups containing a quantifier (including `?`) or
+  alternation, and invalid patterns are rejected up front. Values and notes in messages go through
+  `sanitiseForMessage`. Failures are reported as failed assertions, never thrown.
+- `sanitiseForMessage(value)`: collapses whitespace runs (newlines included) to one space and cuts
+  the text to 200 characters with an ellipsis; use it for any untrusted text put in a message.
+- `MAX_REPORT_ENTRIES` (50): the most `limitations` and `revisionHints` a report carries.
+- Regex budget constants: `ASSERTION_REGEX_BUDGET_MS`, `MAX_ASSERTION_REGEX_CHARS` and
+  `MAX_BEHAVIOURAL_OUTPUT_CHARS`.
 - `isActivatable(report, behavioural)`: the report is activatable and the behavioural result is
   `pass` or `warning`.
 

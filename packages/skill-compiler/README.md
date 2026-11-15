@@ -22,7 +22,8 @@ called here. Implements PRD §5.5 (augmentation), §7 (untrusted evidence fence)
   bundle-relative links only (no schemes, absolute paths or fenced-code links).
 - `loadSmokeEval(path)`: validated `SmokeEval`, `null` if the file is absent; throws for a symlink or
   non-regular file, or a file over `MAX_SMOKE_BYTES` (64,000).
-- Constants `REQUIRED_SECTIONS`, `PROJECT_CONTEXT_SECTION`, `AUGMENTATION_*`, `MAX_BASE_SKILL_CHARS`
+- Constants `REQUIRED_SECTIONS`, `PROJECT_CONTEXT_SECTION`, `AUGMENTATION_*`, `MAX_BASE_SKILL_CHARS`,
+  `MAX_SMOKE_BYTES` (64,000, the largest `evals/smoke.json` accepted)
   and the citation patterns `CITATION_PATTERN`, `INFERENCE_PATTERN`, `ASSUMPTION_PATTERN`. A citation names exactly one key (`[evidence: key]`, no commas or
   whitespace in the key, at most 8 spaces of padding, key up to 200 characters); the patterns are
   linear-time.

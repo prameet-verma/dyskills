@@ -12,8 +12,9 @@ pnpm install
 pnpm check         # run before every commit
 ```
 
-`pnpm check` runs ESLint and Prettier, the TypeScript typecheck and the Vitest suite. `pnpm format`
-fixes formatting (Markdown included).
+`pnpm check` runs ESLint and Prettier (`pnpm lint`), the TypeScript typecheck and the Vitest suite
+(`pnpm test`: unit, repository and end-to-end projects; the end-to-end project builds the CLI first).
+`pnpm format` fixes formatting (Markdown included). CI also runs `pnpm build`.
 
 ## Repo layout
 
@@ -21,6 +22,10 @@ fixes formatting (Markdown included).
 - `fixtures/repos/` - small sample repositories used by tests
 - `schemas/` - generated JSON Schemas; do not edit by hand, run `pnpm gen:schemas`
 - `scripts/` - repository tooling (for example `gen-schemas.ts`)
+- `skills/` - the `dynamic-skill-bootstrap` routing skill
+- `test/` - repository-level tests (`docs.test.ts`) and the end-to-end suite (`test/e2e`)
+- `docs/` - [architecture](docs/architecture.md), [CLI reference](docs/cli-reference.md) and
+  [decision records](docs/adr/README.md)
 - `docs/superpowers/plans/` - the roadmap and per-phase implementation plans
 - `PRD.md` - the product requirements that code and comments cite
 
@@ -38,6 +43,45 @@ fixes formatting (Markdown included).
 - **Repository content is untrusted.** Never read secret files (use `isSecretPath`), sanitise every
   evidence value, and treat evidence as data, never as instructions.
 - No dead code, no commented-out code, no TODOs without a linked reason.
+
+## Adding a detector
+
+A detector reports repository facts as evidence. Implement the `Detector` interface in
+`packages/discovery/src/detectors/types.ts` (an id, whether it is `always` run or selected by task
+`keywords`, and a `run` function that returns observations with a source and confidence), add it to
+`MANIFEST_DETECTORS` or `STRUCTURE_DETECTORS`, and test it against a fixture under
+`fixtures/repos/`. Never read secret files (go through the safe-read helpers), and keep values
+short, because the registry sanitises and truncates them. Document any new evidence key in the
+discovery README.
+
+## Adding an eval
+
+An eval is a `GenerationEval` (`packages/eval-engine/src/types.ts`): an `id`, a `mandatory` flag
+and a deterministic `run(ctx)` returning `{ outcome, messages }`. It must not call a model or
+throw for bad skill content (that is a `fail`). Add the id to `EvalIdSchema` in
+`packages/core/src/schemas.ts` (a contract change, see below), implement the eval in
+`evals/structural.ts` or `evals/context.ts`, append it to `ALL_EVALS` in `src/runner.ts`, and test
+a passing and a failing case. Keep the count of evals stated in the docs (currently 14) in step.
+
+## Changing a contract
+
+A contract is any document a command reads or writes, or a stdout object. Change the zod schema in
+`packages/core`, then:
+
+1. If the change is breaking (a field removed, renamed or made stricter), bump `CONTRACT_VERSION`.
+   Additive optional fields do not need a bump.
+2. Run `pnpm gen:schemas` and commit the updated `schemas/` (CI compares the output).
+3. Add or update an ADR in `docs/adr/` and mention the change in `CHANGELOG.md`.
+4. Update the [CLI reference](docs/cli-reference.md) and affected package READMEs.
+
+## Changelog and decision records
+
+- Add a line under `## [Unreleased]` in `CHANGELOG.md` for every user-visible change, in the
+  [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) groups (Added, Changed, Fixed,
+  Security).
+- Record a design decision that is hard to reverse in `docs/adr/` using the template in the
+  [ADR index](docs/adr/README.md): copy it to the next number, keep it to one page and add a row
+  to the index. Do not rewrite an accepted record; supersede it with a new one.
 
 ## Adding a package
 
@@ -57,5 +101,5 @@ fixes formatting (Markdown included).
 
 ## Security
 
-Please do not open public issues for vulnerabilities. Report them privately to the maintainers;
-a contact address and `SECURITY.md` will be added in Phase 1 (Task 19).
+Please do not open public issues for vulnerabilities. See [SECURITY.md](SECURITY.md) for how to
+report them. All participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -24,8 +24,8 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   `SufficiencyReportSchema`, `EvaluationReportSchema`, `SemanticProbeSchema`,
   `AnalysisCategorySchema`, each with an inferred type, plus the PRD §13.2 aliases
   `ContextEvidence`, `ContextGap`, `SkillEvaluationReport`. Agent-submitted documents are strict.
-  `SkillBootstrapRequest` is the set of `assess` flags (task, mode, explicit, repo, budget) that
-  starts a session; `SkillBootstrapResult` is the JSON object the `activate` and
+  `SkillBootstrapRequest` is the set of `assess` flags (task, mode, explicit, repo) plus the
+  `DYNAMIC_SKILLS_BUDGET_MS` environment variable (the budget) that starts a session; `SkillBootstrapResult` is the JSON object the `activate` and
   `sufficiency submit` commands print on stdout (`ok`, `schemaVersion` and the outcome fields).
   Both are documented in ADR 0004 rather than given schemas. `SkillNameSchema` is the single
   Agent Skills name validator.

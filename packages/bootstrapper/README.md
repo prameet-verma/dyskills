@@ -29,7 +29,7 @@ task (with invocation-mode gating), and validates the agent's Skill Sufficiency 
 - **`requiresApproval(outcome, mode, explicit)`** (`sufficiency.ts`): true only in `suggest`
   mode without an explicit request for a non-`sufficient` outcome.
 
-The skill that drives all of this from the host is `skills/dynamic-skill-bootstrap/SKILL.md` (repository root). `test/bootstrap-skill.test.ts` runs the project's own evaluators on it.
+The skill that drives all of this from the host is `skills/dynamic-skill-bootstrap/SKILL.md` (repository root). `packages/bootstrapper/test/bootstrap-skill.test.ts` runs the project's own evaluators on it.
 
 ## Example
 

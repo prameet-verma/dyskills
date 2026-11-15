@@ -1,5 +1,7 @@
 # Dynamic Skills
 
+<!-- Badges (CI status, license, version) are added once the repository is published. -->
+
 Dynamic Skills creates a small, evidence-grounded agent skill for the task you are about to do,
 at the moment you ask for it. Instead of relying on generic skills or hand-written ones that rot,
 it inspects the repository, finds what the task needs that is not yet covered, asks at most a few
@@ -127,9 +129,13 @@ skill; it is not part of the test suite and needs that agent installed.
 
 Details: [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
 
-## More
+## Documentation
 
+- [Architecture](docs/architecture.md) - components, a full session, trust boundaries
+- [CLI reference](docs/cli-reference.md) - every command, flag, exit code and error code
+- [Decision records](docs/adr/README.md) - why the design is the way it is
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to set up, develop and submit changes
+- [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [CHANGELOG.md](CHANGELOG.md)
 - [PRD.md](PRD.md) - product requirements
 
 ## License
