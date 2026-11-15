@@ -62,6 +62,7 @@ describe("dynamic-skill-bootstrap", () => {
     ]) {
       expect(body).toContain(c);
     }
+    expect(body).not.toContain("no rounds remain");
     for (const o of ["sufficient", "partial", "insufficient"]) expect(body).toContain(o);
     expect(body).not.toContain("evidence add");
     for (const t of [
