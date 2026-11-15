@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import {
   AssumptionsReportSchema,
   DiscoveryReportSchema,
   EvaluationReportSchema,
+  MAX_BASE_FILE_BYTES,
   PerformanceReportSchema,
   SlaClock,
   type EvalResult,
@@ -227,6 +229,45 @@ describe("activate", () => {
     const skill = await stageSkill(AUG_SKILL);
     const basePath = join(dir, "base", "missing", "SKILL.md");
     const state = makeState({ sufficiency: partial(basePath, "0".repeat(64)) });
+    const r = await activate({
+      state,
+      sessionDir: dir,
+      skill,
+      report: report(),
+      behavioural: pass,
+      packet: null,
+      evidence: [],
+      now: NOW,
+    });
+    expect(r).toMatchObject({ activated: false, reason: "base-changed" });
+  });
+
+  it("refuses with base-changed, without hanging, when the base became a FIFO", async () => {
+    const skill = await stageSkill(AUG_SKILL);
+    const basePath = join(dir, "base", "SKILL.md");
+    await mkdir(join(dir, "base"), { recursive: true });
+    execFileSync("mkfifo", [basePath]);
+    const state = makeState({ sufficiency: partial(basePath, "0".repeat(64)) });
+    const r = await activate({
+      state,
+      sessionDir: dir,
+      skill,
+      report: report(),
+      behavioural: pass,
+      packet: null,
+      evidence: [],
+      now: NOW,
+    });
+    expect(r).toMatchObject({ activated: false, reason: "base-changed" });
+  }, 5_000);
+
+  it("refuses with base-changed when the base grew past the size cap", async () => {
+    const skill = await stageSkill(AUG_SKILL);
+    const basePath = join(dir, "base", "SKILL.md");
+    await mkdir(join(dir, "base"), { recursive: true });
+    const big = "x".repeat(MAX_BASE_FILE_BYTES + 1);
+    await writeFile(basePath, big);
+    const state = makeState({ sufficiency: partial(basePath, sha(big)) });
     const r = await activate({
       state,
       sessionDir: dir,

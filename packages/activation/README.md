@@ -4,7 +4,8 @@ Gated, ephemeral activation of a generated skill, with a timeout fallback. It ha
 and an augmentation (activated together with its unchanged base). A reused skill is returned by the
 sufficiency step and never reaches this package.
 
-Writes only inside the session directory. The base skill is only ever read, never modified.
+Writes only inside the session directory. The base skill is only ever read, never modified, through core's `readSafeFile` (regular file named
+`SKILL.md`, size-capped, hash taken from the same bytes); anything else refuses with `base-changed`.
 
 ## API
 

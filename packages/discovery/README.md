@@ -24,7 +24,7 @@ failing detector never stops the others.
 - **`readRegularFile(abs, maxBytes?)`** (`safe-read.ts`): the same single-handle read with a
   caller-chosen cap, returning `{ ok: true, text }` or `{ ok: false, reason }` (`missing`,
   `not-a-file`, `too-large`, `unreadable`) so callers can warn about what they skipped. Used by
-  the bootstrapper's skills scan.
+  the bootstrapper's skills scan. Both readers are thin wrappers over core's `readSafeFile`.
 - **`SKIPPED_DIRS`**, and `RepoFileIndex.depthLimited` (true when directories at `maxDepth`
   were not walked).
 - **`isSecretPath(rel)`** (`secrets.ts`): true (case-insensitive) for `.env*`/`.envrc`/`.netrc`,

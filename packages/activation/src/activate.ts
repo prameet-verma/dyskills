@@ -1,14 +1,18 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   AssumptionsReportSchema,
   CONTRACT_VERSION,
+  FALLBACK_MESSAGE,
+  MAX_BASE_FILE_BYTES,
+  NOTICE_AUGMENTED,
+  NOTICE_GENERATED,
   PRIVATE_DIR_MODE,
   PRIVATE_FILE_MODE,
   buildDiscoveryReport,
   buildPerformanceReport,
   enforceDeadline,
+  readSafeFile,
   stopClock,
   type ContextPacket,
   type EvalResult,
@@ -18,7 +22,6 @@ import {
   type SessionState,
 } from "@dynamic-skills/core";
 import { isActivatable } from "@dynamic-skills/eval-engine";
-import { fingerprintFile } from "@dynamic-skills/evidence-registry";
 
 /** Why activation was refused; the original task continues with existing capabilities. */
 export type RefusalReason =
@@ -66,35 +69,28 @@ export interface ActivationInput {
   now: number;
 }
 
-const FALLBACK = "Continue the original task with existing capabilities.";
-const NOTICE_GENERATED =
-  "Apply the skill below to the current task. It is ephemeral and lives only in this session.";
-const NOTICE_AUGMENTED =
-  "Load the unchanged base skill first, then this augmentation, and apply both to the current task. The augmentation is ephemeral and lives only in this session.";
-
 function refuse(reason: RefusalReason): ActivationResult {
-  return { activated: false, reason, fallback: FALLBACK };
+  return { activated: false, reason, fallback: FALLBACK_MESSAGE };
 }
 
 /**
  * Reads the base skill and checks it against the sha256 pinned at the verdict. The base is only
- * ever read (PRD §5.5, FR-42). The content is hashed again after reading so a change between the
- * fingerprint and the read cannot slip through.
+ * ever read (PRD §5.5, FR-42), through the shared safe reader: one non-blocking handle, a regular
+ * file named `SKILL.md` after symlink resolution, within the size cap. The hash is of the exact
+ * bytes returned, so a change between the verdict and the read cannot slip through.
  *
- * @returns The base, or `null` when it is missing, unreadable or changed.
+ * @returns The base, or `null` when it is missing, unreadable, unsafe, too large or changed.
  */
 async function readUnchangedBase(
   baseSkill: { name: string; path: string; sha256: string } | null,
 ): Promise<{ name: string; path: string; content: string } | null> {
   if (baseSkill === null) return null;
-  try {
-    if ((await fingerprintFile(baseSkill.path)) !== baseSkill.sha256) return null;
-    const bytes = await readFile(baseSkill.path);
-    if (createHash("sha256").update(bytes).digest("hex") !== baseSkill.sha256) return null;
-    return { name: baseSkill.name, path: baseSkill.path, content: bytes.toString("utf8") };
-  } catch {
-    return null;
-  }
+  const read = await readSafeFile(baseSkill.path, {
+    maxBytes: MAX_BASE_FILE_BYTES,
+    realBasename: "SKILL.md",
+  });
+  if (!read.ok || read.sha256 !== baseSkill.sha256) return null;
+  return { name: baseSkill.name, path: baseSkill.path, content: read.text };
 }
 
 /** Writes `reports/*.json`, all carrying `schemaVersion` (PRD §10.8, §13.2). */

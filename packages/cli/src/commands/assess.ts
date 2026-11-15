@@ -1,11 +1,10 @@
 import { stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { assessCoverage, scanExistingSkills } from "@dynamic-skills/bootstrapper";
-import { CONTRACT_VERSION, InvocationModeSchema } from "@dynamic-skills/core";
+import { BOOTSTRAP_SKILL_NAME, CONTRACT_VERSION, InvocationModeSchema } from "@dynamic-skills/core";
 import type { SkillsScan } from "@dynamic-skills/core";
 import { getRepoRevision } from "@dynamic-skills/evidence-registry";
 import { CliError, toJson } from "../io";
-import { BOOTSTRAP_SKILL } from "./bundle";
 import type { CreateCommandDef } from "./types";
 
 /** Reads `DYNAMIC_SKILLS_BUDGET_MS`; unset means the default budget. */
@@ -54,7 +53,7 @@ export const assessCommand: CreateCommandDef = {
 
     const scanned = await scanExistingSkills({ repo, home: ctx.userHome });
     const skills = scanned.skills
-      .filter((s) => s.name !== BOOTSTRAP_SKILL)
+      .filter((s) => s.name !== BOOTSTRAP_SKILL_NAME)
       .map((s) => ({ name: s.name, description: s.description, scope: s.scope, path: s.path }));
     // Controller carry 2: instruction files are stored repo-relative, skill paths stay absolute.
     const instructionFiles = scanned.instructionFiles.map((p) => relative(repo, p));

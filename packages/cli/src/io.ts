@@ -1,17 +1,23 @@
-import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { open, readFile, realpath, stat } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   CONTRACT_VERSION,
   AssumptionsReportSchema,
   ContextPacketSchema,
   EvidenceDocumentSchema,
+  FALLBACK_MESSAGE,
   MAX_BASE_FILE_BYTES,
   buildDiscoveryReport,
   buildPerformanceReport,
+  readSafeFile,
 } from "@dynamic-skills/core";
-import type { ContextPacket, Evidence, SessionState, SessionStore } from "@dynamic-skills/core";
+import type {
+  ContextPacket,
+  Evidence,
+  SafeReadRejection,
+  SessionState,
+  SessionStore,
+} from "@dynamic-skills/core";
 import { readRealFile, resolveRepoPath } from "@dynamic-skills/discovery";
 import type { ZodType, z } from "zod";
 
@@ -81,7 +87,7 @@ const MAX_INPUT_BYTES = 1_000_000;
 const MAX_ISSUES = 50;
 
 /** Shown to the agent whenever the pipeline ends without a skill (PRD §10.7). */
-export const FALLBACK = "Continue the original task with existing capabilities.";
+export const FALLBACK = FALLBACK_MESSAGE;
 
 /**
  * Reads an agent-supplied input file as text.
@@ -239,6 +245,15 @@ export type BaseRead = { ok: true; content: string } | { ok: false; message: str
 export type BaseSkillRead =
   { ok: false; message: string } | { ok: true; content: string; sha256: string };
 
+/** Failure text per refusal of the shared reader, for a base skill file. */
+const BASE_SKILL_FAILURES: Record<SafeReadRejection, string> = {
+  missing: "base skill file could not be read",
+  "not-a-file": "base skill file is not a regular file",
+  "too-large": `base skill file exceeds ${MAX_BASE_FILE_BYTES} bytes`,
+  "wrong-name": "base skill file resolves to a file that is not a SKILL.md",
+  unreadable: "base skill file could not be read",
+};
+
 /**
  * Reads a scanned base skill (`SKILL.md`) without modifying it (PRD §5.5, FR-42). A scanned path
  * is not trusted to be a plain file: a symlinked `SKILL.md` is followed only when its real name is
@@ -247,31 +262,12 @@ export type BaseSkillRead =
  * @returns The content, or a failure message (missing, not a regular file, redirected, too large).
  */
 export async function readBaseSkillFile(path: string): Promise<BaseSkillRead> {
-  let handle;
-  try {
-    const real = await realpath(path);
-    if (basename(real) !== "SKILL.md") {
-      return { ok: false, message: "base skill file resolves to a file that is not a SKILL.md" };
-    }
-    // One non-blocking handle: the file checked is the file read (a FIFO swapped in cannot hang
-    // us), and the body shown to the agent and its hash come from the same bytes.
-    handle = await open(real, constants.O_RDONLY | constants.O_NONBLOCK);
-    const info = await handle.stat();
-    if (!info.isFile()) return { ok: false, message: "base skill file is not a regular file" };
-    if (info.size > MAX_BASE_FILE_BYTES) {
-      return { ok: false, message: `base skill file exceeds ${MAX_BASE_FILE_BYTES} bytes` };
-    }
-    const bytes = await handle.readFile();
-    return {
-      ok: true,
-      content: bytes.toString("utf8"),
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-    };
-  } catch {
-    return { ok: false, message: "base skill file could not be read" };
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
+  const read = await readSafeFile(path, {
+    maxBytes: MAX_BASE_FILE_BYTES,
+    realBasename: "SKILL.md",
+  });
+  if (read.ok) return { ok: true, content: read.text, sha256: read.sha256 };
+  return { ok: false, message: BASE_SKILL_FAILURES[read.reason] };
 }
 
 /**

@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve, sep } from "node:path";
+import { checkSafeFile, readSafeFile } from "@dynamic-skills/core";
 import { SKIPPED_DIRS } from "./file-index";
 import { isSecretPath } from "./secrets";
 
@@ -33,43 +33,11 @@ function hasSkippedSegment(rel: string): boolean {
   return rel.split("/").some((s) => SKIPPED_DIRS.includes(s));
 }
 
-/** O_NONBLOCK so opening a FIFO or device never blocks; the type check then rejects it. */
-const OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
-
 /** Why {@link readRegularFile} refused or failed to read a file. */
 export type FileReadRejection = "missing" | "not-a-file" | "too-large" | "unreadable";
 
 /** Outcome of {@link readRegularFile}. */
 export type FileRead = { ok: true; text: string } | { ok: false; reason: FileReadRejection };
-
-/**
- * Opens non-blocking, checks it is a regular file within the size limit, and optionally reads
- * it through the same handle (so the checks apply to exactly the bytes read).
- *
- * @returns The text (`""` when only validating) or why the file was refused.
- */
-async function openChecked(abs: string, read: boolean, maxBytes: number): Promise<FileRead> {
-  let handle;
-  try {
-    handle = await open(abs, OPEN_FLAGS);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    return {
-      ok: false,
-      reason: code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unreadable",
-    };
-  }
-  try {
-    const info = await handle.stat();
-    if (!info.isFile()) return { ok: false, reason: "not-a-file" };
-    if (info.size > maxBytes) return { ok: false, reason: "too-large" };
-    return { ok: true, text: read ? await handle.readFile("utf8") : "" };
-  } catch {
-    return { ok: false, reason: "unreadable" };
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-}
 
 /**
  * Reads a file that must be a regular file of at most `maxBytes`, through one non-blocking handle
@@ -82,8 +50,14 @@ async function openChecked(abs: string, read: boolean, maxBytes: number): Promis
  * @returns `{ ok: true, text }`, or `{ ok: false, reason }` with `missing` (no such file),
  *   `not-a-file` (directory, FIFO, socket, device), `too-large` or `unreadable`. Never throws.
  */
-export function readRegularFile(abs: string, maxBytes: number = MAX_READ_BYTES): Promise<FileRead> {
-  return openChecked(abs, true, maxBytes);
+export async function readRegularFile(
+  abs: string,
+  maxBytes: number = MAX_READ_BYTES,
+): Promise<FileRead> {
+  const read = await readSafeFile(abs, { maxBytes });
+  if (read.ok) return { ok: true, text: read.text };
+  // `wrong-name` is only produced when a basename is required, which this reader never sets.
+  return { ok: false, reason: read.reason === "wrong-name" ? "unreadable" : read.reason };
 }
 
 /**
@@ -94,7 +68,7 @@ export function readRegularFile(abs: string, maxBytes: number = MAX_READ_BYTES):
  *   unreadable. Never throws or blocks.
  */
 export async function readRealFile(abs: string): Promise<string | null> {
-  const r = await openChecked(abs, true, MAX_READ_BYTES);
+  const r = await readRegularFile(abs, MAX_READ_BYTES);
   return r.ok ? r.text : null;
 }
 
@@ -131,7 +105,7 @@ export async function resolveRepoPath(repo: string, rel: string): Promise<Resolv
     const backPosix = back.split(sep).join("/");
     if (isSecretPath(backPosix)) return { ok: false, reason: "secret" };
     if (hasSkippedSegment(backPosix)) return { ok: false, reason: "excluded" };
-    if (!(await openChecked(real, false, MAX_READ_BYTES)).ok)
+    if (!(await checkSafeFile(real, { maxBytes: MAX_READ_BYTES })).ok)
       return { ok: false, reason: "missing" };
     return { ok: true, rel: normalised, abs: real, realRel: backPosix };
   } catch {

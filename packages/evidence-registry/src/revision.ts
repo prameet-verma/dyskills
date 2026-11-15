@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { MAX_BASE_FILE_BYTES, readSafeFile } from "@dynamic-skills/core";
 
 /**
  * Reads the repository's current commit so evidence can be tied to a revision (PRD §7).
@@ -19,14 +18,22 @@ export function getRepoRevision(repo: string): Promise<string> {
 }
 
 /**
- * Computes a content fingerprint used to detect changed files between sessions.
+ * Computes a content fingerprint used to detect changed files between sessions. The read goes
+ * through the shared safe reader (one non-blocking handle, regular files only, size-capped), so a
+ * FIFO, device or huge file cannot hang or exhaust the caller. Every caller fingerprints a skill
+ * file, so the cap defaults to `MAX_BASE_FILE_BYTES`.
  *
  * @param absPath - Absolute path of the file to hash.
+ * @param maxBytes - Largest file hashed; defaults to `MAX_BASE_FILE_BYTES`.
  * @returns Lowercase sha256 hex digest (64 characters).
- * @throws If the file cannot be read.
+ * @throws If the file is missing, not a regular file, over the cap or unreadable; the message
+ *   names the reason and never includes file content.
  */
-export async function fingerprintFile(absPath: string): Promise<string> {
-  return createHash("sha256")
-    .update(await readFile(absPath))
-    .digest("hex");
+export async function fingerprintFile(
+  absPath: string,
+  maxBytes: number = MAX_BASE_FILE_BYTES,
+): Promise<string> {
+  const read = await readSafeFile(absPath, { maxBytes });
+  if (!read.ok) throw new Error(`Cannot fingerprint ${absPath}: ${read.reason}`);
+  return read.sha256;
 }

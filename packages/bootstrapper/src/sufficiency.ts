@@ -1,13 +1,10 @@
-import { SkillNameSchema } from "@dynamic-skills/core";
+import { BOOTSTRAP_SKILL_NAME, SkillNameSchema } from "@dynamic-skills/core";
 import type {
   InvocationMode,
   SkillSufficiencyAssessment,
   SkillsScan,
   SufficiencyOutcome,
 } from "@dynamic-skills/core";
-
-/** Name of the bootstrap skill; it can never be the base of a sufficiency verdict. */
-const BOOTSTRAP_SKILL = "dynamic-skill-bootstrap";
 
 /**
  * Finds the scanned skill a verdict names. Name and path must both equal the scanned skill's by
@@ -56,7 +53,7 @@ export function validateSufficiency(
         message: "base skill name is not a valid Agent Skills name",
       });
     }
-    if (name === BOOTSTRAP_SKILL) {
+    if (name === BOOTSTRAP_SKILL_NAME) {
       issues.push({ path: "baseSkill.name", message: "the bootstrap skill cannot be a base" });
     }
   }

@@ -64,3 +64,20 @@ export const MAX_SUFFICIENCY_ASPECTS = 20;
  * skill over 5,000 tokens (~20 KB) already fails review, so this only stops hostile files.
  */
 export const MAX_BASE_FILE_BYTES = 200_000;
+
+/** Name of the bootstrap skill itself; it is never a candidate, a base or a duplicate. */
+export const BOOTSTRAP_SKILL_NAME = "dynamic-skill-bootstrap";
+
+/** Shown to the agent whenever the pipeline ends without a skill (PRD §10.7). */
+export const FALLBACK_MESSAGE = "Continue the original task with existing capabilities.";
+
+/** Notice returned with a reused (sufficient) existing skill. */
+export const REUSE_NOTICE = "Load this existing skill unchanged and continue the original task.";
+
+/** Activation notice for a newly generated, ephemeral session skill. */
+export const NOTICE_GENERATED =
+  "Apply the skill below to the current task. It is ephemeral and lives only in this session.";
+
+/** Activation notice for an augmentation that loads on top of its unchanged base skill. */
+export const NOTICE_AUGMENTED =
+  "Load the unchanged base skill first, then this augmentation, and apply both to the current task. The augmentation is ephemeral and lives only in this session.";
