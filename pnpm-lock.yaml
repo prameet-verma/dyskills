@@ -218,6 +218,9 @@ importers:
       '@dynamic-skills/core':
         specifier: workspace:*
         version: link:../core
+      '@dynamic-skills/discovery':
+        specifier: workspace:*
+        version: link:../discovery
       yaml:
         specifier: ^2.9.1
         version: 2.9.1

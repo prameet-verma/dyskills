@@ -6,6 +6,7 @@ import {
   CONTRACT_VERSION,
   ContextPacketSchema,
   EvidenceDocumentSchema,
+  MAX_BASE_FILE_BYTES,
   buildDiscoveryReport,
   buildPerformanceReport,
 } from "@dynamic-skills/core";
@@ -72,9 +73,6 @@ export interface CliEnv {
 
 /** Largest `--file` document accepted; agent documents are small and bounded by their schemas. */
 const MAX_INPUT_BYTES = 1_000_000;
-
-/** Largest base skill or instruction file whose content is returned for reuse (PRD §5.5). */
-const MAX_BASE_BYTES = 200_000;
 
 /** Maximum issues reported for one invalid document. */
 const MAX_ISSUES = 50;
@@ -249,8 +247,8 @@ export async function readBaseSkillFile(path: string): Promise<BaseSkillRead> {
     handle = await open(real, constants.O_RDONLY | constants.O_NONBLOCK);
     const info = await handle.stat();
     if (!info.isFile()) return { ok: false, message: "base skill file is not a regular file" };
-    if (info.size > MAX_BASE_BYTES) {
-      return { ok: false, message: `base skill file exceeds ${MAX_BASE_BYTES} bytes` };
+    if (info.size > MAX_BASE_FILE_BYTES) {
+      return { ok: false, message: `base skill file exceeds ${MAX_BASE_FILE_BYTES} bytes` };
     }
     const bytes = await handle.readFile();
     return {
@@ -278,8 +276,8 @@ export async function readBaseInstructionFile(repo: string, rel: string): Promis
   }
   try {
     const info = await stat(resolved.abs);
-    if (info.size > MAX_BASE_BYTES) {
-      return { ok: false, message: `base instruction file exceeds ${MAX_BASE_BYTES} bytes` };
+    if (info.size > MAX_BASE_FILE_BYTES) {
+      return { ok: false, message: `base instruction file exceeds ${MAX_BASE_FILE_BYTES} bytes` };
     }
   } catch {
     return { ok: false, message: "base instruction file could not be read" };

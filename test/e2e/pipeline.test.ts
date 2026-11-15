@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFile, cp, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { closeSync, constants, openSync } from "node:fs";
+import { appendFile, cp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { DiscoveryReportSchema, PerformanceReportSchema } from "../../packages/core/src/index";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ROOT, TASK, fixtureJson, fixtureText, hashTree, installGolden, world } from "./harness";
@@ -367,5 +369,42 @@ describe("timeout (AC 30)", () => {
     expect(typeof r.out.fallback).toBe("string");
     expect(await w.exists(join(w.session(id), "skills"))).toBe(false);
     expect((await w.readJson(id, "reports/performance.json")).outcome).toBe("timeout");
+  });
+});
+
+describe("hostile repository skills scan (I1)", () => {
+  it("assess returns promptly with warnings for FIFO, device and oversized files", async () => {
+    const fifoSkill = join(w.repo, ".claude/skills/x/SKILL.md");
+    const fifoAgents = join(w.repo, "AGENTS.md");
+    await mkdir(dirname(fifoSkill), { recursive: true });
+    execFileSync("mkfifo", [fifoSkill]);
+    execFileSync("mkfifo", [fifoAgents]);
+    await symlink("/dev/zero", join(w.repo, "CLAUDE.md"));
+    const big = join(w.repo, ".agents/skills/big/SKILL.md");
+    await mkdir(dirname(big), { recursive: true });
+    await writeFile(big, `---\nname: big\ndescription: d\n---\n${"x".repeat(300_000)}\n`);
+    try {
+      const started = Date.now();
+      const out = await ok(["assess", "--task", TASK]);
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(out.instructionFiles).toEqual([]);
+      expect(out.skills).toEqual([]);
+      expect(out.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("SKILL.md: not a regular file"),
+          expect.stringContaining("AGENTS.md: not a regular file"),
+          expect.stringContaining("CLAUDE.md: not a regular file"),
+          expect.stringContaining("big/SKILL.md: larger than"),
+        ]),
+      );
+    } finally {
+      for (const fifo of [fifoSkill, fifoAgents]) {
+        try {
+          closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
+        } catch {
+          // No reader was waiting.
+        }
+      }
+    }
   });
 });

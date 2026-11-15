@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@dynamic-skills/core": "workspace:*",
+    "@dynamic-skills/discovery": "workspace:*",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

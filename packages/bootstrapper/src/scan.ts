@@ -1,7 +1,10 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { MAX_BASE_FILE_BYTES } from "@dynamic-skills/core";
 import type { ExistingSkill } from "@dynamic-skills/core";
+import { readRegularFile } from "@dynamic-skills/discovery";
+import type { FileReadRejection } from "@dynamic-skills/discovery";
 import { parse } from "yaml";
 
 /** Result of {@link scanExistingSkills}. */
@@ -60,18 +63,35 @@ function parseSkill(text: string): { name: string; description: string; body: st
   return { name, description, body: (match[2] ?? "").trim() };
 }
 
-async function readOrNull(path: string): Promise<string | null> {
+/** Warning text per refusal of {@link readRegularFile}; `missing` is silent and never shown. */
+const REJECTIONS: Record<Exclude<FileReadRejection, "missing">, string> = {
+  "not-a-file": "not a regular file",
+  "too-large": `larger than ${MAX_BASE_FILE_BYTES} bytes`,
+  unreadable: "unreadable",
+};
+
+/**
+ * Tells whether an instruction file exists as a regular file, without opening it: `stat` never
+ * blocks on a FIFO or reads a device, and the scan only needs to know the file is there (its
+ * content is read later, through the sandboxed repo reader, when it is chosen as a base).
+ *
+ * @returns `true` for a regular file, `false` when absent, otherwise the reason it is skipped.
+ */
+async function instructionFileState(path: string): Promise<boolean | string> {
   try {
-    return await readFile(path, "utf8");
-  } catch {
-    return null;
+    return (await stat(path)).isFile() || REJECTIONS["not-a-file"];
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? false : REJECTIONS.unreadable;
   }
 }
 
 /**
  * Finds skills already installed for the project and the user (PRD §11.3, §12.2) so the pipeline
  * can reuse or avoid duplicating them. Read-only; never throws for missing directories or bad
- * files, which become warnings instead.
+ * files, which become warnings instead. Every `SKILL.md` is read through one non-blocking handle
+ * that accepts only a regular file of at most {@link MAX_BASE_FILE_BYTES}; instruction files are
+ * only `stat`-ed, never opened. A missing `SKILL.md` or instruction file is silent.
  * @param opts.repo repository root; project skills and instruction files are read from here.
  * @param opts.home user home directory; defaults to `os.homedir()`.
  * @returns skills (same name and body found twice keeps the first), instruction files, warnings.
@@ -95,9 +115,14 @@ export async function scanExistingSkills(opts: {
     }
     for (const entry of entries) {
       const path = join(base, entry, "SKILL.md");
-      const text = await readOrNull(path);
-      if (text === null) continue;
-      const parsed = parseSkill(text);
+      // The repository is untrusted: one non-blocking, regular-file-only, size-capped read, so a
+      // FIFO, a device symlink or a huge file is skipped instead of hanging or exhausting memory.
+      const read = await readRegularFile(path, MAX_BASE_FILE_BYTES);
+      if (!read.ok) {
+        if (read.reason !== "missing") warnings.push(`Skipped ${path}: ${REJECTIONS[read.reason]}`);
+        continue;
+      }
+      const parsed = parseSkill(read.text);
       if (typeof parsed === "string") {
         warnings.push(`Skipped ${path}: ${parsed}`);
         continue;
@@ -112,7 +137,9 @@ export async function scanExistingSkills(opts: {
   const instructionFiles: string[] = [];
   for (const file of INSTRUCTION_FILES) {
     const path = join(opts.repo, file);
-    if ((await readOrNull(path)) !== null) instructionFiles.push(path);
+    const found = await instructionFileState(path);
+    if (found === true) instructionFiles.push(path);
+    else if (typeof found === "string") warnings.push(`Skipped ${path}: ${found}`);
   }
   return { skills, instructionFiles, warnings };
 }

@@ -57,3 +57,10 @@ export const MAX_ANALYSIS_LIST_ITEMS = 50;
 
 /** Maximum entries in each aspect list of a Skill Sufficiency Assessment. Our bound (PRD §5.5). */
 export const MAX_SUFFICIENCY_ASPECTS = 20;
+
+/**
+ * Largest existing `SKILL.md` or instruction file read as a reusable base, in bytes. The skills
+ * scan skips a bigger `SKILL.md` with a warning, and a base read refuses one. Our bound: a
+ * skill over 5,000 tokens (~20 KB) already fails review, so this only stops hostile files.
+ */
+export const MAX_BASE_FILE_BYTES = 200_000;

@@ -1,4 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { closeSync, constants, openSync } from "node:fs";
+import { mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { MAX_BASE_FILE_BYTES } from "@dynamic-skills/core";
 import { describe, expect, it, vi } from "vitest";
 import { scanExistingSkills } from "../src/index";
 import { put, skillMd, tmp } from "./helpers";
@@ -78,5 +82,97 @@ describe("scanExistingSkills yaml safety", () => {
     // Accepted: the unknown tag is ignored and the value stays a plain string.
     expect(r.skills.map((s) => s.name)).toEqual(["w"]);
     expect(r.warnings).toEqual([]);
+  });
+});
+
+/** Opens any FIFO for writing and closes it, releasing a reader stuck in a blocking open. */
+function release(fifo: string): void {
+  try {
+    closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
+  } catch {
+    // No reader was waiting.
+  }
+}
+
+/** Fails if `p` takes longer than `ms`, so a hang is reported instead of stalling the run. */
+async function within<T>(ms: number, p: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`took longer than ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+describe("scanExistingSkills hostile repository (never hangs or bloats)", () => {
+  it("skips a FIFO SKILL.md with a warning and returns promptly", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await mkdir(join(repo, ".claude/skills/x"), { recursive: true });
+    const fifo = join(repo, ".claude/skills/x/SKILL.md");
+    execFileSync("mkfifo", [fifo]);
+    try {
+      const r = await within(2000, scanExistingSkills({ repo, home }));
+      expect(r.skills).toEqual([]);
+      expect(r.warnings).toEqual([`Skipped ${fifo}: not a regular file`]);
+    } finally {
+      release(fifo);
+    }
+  });
+
+  it("skips a SKILL.md symlinked to /dev/zero and an oversized SKILL.md", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await mkdir(join(repo, ".claude/skills/z"), { recursive: true });
+    await symlink("/dev/zero", join(repo, ".claude/skills/z/SKILL.md"));
+    await put(
+      repo,
+      ".agents/skills/big/SKILL.md",
+      skillMd("big", "Big skill", "x".repeat(MAX_BASE_FILE_BYTES)),
+    );
+    const r = await within(2000, scanExistingSkills({ repo, home }));
+    expect(r.skills).toEqual([]);
+    expect(r.warnings).toEqual([
+      `Skipped ${join(repo, ".claude/skills/z/SKILL.md")}: not a regular file`,
+      `Skipped ${join(repo, ".agents/skills/big/SKILL.md")}: larger than ${MAX_BASE_FILE_BYTES} bytes`,
+    ]);
+  });
+
+  it("never opens instruction files: a FIFO or /dev/zero AGENTS.md is not listed", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    const fifo = join(repo, "AGENTS.md");
+    execFileSync("mkfifo", [fifo]);
+    await symlink("/dev/zero", join(repo, "CLAUDE.md"));
+    try {
+      const r = await within(2000, scanExistingSkills({ repo, home }));
+      expect(r.instructionFiles).toEqual([]);
+      expect(r.warnings).toEqual([
+        `Skipped ${fifo}: not a regular file`,
+        `Skipped ${join(repo, "CLAUDE.md")}: not a regular file`,
+      ]);
+    } finally {
+      release(fifo);
+    }
+  });
+
+  it("still lists a regular instruction file without reading it (even a large one)", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, "CLAUDE.md", "y".repeat(MAX_BASE_FILE_BYTES + 1));
+    const r = await scanExistingSkills({ repo, home });
+    expect(r.instructionFiles).toEqual([join(repo, "CLAUDE.md")]);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("stays silent for a skill directory without a SKILL.md", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await mkdir(join(repo, ".claude/skills/empty"), { recursive: true });
+    const r = await scanExistingSkills({ repo, home });
+    expect(r).toEqual({ skills: [], instructionFiles: [], warnings: [] });
   });
 });

@@ -3,7 +3,13 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRepoReader, resolveRepoPath, runDiscovery, SKIPPED_DIRS } from "../src/index";
+import {
+  createRepoReader,
+  readRegularFile,
+  resolveRepoPath,
+  runDiscovery,
+  SKIPPED_DIRS,
+} from "../src/index";
 
 const created: string[] = [];
 
@@ -86,5 +92,27 @@ describe.skipIf(process.platform === "win32")("FIFOs", () => {
     const d = await runDiscovery({ repo, task: "x" });
     expect(d.errors).toEqual([]);
     expect(d.registry.get("package-manager")).toBeUndefined();
+  });
+});
+
+describe("readRegularFile", () => {
+  it("reads a regular file and names why anything else is refused", async () => {
+    const repo = await makeRepo();
+    const fifo = join(repo, "pipe");
+    execFileSync("mkfifo", [fifo]);
+    await symlink("/dev/zero", join(repo, "zero"));
+    await writeFile(join(repo, "big.txt"), "x".repeat(11));
+    expect(await readRegularFile(join(repo, "README.md"))).toEqual({ ok: true, text: "hello" });
+    expect(await readRegularFile(join(repo, "nope"))).toEqual({ ok: false, reason: "missing" });
+    expect(await readRegularFile(fifo)).toEqual({ ok: false, reason: "not-a-file" });
+    expect(await readRegularFile(join(repo, "zero"))).toEqual({ ok: false, reason: "not-a-file" });
+    expect(await readRegularFile(join(repo, "config"))).toEqual({
+      ok: false,
+      reason: "not-a-file",
+    });
+    expect(await readRegularFile(join(repo, "big.txt"), 10)).toEqual({
+      ok: false,
+      reason: "too-large",
+    });
   });
 });
