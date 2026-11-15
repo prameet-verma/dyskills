@@ -9,6 +9,7 @@ import {
 import { augmentationName, buildCompilationBrief } from "@dynamic-skills/skill-compiler";
 import {
   CliError,
+  FALLBACK,
   parseDocument,
   readBaseSkillFile,
   readEvidence,
@@ -44,8 +45,9 @@ function augmentationPath(skillsDir: string, baseName: string): string {
  * Nothing reaches the brief without a validated Context Analysis Result. For a `partial` verdict
  * the base `SKILL.md` is read safely, must still hash to the sha256 pinned at the verdict
  * (otherwise `BASE_CHANGED`), and is shown to the agent read-only; the augmentation is written
- * under the session `skills/` directory, never next to the base. Everything this command writes
- * lives in the session directory.
+ * under the session `skills/` directory, never next to the base. A changed base ends the session
+ * as `failed` (saved, reports written, exit 1 `BASE_CHANGED`; Ruling R20). Everything this
+ * command writes lives in the session directory.
  */
 export const compileCommand: SessionCommandDef = {
   name: "compile",
@@ -86,12 +88,23 @@ export const compileCommand: SessionCommandDef = {
         SkillSufficiencyAssessmentSchema,
       );
       const read = await readBaseSkillFile(base.path);
-      // A base that vanished or became unreadable is a changed base (PRD §5.5, FR-42).
+      // A base that vanished or became unreadable is a changed base (PRD §5.5, FR-42). One
+      // verdict per session means no new verdict can be submitted, so the session can never
+      // progress: it ends as a saved failure with reports (Ruling R20), not a discarded error.
       if (!read.ok || read.sha256 !== base.sha256) {
-        throw new CliError(
-          "BASE_CHANGED",
-          "The base skill changed after the verdict was recorded.",
-        );
+        state.status = "failed";
+        state.metrics.outcome = "failed";
+        return {
+          ok: false,
+          exitCode: 1,
+          error: {
+            code: "BASE_CHANGED",
+            message: "The base skill changed after the verdict was recorded.",
+          },
+          recordStep: false,
+          writeReports: true,
+          data: { fallback: FALLBACK },
+        };
       }
       augmentation = {
         baseName: base.name,

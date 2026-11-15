@@ -155,7 +155,8 @@ function stamp(ms: number): string {
  * invocation is a separate process, so state lives on disk and mutation is guarded by a lock file.
  */
 export class SessionStore {
-  private readonly home: string;
+  /** Storage root: `sessions/<id>/` holds live sessions, `reports/` the archived metrics. */
+  readonly home: string;
   private prepared: Promise<void> | undefined;
 
   /**

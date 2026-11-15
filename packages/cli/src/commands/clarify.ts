@@ -2,7 +2,14 @@ import { ClarificationManager } from "@dynamic-skills/clarification-manager";
 import { recomputeGaps } from "@dynamic-skills/context-analyzer";
 import { ClarificationRequestSchema, ClarificationResponseSchema } from "@dynamic-skills/core";
 import { EvidenceRegistry } from "@dynamic-skills/evidence-registry";
-import { CliError, parseDocument, readEvidence, readInputFile, writeEvidence } from "../io";
+import {
+  CliError,
+  FALLBACK,
+  parseDocument,
+  readEvidence,
+  readInputFile,
+  writeEvidence,
+} from "../io";
 import type { SessionCommandDef } from "./types";
 
 /**
@@ -32,7 +39,11 @@ export const clarifyAskCommand: SessionCommandDef = {
 };
 
 /**
- * `clarify answer`: applies the user's replies (PRD §10.3, §10.6). An answered question whose
+ * `clarify answer`: applies the user's replies (PRD §10.3, §10.6). When a blocking question is
+ * left unresolved (declined, skipped or unanswered), `state.blockedBy` can never clear and
+ * activation would be refused, so the session ends here (Ruling R20): status `completed`, outcome
+ * `skipped`, terminal reports written, and stdout carries the `fallback`, as for a declined
+ * approval. An answered question whose
  * requirement is human-only also yields `user.<requirement>` evidence (Ruling R7), the key gap
  * analysis looks for; that alias shares a namespace with `user.<questionId>`, so it is added only
  * when it differs from the question id and never overrides an existing different value.
@@ -89,12 +100,19 @@ export const clarifyAnswerCommand: SessionCommandDef = {
 
     state.gaps = recomputeGaps(state.requirements, registry.toJSON(), true);
     await writeEvidence(store, state.id, registry.toJSON());
+    const blocked = state.blockedBy.length > 0;
+    if (blocked) {
+      state.status = "completed";
+      state.metrics.outcome = "skipped";
+    }
     return {
+      writeReports: blocked,
       data: {
         evidenceAdded,
         assumptions: result.assumptions,
         blockingUnresolved: result.blockingUnresolved,
         warnings,
+        ...(blocked ? { fallback: FALLBACK } : {}),
       },
     };
   },

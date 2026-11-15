@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { aggregatePerformance } from "../src/index";
+import { aggregatePerformance, archivePerformanceReport } from "../src/index";
 import type { PerformanceReport } from "../src/index";
 
 let home: string;
@@ -149,6 +149,85 @@ describe("aggregatePerformance", () => {
       const a = await aggregatePerformance(home);
       expect(a.count).toBe(1);
       expect(a.maxActiveMs).toBe(5);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("archived reports (R21)", () => {
+  async function archive(doc: unknown, id: string): Promise<string> {
+    const dir = join(home, "reports");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, `${id}.json`);
+    await writeFile(file, typeof doc === "string" ? doc : JSON.stringify(doc));
+    return file;
+  }
+
+  it("counts archived reports with live ones, once per session id", async () => {
+    const live = await put(report({ activeMs: 5 }), "ds-live");
+    await archive(report({ activeMs: 5 }), live); // same session archived and still present
+    await archive(report({ activeMs: 9, outcome: "failed" }), "ds-gone");
+    const a = await aggregatePerformance(home);
+    expect(a.count).toBe(2);
+    expect(a.maxActiveMs).toBe(9);
+    expect(a.fallbackRate).toBe(0.5);
+  });
+
+  it("applies the same safe-read rules to the archive", async () => {
+    await archive(report({ activeMs: 1 }), "ds-ok");
+    await archive("{not json", "ds-bad");
+    await archive({ ...report(), schemaVersion: "2" }, "ds-v2");
+    await archive(JSON.stringify({ ...report(), padding: "x".repeat(2_000_000) }), "ds-big");
+    execFileSync("mkfifo", [join(home, "reports", "ds-fifo.json")]);
+    const outside = await mkdtemp(join(tmpdir(), "ds-agg-out-"));
+    try {
+      await writeFile(join(outside, "r.json"), JSON.stringify(report()));
+      await symlink(join(outside, "r.json"), join(home, "reports", "ds-link.json"));
+      expect((await aggregatePerformance(home)).count).toBe(1);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  }, 5_000);
+
+  it("skips a symlinked archive directory", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "ds-agg-out-"));
+    try {
+      await writeFile(join(outside, "ds-a.json"), JSON.stringify(report()));
+      await symlink(outside, join(home, "reports"));
+      expect((await aggregatePerformance(home)).count).toBe(0);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("archivePerformanceReport", () => {
+  it("copies a valid report to <home>/reports/<id>.json, 0600 in a 0700 directory", async () => {
+    await put(report({ sessionId: "ds-a", activeMs: 3 }), "ds-a");
+    expect(await archivePerformanceReport(home, "ds-a")).toBe(true);
+    const file = join(home, "reports", "ds-a.json");
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ activeMs: 3 });
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect((await stat(join(home, "reports"))).mode & 0o777).toBe(0o700);
+  });
+
+  it("archives nothing for a missing or invalid report", async () => {
+    await mkdir(join(home, "sessions", "ds-none"), { recursive: true });
+    expect(await archivePerformanceReport(home, "ds-none")).toBe(false);
+    await put("{not json", "ds-bad");
+    expect(await archivePerformanceReport(home, "ds-bad")).toBe(false);
+    expect(await stat(join(home, "reports", "ds-bad.json")).catch(() => null)).toBeNull();
+  });
+
+  it("refuses to write through a symlinked archive file", async () => {
+    await put(report(), "ds-a");
+    const outside = await mkdtemp(join(tmpdir(), "ds-agg-out-"));
+    try {
+      await mkdir(join(home, "reports"), { recursive: true });
+      await symlink(join(outside, "victim"), join(home, "reports", "ds-a.json"));
+      await expect(archivePerformanceReport(home, "ds-a")).rejects.toThrow();
+      expect(await stat(join(outside, "victim")).catch(() => null)).toBeNull();
     } finally {
       await rm(outside, { recursive: true, force: true });
     }

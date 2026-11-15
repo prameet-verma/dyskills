@@ -139,7 +139,9 @@ describe("clarify answer", () => {
     expect(r.out.assumptions).toHaveLength(1);
     expect(r.out.evidenceAdded).toEqual([]);
     expect(r.out.blockingUnresolved).toEqual(["q-migration"]);
-    expect(r.stderr).toContain("Processing SLA: RESUMED");
+    // A blocking question left unresolved ends the session (Ruling R20).
+    expect(r.stderr).toContain("Status: Completed");
+    expect(r.stderr).toContain("Processing SLA: STOPPED");
     const state = await h.readJson(id, "session.json");
     expect(state.assumptions.filter((a: any) => a.status === "declined")).toHaveLength(1);
     expect(state.gaps.find((g: any) => g.requirement === "migration-policy").status).toBe(

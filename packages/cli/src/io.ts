@@ -4,6 +4,7 @@ import { open, readFile, realpath, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import {
   CONTRACT_VERSION,
+  AssumptionsReportSchema,
   ContextPacketSchema,
   EvidenceDocumentSchema,
   MAX_BASE_FILE_BYTES,
@@ -32,6 +33,7 @@ export type CliErrorCode =
   | "USAGE"
   | "ANALYSIS_LIMIT"
   | "BASE_CHANGED"
+  | "ACTIVATION_REFUSED"
   | "SCHEMA_INVALID"
   | "VERDICT_INVALID"
   | "BUNDLE_INVALID"
@@ -175,8 +177,9 @@ export async function readEvidence(store: SessionStore, id: string): Promise<Evi
 }
 
 /**
- * Writes `reports/performance.json` and `reports/discovery.json` for a session that has ended
- * (PRD §10.8). Safe on any session: a missing packet or evidence file reads as `null` / empty.
+ * Writes `reports/performance.json`, `reports/discovery.json` and `reports/assumptions.json` for a
+ * session that has ended (PRD §10.6, §10.8). Safe on any session: a missing packet or evidence
+ * file reads as `null` / empty.
  * @param store - Session store.
  * @param state - Final session state (outcome already set).
  * @param now - Epoch ms used for the wall and active durations.
@@ -202,6 +205,13 @@ export async function writeTerminalReports(
     state.id,
     "reports/discovery.json",
     toJson(buildDiscoveryReport(state, packet, evidence)),
+  );
+  await store.writeArtifact(
+    state.id,
+    "reports/assumptions.json",
+    toJson(
+      AssumptionsReportSchema.parse({ schemaVersion: CONTRACT_VERSION, items: state.assumptions }),
+    ),
   );
 }
 
