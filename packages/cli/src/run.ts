@@ -1,4 +1,4 @@
-import { rm, stat } from "node:fs/promises";
+import { lstat, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -87,8 +87,13 @@ async function finish(
   const end = now();
   if (def.stage) recordStage(state, def.stage, Math.max(0, end - startedAt));
   if (def.step && result.recordStep !== false) state.completedSteps.push(def.step);
-  if (result.writeReports) await writeTerminalReports(store, state, end);
-  if (result.save !== false) await store.save(state);
+  try {
+    if (result.writeReports) await writeTerminalReports(store, state, end);
+    if (result.save !== false) await store.save(state);
+  } catch (e) {
+    await result.cleanup?.().catch(() => undefined);
+    throw e;
+  }
   const failure = result.error;
   return {
     doc: {
@@ -123,7 +128,8 @@ async function runSessionCommand(
   const store = new SessionStore(env.home);
   const id = String(opts.session);
   // withLock creates the directory, so an unknown id must be rejected before taking the lock.
-  const exists = await stat(store.dir(id)).then(
+  // lstat, so a symlinked session directory is unknown and no lock is written into its target.
+  const exists = await lstat(store.dir(id)).then(
     (s) => s.isDirectory(),
     () => false,
   );

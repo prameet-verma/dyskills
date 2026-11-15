@@ -167,14 +167,13 @@ describe("compile", () => {
     expect((await h.readJson(id, "session.json")).completedSteps.at(-1)).toBe("sufficiency-submit");
   });
 
-  it("rejects a base whose path no longer resolves to a SKILL.md", async () => {
+  it("reports BASE_CHANGED when the base was deleted after the verdict", async () => {
     const id = await ready(h, "partial");
     const base = (await h.readJson(id, "skills-scan.json")).skills[0].path as string;
     await rm(base);
     const r = await compile(id);
     expect(r.exitCode).toBe(1);
-    expect(r.out.error).toBe("VERDICT_INVALID");
-    expect(r.out.issues[0].path).toBe("baseSkill");
+    expect(r.out.error).toBe("BASE_CHANGED");
   });
 
   it("refuses a hand-edited session whose base name would escape the skills directory", async () => {
@@ -186,6 +185,7 @@ describe("compile", () => {
     await writeFile(join(h.home, "sessions", id, "session.json"), JSON.stringify(state));
     const r = await compile(id);
     expect(r.exitCode).toBe(1);
+    expect(r.out.error).toBe("INTERNAL");
     expect(await h.exists(id, "brief.md")).toBe(false);
     expect(await h.exists(id, "skills")).toBe(false);
   });

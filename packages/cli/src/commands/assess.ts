@@ -5,10 +5,8 @@ import { CONTRACT_VERSION, InvocationModeSchema } from "@dynamic-skills/core";
 import type { SkillsScan } from "@dynamic-skills/core";
 import { getRepoRevision } from "@dynamic-skills/evidence-registry";
 import { CliError, toJson } from "../io";
+import { BOOTSTRAP_SKILL } from "./bundle";
 import type { CreateCommandDef } from "./types";
-
-/** The bootstrap skill drives this CLI; it is never a candidate or a base (PRD §5.5). */
-const BOOTSTRAP_SKILL = "dynamic-skill-bootstrap";
 
 /** Reads `DYNAMIC_SKILLS_BUDGET_MS`; unset means the default budget. */
 function budgetFromEnv(): number | undefined {

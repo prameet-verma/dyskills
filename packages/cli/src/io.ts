@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import {
@@ -222,7 +223,8 @@ export function stripControlChars(text: string): string {
 }
 
 /** Result of reading a reusable base file. */
-export type BaseRead = { ok: true; content: string } | { ok: false; message: string };
+export type BaseRead =
+  { ok: true; content: string; sha256: string } | { ok: false; message: string };
 
 /**
  * Reads a scanned base skill (`SKILL.md`) without modifying it (PRD §5.5, FR-42). A scanned path
@@ -242,9 +244,13 @@ export async function readBaseSkillFile(path: string): Promise<BaseRead> {
     if (info.size > MAX_BASE_BYTES) {
       return { ok: false, message: `base skill file exceeds ${MAX_BASE_BYTES} bytes` };
     }
-    const content = await readRealFile(real);
-    if (content === null) return { ok: false, message: "base skill file could not be read" };
-    return { ok: true, content };
+    // One read of the real file: the body shown to the agent and its hash come from the same bytes.
+    const bytes = await readFile(real);
+    return {
+      ok: true,
+      content: bytes.toString("utf8"),
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
   } catch {
     return { ok: false, message: "base skill file could not be read" };
   }
@@ -271,5 +277,9 @@ export async function readBaseInstructionFile(repo: string, rel: string): Promis
   }
   const content = await readRealFile(resolved.abs);
   if (content === null) return { ok: false, message: "base instruction file could not be read" };
-  return { ok: true, content };
+  return {
+    ok: true,
+    content,
+    sha256: createHash("sha256").update(content).digest("hex"),
+  };
 }

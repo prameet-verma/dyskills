@@ -44,6 +44,11 @@ export interface CommandResult {
   ok?: boolean;
   /** Plain text printed on stdout instead of the JSON document (only `status`). */
   text?: string;
+  /**
+   * Undoes artifacts the handler already wrote. The wrapper calls it when its own tail (terminal
+   * reports, save) fails, so a failed command leaves nothing behind.
+   */
+  cleanup?: () => Promise<void>;
   /** Set to `false` when the command must not write `session.json` (`status`, `clean`). */
   save?: boolean;
 }

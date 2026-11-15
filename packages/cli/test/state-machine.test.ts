@@ -60,7 +60,7 @@ describe("assertCanRun predecessors", () => {
       ["discover", "context-request", "context-submit", "clarify-answer"],
     ],
     ["clarify answer", "clarify-ask", ["clarify-ask"]],
-    ["evaluate", "compile", ["compile", "evaluate"]],
+    ["evaluate", "compile", ["compile", "evaluate", "eval-record"]],
     ["eval record", "evaluate", ["evaluate"]],
     ["activate", "eval-record", ["eval-record"]],
   ];

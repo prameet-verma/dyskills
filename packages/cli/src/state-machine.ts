@@ -61,7 +61,8 @@ const PREDECESSORS: Partial<Record<CliCommand, CompletedStep[]>> = {
     "clarify-answer",
     "evaluate",
   ],
-  evaluate: ["compile", "evaluate"],
+  // PRD §9.4: a failed behavioural result is revised and re-evaluated (bounded by MAX_EVAL_ATTEMPTS).
+  evaluate: ["compile", "evaluate", "eval-record"],
   "eval record": ["evaluate"],
   activate: ["eval-record"],
 };

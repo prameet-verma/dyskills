@@ -347,6 +347,9 @@ export const SessionStateSchema = z.object({
   blockedBy: z.array(z.string()),
   evalAttempts: z.number(),
   skillName: z.string().optional(),
+  // Ruling R14: digest of the bundle (skills/** and evals/smoke.json) that `evaluate` evaluated;
+  // `eval record` and `activate` refuse a bundle that no longer matches it.
+  evaluatedBundleSha256: z.string().optional(),
   requirements: z.array(RequirementSchema).default([]),
   // PRD §5.5: the recorded sufficiency verdict, with the base skill pinned by sha256.
   sufficiency: z

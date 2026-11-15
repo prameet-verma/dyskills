@@ -5,11 +5,9 @@ import {
   SkillSufficiencyAssessmentSchema,
   SlaClock,
 } from "@dynamic-skills/core";
-import { fingerprintFile } from "@dynamic-skills/evidence-registry";
 import { augmentationName, buildCompilationBrief } from "@dynamic-skills/skill-compiler";
 import {
   CliError,
-  baseFailure,
   parseDocument,
   readBaseSkillFile,
   readEvidence,
@@ -87,8 +85,8 @@ export const compileCommand: SessionCommandDef = {
         SkillSufficiencyAssessmentSchema,
       );
       const read = await readBaseSkillFile(base.path);
-      if (!read.ok) throw baseFailure("baseSkill", read);
-      if ((await fingerprintFile(base.path)) !== base.sha256) {
+      // A base that vanished or became unreadable is a changed base (PRD §5.5, FR-42).
+      if (!read.ok || read.sha256 !== base.sha256) {
         throw new CliError(
           "BASE_CHANGED",
           "The base skill changed after the verdict was recorded.",

@@ -330,6 +330,9 @@
     "skillName": {
       "type": "string"
     },
+    "evaluatedBundleSha256": {
+      "type": "string"
+    },
     "requirements": {
       "default": [],
       "type": "array",

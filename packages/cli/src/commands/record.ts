@@ -2,7 +2,7 @@ import { EvaluationReportSchema } from "@dynamic-skills/core";
 import { recordBehaviouralResult } from "@dynamic-skills/eval-engine";
 import { loadSmokeEval } from "@dynamic-skills/skill-compiler";
 import { CliError, readInputFile, requireArtifactJson, toJson } from "../io";
-import { sessionPaths } from "./bundle";
+import { assertBundlePinned, sessionPaths } from "./bundle";
 import type { SessionCommandDef } from "./types";
 
 /**
@@ -32,6 +32,7 @@ export const evalRecordCommand: SessionCommandDef = {
     if (verdict !== "pass" && verdict !== "fail") {
       throw new CliError("USAGE", "--verdict must be pass or fail.");
     }
+    await assertBundlePinned(state, store.dir(state.id));
     const paths = sessionPaths(store.dir(state.id));
     let smoke: Awaited<ReturnType<typeof loadSmokeEval>>;
     try {

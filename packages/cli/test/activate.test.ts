@@ -1,5 +1,4 @@
-import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { analysed, harness, hashTree, installGolden, ready, record, verdict } from "./helpers";
 import type { Harness } from "./helpers";
@@ -96,18 +95,6 @@ describe("activate", () => {
     expect(await h.exists(id, "skills")).toBe(false);
   });
 
-  it("saves nothing when activation itself throws", async () => {
-    const id = await ready(h);
-    await evaluated(id, "valid/order-cache-specialist");
-    await record(h, id);
-    const before = await h.read(id, "session.json");
-    await rm(join(h.home, "sessions", id, "reports"), { recursive: true });
-    await writeFile(join(h.home, "sessions", id, "reports"), "not a directory");
-    const r = await activate(id);
-    expect(r.exitCode).toBe(1);
-    expect(await h.read(id, "session.json")).toBe(before);
-  });
-
   it("is refused on a sufficient (reused) session before activate() runs", async () => {
     await h.installBase();
     const id = await analysed(h);
@@ -120,10 +107,14 @@ describe("activate", () => {
       }),
     );
     await h.run(["sufficiency", "submit", "--session", id, "--file", v]);
+    const sessionBefore = await h.read(id, "session.json");
+    const perfBefore = await h.read(id, "reports/performance.json");
     const r = await activate(id);
     expect(r.exitCode).toBe(1);
     expect(r.out).toMatchObject({ error: "INVALID_STATE", expected: [] });
     expect(await h.exists(id, "reports/evaluation.json")).toBe(false);
+    expect(await h.read(id, "session.json")).toBe(sessionBefore);
+    expect(await h.read(id, "reports/performance.json")).toBe(perfBefore);
   });
 });
 

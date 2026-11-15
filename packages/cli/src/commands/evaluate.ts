@@ -6,7 +6,7 @@ import type { AugmentationContext, EvalContext } from "@dynamic-skills/eval-engi
 import { fingerprintFile } from "@dynamic-skills/evidence-registry";
 import { loadSmokeEval, parseSkillBundle } from "@dynamic-skills/skill-compiler";
 import { FALLBACK, readBaseSkillFile, readEvidence, requireArtifactJson, toJson } from "../io";
-import { existingSkillsFor, sessionPaths } from "./bundle";
+import { bundleChanged, bundleDigest, existingSkillsFor, sessionPaths } from "./bundle";
 import type { SessionCommandDef } from "./types";
 
 /** Longest bundle error text returned to the agent. */
@@ -14,6 +14,8 @@ const MAX_ERROR_CHARS = 300;
 
 /** Short, single-line text for a bundle or smoke-eval failure. */
 function describeBundleFailure(e: unknown): string {
+  // A JSON parse error quotes the file; never echo agent-controlled file content.
+  if (e instanceof SyntaxError) return "smoke.json is not valid JSON";
   const text = e instanceof Error ? e.message : "unreadable bundle";
   const line = text.replace(/\s+/g, " ").trim();
   return line.length > MAX_ERROR_CHARS ? `${line.slice(0, MAX_ERROR_CHARS - 1)}…` : line;
@@ -55,6 +57,8 @@ export const evaluateCommand: SessionCommandDef = {
   async run({ store, state, userHome }) {
     const sufficiency = state.sufficiency;
     state.evalAttempts += 1;
+    // Ruling R14: no pin survives into an attempt, so a failed attempt cannot leave a stale one.
+    state.evaluatedBundleSha256 = undefined;
     const attempt = state.evalAttempts;
     const attemptsRemaining = Math.max(0, MAX_EVAL_ATTEMPTS - attempt);
     if (attempt > MAX_EVAL_ATTEMPTS) {
@@ -76,7 +80,9 @@ export const evaluateCommand: SessionCommandDef = {
     const paths = sessionPaths(store.dir(state.id));
     let skill: Awaited<ReturnType<typeof parseSkillBundle>>;
     let smokeEval: Awaited<ReturnType<typeof loadSmokeEval>>;
+    let digest: string;
     try {
+      digest = await bundleDigest(store.dir(state.id));
       skill = await parseSkillBundle(paths.skillsDir);
       smokeEval = await loadSmokeEval(paths.smoke);
     } catch (e) {
@@ -109,9 +115,20 @@ export const evaluateCommand: SessionCommandDef = {
       augmentation: sufficiency ? await augmentationContext(sufficiency) : null,
     };
     const report = await runEvaluations(ctx);
+    // The pin must describe the bytes that were evaluated, not bytes swapped in meanwhile.
+    if ((await bundleDigest(store.dir(state.id))) !== digest) {
+      return {
+        ok: false,
+        exitCode: 2,
+        error: { code: "BUNDLE_INVALID", message: bundleChanged().message },
+        data: { attempt, attemptsRemaining },
+        recordStep: false,
+      };
+    }
     await store.writeArtifact(state.id, "reports/evaluation.json", toJson(report));
 
     state.skillName = skill.name;
+    state.evaluatedBundleSha256 = digest;
     state.status = "evaluating";
     state.metrics.parallelOps += report.parallelOps;
     state.metrics.evaluationMs += report.durationMs;

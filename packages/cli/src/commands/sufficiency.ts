@@ -167,6 +167,11 @@ export const sufficiencySubmitCommand: SessionCommandDef = {
     }
     return {
       writeReports: verdict.outcome === "sufficient",
+      cleanup: async () => {
+        const dir = store.dir(state.id);
+        await rm(join(dir, "sufficiency.json"), { force: true });
+        await rm(join(dir, "reports", "sufficiency.json"), { force: true });
+      },
       data: {
         outcome: verdict.outcome,
         baseSkill,

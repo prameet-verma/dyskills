@@ -24,6 +24,12 @@ export class BundleError extends Error {
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
 /** SKILL.md is agent-written (untrusted); bounding it keeps every later scan cheap (PRD §6.5). */
 const MAX_SKILL_CHARS = 100_000;
+
+/**
+ * Largest `smoke.json` accepted, in bytes. The file is agent-written (untrusted) and a smoke eval
+ * is a handful of short strings, so a small cap bounds every later read and message (PRD §6.5).
+ */
+export const MAX_SMOKE_BYTES = 64_000;
 // Linear by construction: the label class excludes `[`, `]` and newlines, so a failed attempt at
 // one `[` never rescans text another attempt consumes.
 const LINK = /\[[^[\]\n]*\]\(\s*(<[^<>\n]*>|[^()\s]+)(?:\s+"[^"]*")?\s*\)/g;
@@ -91,6 +97,8 @@ export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSki
     if ((await lstat(dir)).isSymbolicLink() || mdStat.isSymbolicLink()) {
       throw new BundleError("skill files must not be symlinks");
     }
+    // A FIFO or device would block or misbehave on read.
+    if (!mdStat.isFile()) throw new BundleError("SKILL.md is not a regular file");
     // UTF-8 is at most 4 bytes per char, so this rejects before reading a huge file into memory.
     if (mdStat.size > MAX_SKILL_CHARS * 4) {
       throw new BundleError(`SKILL.md exceeds ${MAX_SKILL_CHARS} characters`);
@@ -155,11 +163,15 @@ export async function parseSkillBundle(skillsRoot: string): Promise<GeneratedSki
  *
  * @param path - Path of `smoke.json`.
  * @returns The validated eval, or `null` when the file does not exist.
- * @throws On unreadable or non-JSON content, or when it violates {@link SmokeEvalSchema}.
+ * @throws On a symlink or non-regular file, a file over {@link MAX_SMOKE_BYTES}, unreadable or
+ *   non-JSON content, or when it violates {@link SmokeEvalSchema}.
  */
 export async function loadSmokeEval(path: string): Promise<SmokeEval | null> {
   let text: string;
   try {
+    const info = await lstat(path);
+    if (!info.isFile()) throw new Error("smoke.json is not a regular file");
+    if (info.size > MAX_SMOKE_BYTES) throw new Error(`smoke.json exceeds ${MAX_SMOKE_BYTES} bytes`);
     text = await readFile(path, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;

@@ -20,6 +20,13 @@ describe("stderr control characters", () => {
     expect(r.stderr).not.toContain("\x1b");
   });
 
+  it("strips C1 and DEL characters", async () => {
+    const r = await h.run(["discover", "--session", "a\x9bb\x7fc"]);
+    expect(r.stderr).not.toMatch(CONTROL);
+    expect(r.stderr).not.toContain("\x9b");
+    expect(r.stderr).not.toContain("\x7f");
+  });
+
   it("strips them from commander's own error text", async () => {
     const r = await h.run(["discover", "--session", "x", "--\x1b]0;pwned\x07bogus"]);
     expect(r.exitCode).toBe(1);
@@ -45,8 +52,22 @@ describe("stderr control characters", () => {
 
   it("keeps newlines in the status block", async () => {
     const id = await analysed(h);
-    const r = await h.run(["context", "request", "--session", id, "--file", "nope.json"]);
-    expect(r.stderr).toContain("\n");
+    const r = await h.run(["sufficiency", "approve", "--session", id, "--decision", "approve"]);
+    expect(r.out.error).toBe("INVALID_STATE");
+    const ok = await h.run([
+      "context",
+      "request",
+      "--session",
+      id,
+      "--file",
+      await h.doc("r.json", {
+        schemaVersion: "1",
+        action: "request_context",
+        requests: [{ type: "documentation", path: "README.md", reason: "x" }],
+      }),
+    ]);
+    expect(ok.exitCode).toBe(0);
+    expect(ok.stderr.split("\n").length).toBeGreaterThan(3);
   });
 });
 

@@ -4,7 +4,7 @@ import { ContextPacketSchema, EvaluationReportSchema } from "@dynamic-skills/cor
 import { BundleError, parseSkillBundle } from "@dynamic-skills/skill-compiler";
 import type { GeneratedSkill } from "@dynamic-skills/core";
 import { readArtifactJson, readEvidence, requireArtifactJson } from "../io";
-import { sessionPaths } from "./bundle";
+import { assertBundlePinned, sessionPaths } from "./bundle";
 import type { CommandResult, SessionCommandDef } from "./types";
 
 /** Exit code for a refused activation (PRD §10.5: evaluation gate failed). */
@@ -31,6 +31,8 @@ function toResult(result: ActivationResult): CommandResult {
   return {
     ok: false,
     exitCode: result.reason === "timeout" ? EXIT_TIMEOUT : EXIT_REFUSED,
+    // A refusal ends the session as failed; like EVAL_ATTEMPTS_EXHAUSTED it records no step.
+    recordStep: false,
     data: { activated: false, reason: result.reason, fallback: result.fallback },
   };
 }
@@ -51,6 +53,7 @@ export const activateCommand: SessionCommandDef = {
   stage: "activation",
   async run({ store, state, now }) {
     const sessionDir = store.dir(state.id);
+    await assertBundlePinned(state, sessionDir);
     let skill: GeneratedSkill | null = null;
     try {
       skill = await parseSkillBundle(sessionPaths(sessionDir).skillsDir);
