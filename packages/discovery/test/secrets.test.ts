@@ -37,6 +37,54 @@ describe("secret exclusion", () => {
     }
   });
 
+  it("classifies infrastructure, registry and service credential files (M5)", () => {
+    for (const p of [
+      "infra/prod.tfvars",
+      "infra/prod.tfvars.json",
+      "terraform.tfstate",
+      "infra/terraform.tfstate.backup",
+      ".git-credentials",
+      ".aws/credentials",
+      ".aws/config",
+      "home/.aws/sso/cache/x.json",
+      ".docker/config.json",
+      "home/.docker/config.json",
+      "secrets.yaml",
+      "config/secrets.json",
+      "Secrets.ENC.yaml",
+      "kubeconfig",
+      ".kube/config",
+      "deploy/.kube/config",
+      "android/release.keystore",
+      "store.JKS",
+      ".htpasswd",
+      "etc/.netrc",
+      ".pgpass",
+    ]) {
+      expect(isSecretPath(p), p).toBe(true);
+    }
+    for (const p of [
+      "docker/config.json",
+      ".docker/daemon.json",
+      "kube/config",
+      ".kube/cache/x",
+      "config.json",
+      "src/secretsmanager.ts",
+      "docs/terraform.md",
+      "kubeconfig.md",
+      "my-secrets.md",
+    ]) {
+      expect(isSecretPath(p), p).toBe(false);
+    }
+  });
+
+  it("matches in linear time on hostile names", () => {
+    const hostile = `${"a/".repeat(5_000)}${".".repeat(50_000)}tfvarsx`;
+    const started = performance.now();
+    expect(isSecretPath(hostile)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("never reads secrets", async () => {
     const { registry, files } = await runDiscovery({ repo: fixture("ts-monorepo"), task: "x" });
     expect(JSON.stringify(registry.toJSON())).not.toContain("FAKE_SECRET_VALUE_123");
