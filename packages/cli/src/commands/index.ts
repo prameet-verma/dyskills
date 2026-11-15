@@ -7,6 +7,7 @@ import { contextRequestCommand, contextSubmitCommand } from "./context";
 import { discoverCommand } from "./discover";
 import { evaluateCommand } from "./evaluate";
 import { evalRecordCommand } from "./record";
+import { reportPerfCommand } from "./report";
 import { statusCommand } from "./status";
 import { sufficiencyApproveCommand, sufficiencySubmitCommand } from "./sufficiency";
 import type { CommandDef } from "./types";
@@ -30,4 +31,5 @@ export const COMMANDS: CommandDef[] = [
   activateCommand,
   statusCommand,
   cleanCommand,
+  reportPerfCommand,
 ];

@@ -103,5 +103,16 @@ export interface CreateCommandDef extends CommandBase {
   run(ctx: Omit<CommandContext, "state">): Promise<CommandResult & { state: SessionState }>;
 }
 
+/**
+ * A command that needs no session (only `report perf`): it reads across the session home, takes
+ * no lock, no `--session` option, and is allowed from any state, so it bypasses the state machine
+ * and the deadline.
+ */
+export interface GlobalCommandDef extends CommandBase {
+  kind: "global";
+  /** Runs the command; only `data` of the result is used. */
+  run(ctx: { home: string; opts: CommandContext["opts"] }): Promise<CommandResult>;
+}
+
 /** Any registered command. */
-export type CommandDef = SessionCommandDef | CreateCommandDef;
+export type CommandDef = SessionCommandDef | CreateCommandDef | GlobalCommandDef;

@@ -55,6 +55,13 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   programmatic/agentic time, evidence counts by origin and `programmaticFactShare` (verified
   programmatic over verified programmatic plus agentic; `null` when there are none).
 - **`estimateTokens(text)`** (`tokens.ts`): `ceil(chars / 4)`.
+- **`aggregatePerformance(home)`** (`perf-aggregate.ts`): reads every
+  `<home>/sessions/*/reports/performance.json` and returns a `PerformanceAggregate`: `count`,
+  nearest-rank `p50ActiveMs`/`p95ActiveMs`/`maxActiveMs` (`null` when empty), `timeoutRate`,
+  `fallbackRate` (timeout or failed), `reuseRate`, `augmentationRate`, `cacheHitRate` (mean over
+  sessions with lookups, else `null`) and the mean clarification rounds and context requests.
+  Symlinked session directories, oversized (> 1 MiB), unparseable and non-`"1"` `schemaVersion`
+  files are skipped; it never throws on bad data.
 
 ## Example
 

@@ -186,6 +186,20 @@ async function runCreateCommand(
   }
 }
 
+/** Runs a session-less command (`report perf`): no lock, no state machine, nothing saved. */
+async function runGlobalCommand(
+  def: Extract<CommandDef, { kind: "global" }>,
+  env: Required<CliEnv>,
+  opts: Record<string, string | boolean | undefined>,
+): Promise<RunOutput> {
+  const result = await def.run({ home: env.home, opts });
+  return {
+    doc: { ok: true, schemaVersion: CONTRACT_VERSION, ...result.data },
+    status: "",
+    exitCode: result.exitCode ?? 0,
+  };
+}
+
 /** Registers every command on a commander program; `onParsed` receives the chosen command. */
 function buildProgram(
   onParsed: (def: CommandDef, opts: Record<string, string | boolean | undefined>) => void,
@@ -305,10 +319,14 @@ async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
     const out =
       def.kind === "create"
         ? await runCreateCommand(def, resolved, opts)
-        : await runSessionCommand(def, resolved, opts);
+        : def.kind === "global"
+          ? await runGlobalCommand(def, resolved, opts)
+          : await runSessionCommand(def, resolved, opts);
     const stdout = out.text !== undefined ? `${out.text}\n` : jsonLine(out.doc);
     const stderr =
-      out.text !== undefined ? "" : `${out.failure ? `${out.failure}\n` : ""}${out.status}\n`;
+      out.text !== undefined || out.status === ""
+        ? ""
+        : `${out.failure ? `${out.failure}\n` : ""}${out.status}\n`;
     return { exitCode: out.exitCode, stdout, stderr };
   } catch (e) {
     const err = describeError(e);

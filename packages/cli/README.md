@@ -4,7 +4,7 @@ The `dynamic-skills` command line: a thin, deterministic wrapper that lets a hos
 just-in-time skill pipeline one JSON-in, JSON-out step at a time. It makes no model calls; all
 reasoning is done by the agent, which submits schema-checked documents. This package holds the
 command framework, the session state machine and every command, from `assess` to `activate`, plus
-`status` and `clean`.
+`status`, `clean` and `report perf`.
 
 Every command prints exactly one JSON object on stdout (always with `ok` and `schemaVersion: "1"`)
 and a human status block on stderr; the only exception is `status`, which prints its block as plain
@@ -38,7 +38,8 @@ newline) removed, because session ids and option values are agent-controlled.
   handler, records the stage and step, saves and prints. A handler that throws saves nothing; one
   that returns `exitCode` and `error` is a gate failure that is saved (a failed evaluation attempt,
   a refused activation). To add a command, append a definition to `COMMANDS` and a name to
-  `CliCommand`.
+  `CliCommand`. A definition's `kind` is `session` (loaded under the lock), `create` (`assess`)
+  or `global` (no session, no lock, no state machine: `report perf`).
 
 ### Commands
 
@@ -58,6 +59,7 @@ newline) removed, because session ids and option values are agent-controlled.
 | `activate --session <id>`                                                    | Gated activation (also `BUNDLE_INVALID` if the bundle changed since `evaluate`): returns the skill (and the unchanged base first); exit 2 on refusal, 3 on timeout.                                |
 | `status --session <id>`                                                      | Prints the status block as plain text on stdout; read-only.                                                                                                                                        |
 | `clean --session <id>`                                                       | Removes the session directory.                                                                                                                                                                     |
+| `report perf`                                                                | Aggregates `reports/performance.json` across all sessions (count, p50/p95/max active ms, timeout, fallback, reuse and augmentation rates). Needs no session or lock; allowed anywhere; read-only.  |
 
 ## Example
 

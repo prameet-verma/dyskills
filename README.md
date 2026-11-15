@@ -7,7 +7,7 @@ clarifying questions, writes a concise `SKILL.md` bundle, evaluates it, and only
 By default the skill is ephemeral and leaves no trace in your project. See [PRD.md](PRD.md) for the
 full product definition.
 
-**Status:** pre-release. Phase 1 (JIT Core Engine) is in progress; nothing is published yet.
+**Status:** pre-release. Phase 1 (JIT Core Engine) is implemented and in verification; nothing is published yet.
 
 ## How it works
 
@@ -25,9 +25,61 @@ skill.
   (`$DYNAMIC_SKILLS_HOME/sessions/<id>/`, defaulting to the OS temp directory) and never into any
   harness skill directory.
 
+### The pipeline
+
+1. **Assess** (`assess`): creates a session and scans existing skills and instruction files.
+2. **Hybrid discovery** (`discover`, `context request`, `context submit`): the CLI discovers
+   deterministic facts and builds a bounded, secret-free Context Packet. The agent analyses the
+   packet (optionally asking for up to 3 rounds of targeted extra files), then submits a
+   schema-checked Context Analysis Result. Each claim keeps its provenance; an agent claim is
+   `verified` only when it resolves to real, non-secret evidence.
+3. **Sufficiency verdict** (`sufficiency submit`): the agent decides, after analysis, whether an
+   existing skill already covers the task.
+   - _Reuse_ (`sufficient`): the existing skill is returned unchanged and the session ends.
+   - _Augment_ (`partial`): a small separate skill adds what is missing and names the unchanged
+     base it extends; the base is never modified.
+   - _Generate_ (`insufficient`): a new short-lived skill is written for the task.
+4. **Clarify** (`clarify ask`, `clarify answer`): at most 3 rounds of material questions; the
+   SLA clock is paused while the human answers, and unanswered questions become assumptions.
+5. **Compile, evaluate, activate** (`compile`, `evaluate`, `eval record`, `activate`): the CLI
+   writes a brief, the agent writes the skill bundle and a smoke eval, the CLI runs 14 structural
+   and grounding evals and checks the agent's behavioural output, and only a passing bundle is
+   handed back. An edited bundle is refused (`BUNDLE_INVALID`) until it is evaluated again.
+
 The CLI and the bootstrap skill ([`skills/dynamic-skill-bootstrap/SKILL.md`](skills/dynamic-skill-bootstrap/SKILL.md)) are built.
 The repository contains the library packages below. The design rationale is in the
 [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
+
+## Commands
+
+Every command prints one JSON object on stdout (with `ok` and `schemaVersion`) and a status block
+on stderr. Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed, `3` timeout.
+Full detail is in the [CLI README](packages/cli/README.md).
+
+| Command                                                          | Purpose                                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `assess --task <t> [--repo <p>] [--mode m] [--explicit]`         | Start a session and apply the invocation-mode gate.                      |
+| `discover --session <id>`                                        | Programmatic discovery and the Context Packet.                           |
+| `context request --session <id> --file <f>`                      | Ask for more repository files (3 rounds, safe-read rules).               |
+| `context submit --session <id> --file <f>`                       | Submit the agent's analysis (strictly validated).                        |
+| `sufficiency submit --session <id> --file <f>`                   | Record the reuse, augment or generate verdict.                           |
+| `sufficiency approve --session <id> --decision approve\|decline` | Suggest mode: answer the approval prompt.                                |
+| `clarify ask` / `clarify answer --session <id> --file <f>`       | Ask material questions (clock paused) and apply the answers.             |
+| `compile --session <id>`                                         | Write the compilation brief and prepare the session `skills/` directory. |
+| `evaluate --session <id>`                                        | Run the generation evals and pin the evaluated bundle.                   |
+| `eval record --session <id> --output <f> --verdict pass\|fail`   | Record the behavioural smoke-eval result.                                |
+| `activate --session <id>`                                        | Gated activation: returns the skill, or refuses with a fallback.         |
+| `status --session <id>`                                          | Print the status block as plain text on stdout.                          |
+| `clean --session <id>`                                           | Remove the session directory.                                            |
+| `report perf`                                                    | Aggregate performance over all sessions (no session needed, read-only).  |
+
+## Phase 1 limitations
+
+- Activation is ephemeral and agent-mediated: `activate` returns the skill content and load order;
+  nothing is installed into any agent harness or skill directory (native activation is Phase 2).
+- Nothing is persisted beyond the session directory (saved skills, versioning and caching are
+  Phase 3), and there is no installer.
+- There is no model call, network access or database anywhere in the packages.
 
 ## Packages
 
@@ -45,8 +97,6 @@ The repository contains the library packages below. The design rationale is in t
 | [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                                     |
 | [`@dynamic-skills/cli`](packages/cli/README.md)                                     | The `dynamic-skills` command: framework, session state machine and every command (assess to activate, status, clean). |
 
-Further packages land as Phase 1 progresses.
-
 ## Requirements and quick start
 
 - Node.js 24 or newer (see `.nvmrc`)
@@ -56,9 +106,14 @@ Further packages land as Phase 1 progresses.
 nvm use
 pnpm install
 pnpm check         # lint, typecheck and tests
-pnpm test          # tests only
+pnpm test          # unit tests plus end-to-end tests (builds the CLI first)
+pnpm build         # bundle the CLI to packages/cli/dist
 pnpm gen:schemas   # regenerate JSON Schemas into schemas/
 ```
+
+The end-to-end tests (`test/e2e`) spawn the built binary against a temporary session home and user
+home. `scripts/live-smoke.sh` is a manual check that drives a real agent through the bootstrap
+skill; it is not part of the test suite and needs that agent installed.
 
 ## Roadmap
 
