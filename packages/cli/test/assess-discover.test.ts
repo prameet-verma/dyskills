@@ -134,6 +134,7 @@ describe("discover", () => {
       "sufficiency",
       "clarificationRequest",
       "clarificationResponse",
+      "smokeEval",
     ]) {
       const schema = JSON.parse(await readFile(r.out.schemaPaths[key], "utf8"));
       expect(schema.$id).toMatch(/^dynamic-skills\/v1\//);

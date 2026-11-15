@@ -250,6 +250,17 @@ describe("context submit", () => {
     expect((await h.readJson(id, "session.json")).metrics.analysisSubmissions).toBe(4);
   });
 
+  it("refuses a context request once the last analysis has been submitted", async () => {
+    const id = await discovered(h);
+    const doc = await analysisFixture("minimal.json");
+    for (let i = 0; i < 4; i++) expect((await submit(id, doc)).exitCode).toBe(0);
+    const before = await h.readJson(id, "session.json");
+    const r = await ask(id, "README.md");
+    expect(r.exitCode).toBe(1);
+    expect(r.out.error).toBe("ANALYSIS_LIMIT");
+    expect(await h.readJson(id, "session.json")).toEqual(before);
+  });
+
   it("allows another request and another submit after a submit", async () => {
     const id = await discovered(h);
     await submit(id, await analysisFixture("minimal.json"));

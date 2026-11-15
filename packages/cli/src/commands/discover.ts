@@ -22,6 +22,7 @@ const AGENT_SCHEMAS = {
   sufficiency: "skill-sufficiency-assessment",
   clarificationRequest: "clarification-request",
   clarificationResponse: "clarification-response",
+  smokeEval: "smoke-eval",
 } as const;
 
 /**

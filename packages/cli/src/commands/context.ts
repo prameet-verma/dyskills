@@ -34,6 +34,13 @@ export const contextRequestCommand: SessionCommandDef = {
   step: "context-request",
   stage: null,
   async run({ store, state, opts, cwd }) {
+    // Ruling R17: a request after the last analysis would leave `sufficiency submit` unreachable.
+    if (state.metrics.analysisSubmissions >= MAX_ANALYSIS_SUBMISSIONS) {
+      throw new CliError(
+        "ANALYSIS_LIMIT",
+        `At most ${MAX_ANALYSIS_SUBMISSIONS} analyses are accepted per session; no further context requests.`,
+      );
+    }
     const request = parseDocument(
       ContextRequestSchema,
       await readInputFile(cwd, String(opts.file)),
