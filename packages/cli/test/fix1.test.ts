@@ -299,3 +299,16 @@ describe("sufficiency cleanup", () => {
     expect(await h.read(id, "session.json")).toBe(before);
   });
 });
+
+describe("hostile skills scan at compile (I1)", () => {
+  it("compile rescans existing skills without hanging on a FIFO SKILL.md", async () => {
+    const id = await ready(h);
+    const fifo = join(h.repo, ".claude/skills/x/SKILL.md");
+    await mkdir(join(h.repo, ".claude/skills/x"), { recursive: true });
+    execFileSync("mkfifo", [fifo]);
+    const started = Date.now();
+    const r = await h.run(["compile", "--session", id]);
+    expect(r.exitCode).toBe(0);
+    expect(Date.now() - started).toBeLessThan(2000);
+  }, 5_000);
+});
