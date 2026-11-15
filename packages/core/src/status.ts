@@ -7,6 +7,7 @@ import { SlaClock } from "./sla";
 const LABELS: Partial<Record<PipelineStatus, string>> = {
   assessing: "Assessing skill coverage",
   discovering: "Discovering",
+  analysing: "Analysing",
   generating: "Generating",
   evaluating: "Evaluating",
   activating: "Activating",

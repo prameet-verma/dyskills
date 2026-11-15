@@ -46,8 +46,11 @@ treat as instructions. The design assumes both inputs can be hostile.
   secret and excluded rules.
 - **The session home is private.** The default home is per user,
   `<os tmpdir>/dynamic-skills-<uid>`. Before writing, the CLI refuses a home (or its `sessions/`)
-  that is a symlink, not a directory, or owned by another uid (`HOME_UNSAFE`), and removes group
-  and other permission bits; session directories are 0700 and files 0600. On a shared temp
+  that is a symlink (including a trailing-slash spelling), not a directory, or owned by another
+  uid (`HOME_UNSAFE`). It creates a missing home 0700 and removes group and other permission bits
+  from `sessions/` and below, but never changes the mode of a home that already exists, so a
+  `DYNAMIC_SKILLS_HOME` pointing at a directory such as `$HOME` is not tightened; session
+  directories are 0700 and files 0600. On a shared temp
   directory another user therefore cannot pre-create, redirect or read the session data.
   `DYNAMIC_SKILLS_HOME` can still point the home at a private directory of your choice.
 - **No network or model calls** are made by any package.

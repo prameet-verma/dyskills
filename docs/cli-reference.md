@@ -15,7 +15,9 @@ command is missing, the agent stops and asks the user to install it. The archite
   `INVALID_STATE` or `SCHEMA_INVALID`) prints only the one-line `Error <CODE>: <message>`, with no
   status block. `TIMEOUT` prints the status block without an `Error` line. A saved failure
   (`EVAL_ATTEMPTS_EXHAUSTED`, an `evaluate` `BUNDLE_INVALID`, `compile`'s `BASE_CHANGED`, a refused
-  `activate`) prints the `Error` line and then the status block. A session that has ended
+  `activate`) prints the `Error` line and then the status block. A command-line parse error (bad
+  choice, missing option or subcommand, unknown command) prints `Error USAGE: <message>` and no
+  status block. A session that has ended
   (`completed`, `warning`, `failed`, `timeout`) shows `Processing SLA: STOPPED`: its clock stops
   when it ends, so the active time shown stays the same afterwards. Control characters other than newline are removed from everything written
   to stderr.
@@ -23,7 +25,7 @@ command is missing, the agent stops and asks the user to install it. The archite
   stderr). `report perf` prints JSON on stdout and **no status block** on stderr, because it has no
   session.
 - `--help` prints `{"ok":true,"schemaVersion":"1","help":true}` on stdout and the help text on
-  stderr. A usage error is a `USAGE` JSON error.
+  stderr. A usage error is a `USAGE` JSON error on stdout and `Error USAGE: <message>` on stderr.
 - Documents the agent supplies (`--file`) are strictly validated; the JSON Schemas are written to
   `schemas/` in the session by `discover`.
 
@@ -109,6 +111,9 @@ Every list in the result holds at most `MAX_ANALYSIS_LIST_ITEMS` (50) items. An 
 stdout: `evidenceAdded`, `downgraded`, `assumptions`, `unknowns`, `conflicts`, `gaps`,
 `inspectGapsRemaining`, `submissionsRemaining`, `warnings`.
 
+An accepted submission sets the session status to `analysing` (status label "Analysing"); a
+rejected one changes nothing.
+
 ### `sufficiency submit --session <id> --file <f>`
 
 Records the agent's verdict: `sufficient`, `partial` or `insufficient`. The base skill must match a
@@ -120,6 +125,8 @@ is only ever read.
   reused (exit 0, no compile).
 - `partial`: an augmentation will be generated against the pinned base.
 - `insufficient`: a new skill will be generated.
+- Unless the verdict ends or pauses the session, the status is `assessing` (label "Assessing skill
+  coverage") until `compile` sets `generating`.
 - In `suggest` mode without `--explicit`, a non-`sufficient` verdict leaves approval `pending`
   and pauses the SLA.
 
@@ -139,7 +146,10 @@ stdout: `approval` (`approved` or `declined`), `fallback` (text on decline, othe
 Proposes a round of questions. The manager rejects (in order) `round-limit`, `not-material`,
 `answerable-by-evidence`, `answerable-by-discovery` and `duplicate` questions. Accepting at least
 one uses a round (at most `MAX_CLARIFICATION_ROUNDS`, 3) and pauses the SLA. A call that accepts
-nothing records no step, so the agent may still ask a better question or compile.
+nothing records no step, so the agent may still ask a better question or compile. A question `id`
+must match the Agent Skills name pattern (1-64 lowercase letters, digits and single hyphens, for
+example `r1-q1`); `text` is at most 1000 characters and `requirement` 200. Anything else is
+`SCHEMA_INVALID`.
 
 stdout: `round`, `accepted`, `rejected`.
 
@@ -183,7 +193,17 @@ attempt limit.
 stdout: `overall`, `activatable`, `results`, `limitations`, `revisionHints`, `attempt`,
 `attemptsRemaining`. Failure modes are saved with exit 2: `BUNDLE_INVALID` (the bundle is missing,
 malformed, over the caps or changed while it was being evaluated; the attempt is consumed and the
-pin cleared) and `EVAL_ATTEMPTS_EXHAUSTED` (the session ends as failed with `fallback`).
+pin cleared) and `EVAL_ATTEMPTS_EXHAUSTED` (a guard for a fourth attempt; it ends the session as
+failed with `fallback`).
+
+**Last attempt (Ruling R22).** When the attempt just spent leaves `attemptsRemaining` at 0 and the
+result is not activatable, the CLI ends the session itself: status and outcome `failed`, the
+clock stops, `performance.json`, `discovery.json` and `assumptions.json` are written (and
+`evaluation.json` is kept), and stdout adds `fallback`. For a failed evaluation `ok` stays `true`
+and the exit code stays 0, as for any evaluation that finds problems; for a `BUNDLE_INVALID`
+attempt the document is the same error as before (exit 2) plus `fallback`. The agent stops
+synthesis and continues the task. A last attempt that is activatable stays open for `eval record`
+and `activate`.
 
 ### `eval record --session <id> --output <f> --verdict pass|fail [--notes <text>]`
 
@@ -195,7 +215,10 @@ The bundle must still match the digest pinned by `evaluate`; otherwise the comma
 `BUNDLE_INVALID` (exit 2) and **nothing is saved**. It also fails with `BUNDLE_INVALID` when
 `evals/smoke.json` is missing or not a valid smoke eval.
 
-stdout: `outcome`, `messages`.
+stdout: `outcome`, `messages`. When `outcome` is `fail` and all `MAX_EVAL_ATTEMPTS` attempts are
+used, the session ends as `failed` with reports (Ruling R22) and stdout adds `fallback`; `ok`
+stays `true` and the exit code stays 0, because the recording itself succeeded. With attempts
+left, a `fail` leaves the session open for a revision and another `evaluate`.
 
 ### `activate --session <id>`
 
@@ -222,8 +245,10 @@ that has timed out.
 First archives the session's `reports/performance.json`, when the session has ended with a valid
 report, to `<home>/reports/<sessionId>.json` (file mode 0600, directory 0700, never through a
 symlink), then removes the session directory (Ruling R21: cleaning never erases the metrics).
-Always allowed, including on a timed-out session. If the archive cannot be written the command
-fails and nothing is removed.
+Always allowed, including on a timed-out session. A session that has not ended is first ended as
+`failed` (outcome `failed`, clock stopped, terminal reports written; Ruling R22), so abandoning a
+session still counts in `fallbackRate`. If the archive cannot be written the command fails and
+nothing is removed.
 
 stdout: `removed: true`, `archived` (whether a report was archived).
 
@@ -253,7 +278,7 @@ Percentiles are `null` when there are no sessions.
 | `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)               | yes       |
 | `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                      | yes       |
 | `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate`                    | see below |
-| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations                                         | yes       |
+| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (guard)                                 | yes       |
 | `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                | yes       |
 | `INTERNAL`                | 1    | An unexpected failure                                                             | no        |
 
@@ -263,7 +288,8 @@ which do save state because the session or the attempt count must change, are:
 - `TIMEOUT`: the session is saved as `timeout`, `skills/` is deleted and reports are written.
 - `EVAL_ATTEMPTS_EXHAUSTED`: the session is saved as `failed` with reports.
 - `BUNDLE_INVALID` from `evaluate`: the attempt is consumed and the pin cleared, so a broken bundle
-  cannot be retried without bound. From `eval record` and `activate` it saves nothing.
+  cannot be retried without bound; on the last attempt the session is also saved as `failed` with
+  reports and `fallback`. From `eval record` and `activate` it saves nothing.
 - `BASE_CHANGED` from `compile`: the session is saved as `failed` with reports; no step is recorded.
 - A refused `activate` (`ACTIVATION_REFUSED`, or `TIMEOUT` for reason `timeout`): the session is
   saved as `failed` (or `timeout`) and reports are written; no step is recorded.
@@ -273,5 +299,8 @@ which do save state because the session or the attempt count must change, are:
 Sessions live in `DYNAMIC_SKILLS_HOME`, by default `<os tmpdir>/dynamic-skills-<uid>` (a per-user
 directory). Before the first write of each command the home and `<home>/sessions` are checked: a
 symlink, a non-directory or (where the platform has uids) a directory owned by another user is
-refused with `HOME_UNSAFE`; group or other permission bits are removed (mode 0700). Session
-directories are created 0700 and files 0600.
+refused with `HOME_UNSAFE`. The path is resolved first, so a symlink written with a trailing slash
+is refused too. Only directories the store creates are tightened (Ruling R23): a missing home is
+created 0700 and `<home>/sessions` loses any group or other bits, but an existing home keeps its
+mode and is never chmodded, because a user-provided `DYNAMIC_SKILLS_HOME` may be a directory like
+`$HOME`. Session directories are created 0700 and files 0600.

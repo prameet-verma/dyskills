@@ -216,10 +216,25 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect((await h.run(["report", "perf"])).out.count).toBe(1);
   });
 
-  it("archives nothing for a session that has not ended", async () => {
+  it("ends an unended session as failed, writes reports and archives it (R22)", async () => {
     const id = await analysed(h);
+    h.clock.t += 5_000;
     const r = await h.run(["clean", "--session", id]);
-    expect(r.out).toMatchObject({ removed: true, archived: false });
-    expect((await h.run(["report", "perf"])).out.count).toBe(0);
+    expect(r.out).toMatchObject({ ok: true, removed: true, archived: true });
+    expect(await h.exists(id, "session.json")).toBe(false);
+    const archived = JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8"));
+    expect(archived).toMatchObject({ sessionId: id, outcome: "failed" });
+    const perf = (await h.run(["report", "perf"])).out;
+    expect(perf.count).toBe(1);
+    expect(perf.fallbackRate).toBe(1);
+  });
+
+  it("archives an ended session's own outcome, not failed", async () => {
+    const id = await askedBlocking();
+    await decline(id);
+    await h.run(["clean", "--session", id]);
+    expect(JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8")).outcome).toBe(
+      "skipped",
+    );
   });
 });

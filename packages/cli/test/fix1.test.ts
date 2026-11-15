@@ -109,10 +109,12 @@ describe("re-evaluation after a behavioural result (R15)", () => {
       await record(h, id, "no words", "fail");
       expect((await evaluate(id)).exitCode).toBe(0);
     }
-    await record(h, id, "no words", "fail");
+    // The third fail has no attempt left to revise: it ends the session (R22).
+    const last = await record(h, id, "no words", "fail");
+    expect(last.out.fallback).toBeDefined();
     const r = await evaluate(id);
-    expect(r.exitCode).toBe(2);
-    expect(r.out.error).toBe("EVAL_ATTEMPTS_EXHAUSTED");
+    expect(r.exitCode).toBe(1);
+    expect(r.out).toMatchObject({ error: "INVALID_STATE", expected: [] });
   });
 
   it("does not make eval record repeatable", async () => {

@@ -15,7 +15,8 @@ describe("private session home (I3)", () => {
   it("creates session data owner-only", async () => {
     const id = await assess(h);
     const dir = join(h.home, "sessions", id);
-    expect((await stat(h.home)).mode & 0o777).toBe(0o700);
+    // The harness created the home (R23): the store never changes a user-provided home's mode.
+    expect((await stat(join(h.home, "sessions"))).mode & 0o777).toBe(0o700);
     expect((await stat(dir)).mode & 0o777).toBe(0o700);
     expect((await stat(join(dir, "session.json"))).mode & 0o777).toBe(0o600);
     expect((await stat(join(dir, "skills-scan.json"))).mode & 0o777).toBe(0o600);

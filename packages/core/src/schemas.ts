@@ -95,13 +95,23 @@ export const GapSchema = z.object({
 export type Gap = z.infer<typeof GapSchema>;
 
 /**
+ * Zod schema. Agent Skills name: 1-64 kebab-case characters, so no path separators or quotes can
+ * reach a path or frontmatter (PRD §5.5). Single definition shared by every contract.
+ */
+export const SkillNameSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+
+/**
  * Zod schema. A clarification question for the user, tied to the requirement it resolves;
  * `blocking` questions pause the pipeline (PRD §10.3, §10.4).
  */
 export const QuestionSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  requirement: z.string(),
+  // Same pattern as a skill name, so `[assumption: <id>]` citations stay unambiguous (M6).
+  id: SkillNameSchema,
+  text: z.string().max(1000),
+  requirement: z.string().max(200),
   evidenceKey: z.string().optional(),
   material: z.boolean(),
   blocking: z.boolean(),
@@ -116,12 +126,12 @@ export type Question = z.infer<typeof QuestionSchema>;
 export const AnswerSchema = z.object({
   questionId: z.string(),
   status: z.enum(["answered", "declined", "skipped"]),
-  value: z.string().optional(),
+  value: z.string().max(2000).optional(),
   assumption: z
     .object({
-      assumption: z.string(),
-      basis: z.string(),
-      impact: z.string(),
+      assumption: z.string().max(1000),
+      basis: z.string().max(1000),
+      impact: z.string().max(1000),
     })
     .optional(),
 });
@@ -133,11 +143,11 @@ export type Answer = z.infer<typeof AnswerSchema>;
  * basis and impact, surfaced in the generated skill (PRD §10.6).
  */
 export const AssumptionSchema = z.object({
-  questionId: z.string(),
-  question: z.string(),
-  assumption: z.string(),
-  basis: z.string(),
-  impact: z.string(),
+  questionId: z.string().max(1000),
+  question: z.string().max(1000),
+  assumption: z.string().max(1000),
+  basis: z.string().max(1000),
+  impact: z.string().max(1000),
   // "not-asked": recorded by the analysis agent rather than from a user reply (PRD §6.6, §10.6).
   status: z.enum(["declined", "skipped", "unanswered", "not-asked"]),
 });
@@ -159,6 +169,8 @@ export type InvocationMode = z.infer<typeof InvocationModeSchema>;
 export const PipelineStatusSchema = z.enum([
   "assessing",
   "discovering",
+  // Set when `context submit` is accepted: the agent's analysis is in, the verdict is next.
+  "analysing",
   "generating",
   "evaluating",
   "waiting-for-clarification",
@@ -294,15 +306,6 @@ export const SessionMetricsSchema = z.object({
 });
 /** Type inferred from {@link SessionMetricsSchema}. */
 export type SessionMetrics = z.infer<typeof SessionMetricsSchema>;
-
-/**
- * Zod schema. Agent Skills name: 1-64 kebab-case characters, so no path separators or quotes can
- * reach a path or frontmatter (PRD §5.5). Single definition shared by every contract.
- */
-export const SkillNameSchema = z
-  .string()
-  .max(64)
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 
 /**
  * Zod schema. Verdict on whether an existing skill covers the task: fully, partially or not at

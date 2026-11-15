@@ -13,19 +13,24 @@
         "type": "object",
         "properties": {
           "questionId": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           },
           "question": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           },
           "assumption": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           },
           "basis": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           },
           "impact": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           },
           "status": {
             "type": "string",

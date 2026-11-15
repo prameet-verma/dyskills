@@ -35,6 +35,17 @@ async function scannedPath(id: string): Promise<string> {
   return (await h.readJson(id, "skills-scan.json")).skills[0].path;
 }
 
+describe("sufficiency status label (M3)", () => {
+  it("shows Assessing skill coverage after a verdict that continues the pipeline", async () => {
+    const id = await analysed(h);
+    expect((await h.readJson(id, "session.json")).status).toBe("analysing");
+    const r = await submit(id, verdict({ outcome: "insufficient" }));
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toContain("Status: Assessing skill coverage");
+    expect((await h.readJson(id, "session.json")).status).toBe("assessing");
+  });
+});
+
 describe("sufficiency state rules", () => {
   it("is not allowed straight after discover", async () => {
     await withBase();

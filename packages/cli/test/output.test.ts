@@ -85,6 +85,29 @@ describe("help and usage", () => {
     expect(r.out).toEqual({ ok: true, schemaVersion: "1", help: true });
   });
 
+  it("prints parse errors as `Error USAGE: <message>` on stderr, with JSON on stdout (M7)", async () => {
+    const choice = await h.run(["sufficiency", "approve", "--session", "x", "--decision", "maybe"]);
+    expect(choice.exitCode).toBe(1);
+    expect(choice.out).toMatchObject({ ok: false, error: "USAGE" });
+    expect(choice.stderr).toBe(`Error USAGE: ${choice.out.message}\n`);
+    expect(choice.stderr).toContain("maybe");
+    const missing = await h.run(["discover"]);
+    expect(missing.stderr).toBe(`Error USAGE: ${missing.out.message}\n`);
+    expect(missing.stderr).toContain("--session");
+    const group = await h.run(["context"]);
+    expect(group.stderr).toBe("Error USAGE: missing subcommand: request | submit\n");
+    const unknown = await h.run(["nonsense"]);
+    expect(unknown.stderr).toMatch(/^Error USAGE: .*nonsense/);
+    expect((await h.run([])).stderr).toMatch(/^Error USAGE: /);
+  });
+
+  it("strips control characters from a USAGE message", async () => {
+    const r = await h.run(["discover", "--session", "x", "--bad\u001b]0;title\u0007"]);
+    expect(r.out.error).toBe("USAGE");
+    // eslint-disable-next-line no-control-regex
+    expect(r.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+  });
+
   it("a group with no subcommand is a USAGE error with a readable message", async () => {
     const r = await h.run(["context"]);
     expect(r.exitCode).toBe(1);

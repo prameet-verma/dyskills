@@ -82,22 +82,33 @@ export interface DirProbe {
 const REAL_PROBE: DirProbe = { lstat, chmod, getuid: process.getuid?.bind(process) };
 
 /**
- * Makes sure `path` is a private directory of the current user, creating it (mode 0700) when
- * missing. Refuses a symlink, a non-directory and, where uids exist, a directory owned by
- * another uid: on a shared temp dir another user could pre-create the home to read or redirect
- * session data. A directory of ours that grants any group or other access is tightened to 0700
- * (a home made by an earlier version, or by hand, is fixed instead of refused).
+ * Makes sure `path` is a directory of the current user, creating it (mode 0700) when missing.
+ * Refuses a symlink, a non-directory and, where uids exist, a directory owned by another uid: on
+ * a shared temp dir another user could pre-create the home to read or redirect session data.
+ * The path is run through `path.resolve` first, so a trailing slash cannot make the `lstat` follow
+ * a symlink.
  *
- * @param path - Absolute directory path.
+ * With `tighten` (the default), a directory of ours that grants any group or other access is
+ * changed to 0700 (a directory made by an earlier version, or by hand, is fixed instead of
+ * refused). Pass `false` for a directory the store did not create, such as a user-provided
+ * `DYNAMIC_SKILLS_HOME` that may be `$HOME` itself: it is checked, never chmodded (Ruling R23).
+ *
+ * @param path - Directory path.
  * @param probe - Injectable filesystem operations; defaults to the real ones.
+ * @param tighten - Whether to remove group and other bits; defaults to `true`.
  * @throws {UnsafeHomeError} when the directory is unsafe or cannot be created.
  */
-export async function ensurePrivateDir(path: string, probe: DirProbe = REAL_PROBE): Promise<void> {
+export async function ensurePrivateDir(
+  path: string,
+  probe: DirProbe = REAL_PROBE,
+  tighten = true,
+): Promise<void> {
+  const dir = resolve(path);
   // A failure here (for example EEXIST on a dangling symlink) is diagnosed by the lstat below.
-  await mkdir(path, { recursive: true, mode: PRIVATE_DIR_MODE }).catch(() => undefined);
+  await mkdir(dir, { recursive: true, mode: PRIVATE_DIR_MODE }).catch(() => undefined);
   let info;
   try {
-    info = await probe.lstat(path);
+    info = await probe.lstat(dir);
   } catch {
     throw new UnsafeHomeError(path, "it cannot be created");
   }
@@ -107,7 +118,7 @@ export async function ensurePrivateDir(path: string, probe: DirProbe = REAL_PROB
   if (info.uid !== probe.getuid()) {
     throw new UnsafeHomeError(path, "it is owned by another user");
   }
-  if ((info.mode & 0o077) !== 0) await probe.chmod(path, PRIVATE_DIR_MODE);
+  if (tighten && (info.mode & 0o077) !== 0) await probe.chmod(dir, PRIVATE_DIR_MODE);
 }
 
 /** Thrown by {@link SessionStore.load} when no session exists for an id. Code `SESSION_NOT_FOUND`. */
@@ -180,15 +191,16 @@ export class SessionStore {
   }
 
   /**
-   * Ensures the home and `<home>/sessions` are private directories of the current user (see
-   * {@link ensurePrivateDir}). Runs once per store; {@link SessionStore.create} and
+   * Ensures the home and `<home>/sessions` are directories of the current user (see
+   * {@link ensurePrivateDir}); only `sessions` is tightened to 0700, the home is left as it is. Runs once per store; {@link SessionStore.create} and
    * {@link SessionStore.withLock} call it first, so no session data is written into an unsafe home.
    *
    * @throws {UnsafeHomeError} when either directory is unsafe.
    */
   prepare(): Promise<void> {
     this.prepared ??= (async () => {
-      await ensurePrivateDir(this.home);
+      // The home may be user-provided (even `$HOME`): check it, never chmod it (Ruling R23).
+      await ensurePrivateDir(this.home, REAL_PROBE, false);
       await ensurePrivateDir(join(this.home, "sessions"));
     })();
     return this.prepared;

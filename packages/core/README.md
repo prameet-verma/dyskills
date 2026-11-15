@@ -47,8 +47,10 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   confined artifact read/write and `remove`; errors `SessionNotFoundError` and
   `SessionLockedError` carry a `.code`. The default home is `<os tmpdir>/dynamic-skills-<uid>`.
   `prepare()` (run by `create` and `withLock`) checks the home and `sessions/` with
-  **`ensurePrivateDir(path, probe?)`**: a symlink, non-directory or foreign-owned directory throws
-  `UnsafeHomeError` (code `HOME_UNSAFE`); group/other bits are removed. Directories are created
+  **`ensurePrivateDir(path, probe?, tighten?)`**: a symlink (also with a trailing slash),
+  non-directory or foreign-owned directory throws `UnsafeHomeError` (code `HOME_UNSAFE`); with
+  `tighten` (default) group/other bits are removed. The store passes `false` for the home, so a
+  user-provided home is checked and never chmodded. Directories are created
   `PRIVATE_DIR_MODE` (0700) and files `PRIVATE_FILE_MODE` (0600). Also `recordStage`,
   `enforceDeadline` (marks `timeout` and stops the clock), `hasEnded` and `stopClock` (freezes the
   SLA of an ended session).

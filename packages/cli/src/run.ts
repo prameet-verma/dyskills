@@ -221,7 +221,8 @@ function buildProgram(
     .description("Agent-driven just-in-time skill generation (JSON on stdout, status on stderr).")
     .exitOverride()
     // Help and usage text are not JSON: keep them off stdout so stdout stays machine-readable.
-    .configureOutput({ writeOut: write, writeErr: write });
+    // Parse errors are reported by `runCliRaw` as `Error USAGE: <message>`, not as commander text.
+    .configureOutput({ writeOut: write, writeErr: write, outputError: () => undefined });
   const groups = new Map<string, Command>();
   for (const def of COMMANDS) {
     const words = def.name.split(" ");
@@ -263,7 +264,7 @@ function missingSubcommand(argv: string[]): string | null {
 /**
  * In-process CLI entry (PRD §10.5, §13). Parses `argv`, runs the command through the shared
  * wrapper and returns the exit code with stdout (one JSON object, except plain-text `status`) and
- * stderr (the human status block, help or usage text). Never throws and never writes to the real
+ * stderr (the human status block, help text, or `Error USAGE: <message>` for a parse error). Never throws and never writes to the real
  * streams, so tests drive it directly.
  *
  * Wrapper order: load the session under its lock, enforce the deadline, check the state machine,
@@ -314,14 +315,22 @@ async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
             : "A command is required."
           : e.message.replace(/^error: /, "");
       const err = describeError(new CliError("USAGE", message));
-      return { exitCode: err.exitCode, stdout: jsonLine(err.doc), stderr: usageText };
+      return {
+        exitCode: err.exitCode,
+        stdout: jsonLine(err.doc),
+        stderr: `Error USAGE: ${String(err.doc.message)}\n`,
+      };
     }
     const err = describeError(e);
     return { exitCode: err.exitCode, stdout: jsonLine(err.doc), stderr: "" };
   }
   if (chosen === null) {
     const err = describeError(new CliError("USAGE", "A command is required."));
-    return { exitCode: err.exitCode, stdout: jsonLine(err.doc), stderr: usageText };
+    return {
+      exitCode: err.exitCode,
+      stdout: jsonLine(err.doc),
+      stderr: `Error USAGE: ${String(err.doc.message)}\n`,
+    };
   }
   const { def, opts } = chosen as {
     def: CommandDef;

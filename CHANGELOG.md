@@ -37,6 +37,23 @@ Phase 1, the JIT Core Engine:
   `message`.
 - An ended session stops its SLA clock; the status block prints `Processing SLA: STOPPED`.
 - Terminal paths also write `reports/assumptions.json`.
+- `evaluate` ends the session as `failed` when the last allowed attempt is not activatable (or its
+  bundle is invalid), and `eval record` does so for a `fail` with no attempts left. Both add
+  `fallback` to stdout, write the terminal reports and stop the clock, so `report perf` counts
+  them. `clean` on a session that has not ended also ends it as `failed` and archives it.
+- The session store no longer changes the mode of an existing `DYNAMIC_SKILLS_HOME` (only
+  directories it creates are tightened), and a symlinked home written with a trailing slash is
+  refused with `HOME_UNSAFE`.
+- New session status `analysing` (label "Analysing") is set when `context submit` is accepted;
+  `sufficiency submit` sets `assessing`. The status enum gained a value; `CONTRACT_VERSION`
+  stays `"1"`.
+- Clarification question ids must match the Agent Skills name pattern (1-64 lowercase letters,
+  digits and single hyphens, such as `r1-q1`); question `text` is at most 1000 characters,
+  `requirement` 200, an answer `value` 2000 and each assumption field 1000. This tightens the
+  `clarification-request` and `clarification-response` contracts: an id with a space, a comma or
+  nothing at all is now `SCHEMA_INVALID`.
+- Command-line parse errors (a bad choice, a missing option or subcommand, an unknown command) print
+  `Error USAGE: <message>` on stderr instead of commander's text; stdout is unchanged.
 
 ### Security
 

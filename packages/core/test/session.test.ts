@@ -205,13 +205,51 @@ describe("private session home (I3)", () => {
     expect(await mode(join(dir, "reports/performance.json"))).toBe(0o600);
   });
 
-  it("tightens an existing home and sessions/ that grant group or other access", async () => {
+  it("tightens sessions/ but never an existing user-provided home (R23)", async () => {
     await mkdir(join(home, "sessions"), { recursive: true });
     await chmod(home, 0o755);
     await chmod(join(home, "sessions"), 0o777);
     await store.create(init);
-    expect(await mode(home)).toBe(0o700);
+    expect(await mode(home)).toBe(0o755);
     expect(await mode(join(home, "sessions"))).toBe(0o700);
+  });
+
+  it("leaves an existing 0755 home at 0755 but still checks its owner (R23)", async () => {
+    await chmod(home, 0o755);
+    await new SessionStore(home).prepare();
+    expect(await mode(home)).toBe(0o755);
+    const chmodCalls: string[] = [];
+    const foreign = {
+      lstat: async () => ({
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+        uid: 4242,
+        mode: 0o40755,
+      }),
+      chmod: async (p: string) => {
+        chmodCalls.push(p);
+      },
+      getuid: () => 1000,
+    };
+    await expect(ensurePrivateDir(home, foreign, false)).rejects.toMatchObject({
+      code: "HOME_UNSAFE",
+    });
+    await expect(
+      ensurePrivateDir(home, { ...foreign, getuid: () => 4242 }, false),
+    ).resolves.toBeUndefined();
+    expect(chmodCalls).toEqual([]);
+  });
+
+  it("refuses a symlinked home written with a trailing slash (R23)", async () => {
+    const real = join(home, "real");
+    await mkdir(real);
+    await symlink(real, join(home, "link"));
+    for (const path of [`${join(home, "link")}/`, `${join(home, "link")}//`]) {
+      await expect(new SessionStore(path).create(init)).rejects.toMatchObject({
+        code: "HOME_UNSAFE",
+      });
+    }
+    expect(readdirSync(real)).toEqual([]);
   });
 
   it("refuses a symlinked home, a symlinked sessions/ and a home that is a file", async () => {
@@ -253,9 +291,9 @@ describe("private session home (I3)", () => {
 
   it("checks the home before a lock is taken on an existing session", async () => {
     const s = await store.create(init);
-    await chmod(home, 0o750);
+    await chmod(join(home, "sessions"), 0o750);
     // A new store, as in a new CLI process: each process checks the home once.
     await new SessionStore(home).withLock(s.id, async () => undefined);
-    expect(await mode(home)).toBe(0o700);
+    expect(await mode(join(home, "sessions"))).toBe(0o700);
   });
 });
