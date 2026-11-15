@@ -1,4 +1,4 @@
-import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/run";
@@ -260,6 +260,27 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect(await h.exists(id, "session.json")).toBe(true);
     expect(await h.exists(id, "reports/performance.json")).toBe(false);
     expect(await stat(join(h.home, "reports", `${id}.json`)).catch(() => null)).toBeNull();
+  });
+
+  it("leaves no performance.json when a later report cannot be renamed into place", async () => {
+    const id = await analysed(h);
+    await mkdir(join(h.home, "sessions", id, "reports", "discovery.json"), { recursive: true });
+    const r = await h.run(["clean", "--session", id]);
+    expect(r.exitCode).not.toBe(0);
+    expect(await h.exists(id, "reports/performance.json")).toBe(false);
+    expect((await h.run(["report", "perf"])).out.count).toBe(0);
+  });
+
+  it("removes temp files when a temp write fails", async () => {
+    const id = await analysed(h);
+    await mkdir(join(h.home, "sessions", id, "reports", ".assumptions.json.tmp"), {
+      recursive: true,
+    });
+    const r = await h.run(["clean", "--session", id]);
+    expect(r.exitCode).not.toBe(0);
+    for (const f of ["performance.json", ".performance.json.tmp", ".discovery.json.tmp"]) {
+      expect(await h.exists(id, `reports/${f}`), f).toBe(false);
+    }
   });
 
   it("archives an ended session's own outcome, not failed", async () => {

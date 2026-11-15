@@ -217,8 +217,10 @@ export async function writeTerminalReports(
     for (const [i, [, content]] of docs.entries()) {
       await store.writeArtifact(state.id, `reports/${temps[i] as string}`, content);
     }
-    for (const [i, [name]] of docs.entries()) {
-      await rename(join(dir, temps[i] as string), join(dir, name));
+    // `performance.json` goes last: it is the only file `report perf` reads, so a rename that
+    // fails partway never leaves a counted report behind.
+    for (const i of [1, 2, 0]) {
+      await rename(join(dir, temps[i] as string), join(dir, (docs[i] as [string, string])[0]));
     }
   } catch (e) {
     await Promise.all(temps.map((t) => rm(join(dir, t), { force: true }).catch(() => undefined)));

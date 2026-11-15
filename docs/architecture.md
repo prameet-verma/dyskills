@@ -148,9 +148,11 @@ The last-attempt rows are decided by the CLI, not by the agent: `evaluate` ends 
 the third attempt (`MAX_EVAL_ATTEMPTS`) is still not activatable, and `eval record` ends it when it
 records a `fail` after the third attempt. Both keep `ok: true` and exit 0 (a bundle error keeps
 exit 2) and add `fallback`; the session accepts nothing further. `EVAL_ATTEMPTS_EXHAUSTED` remains
-for the agent that revises and runs a fourth `evaluate` after an activatable third attempt. `clean` is the catch-all: a
-session that has not ended (for example, abandoned by the agent) is ended `timeout` if its budget
-has run out, otherwise `failed`, with active time capped at the budget, and gets terminal reports before it is archived, so it counts in `fallbackRate`.
+for the agent that revises and runs a fourth `evaluate` after an activatable third attempt.
+`clean` is the catch-all: a session that has not ended (for example, abandoned by the agent) is
+ended `timeout` if its budget has run out, otherwise `failed`. Idle time after the budget ran out
+is not counted as active time. It gets terminal reports before it is archived, so it counts in
+`fallbackRate`.
 
 `activate` may also end as `warning` (with limitations) or with outcome `augmented`. `clean`
 archives the performance report before it removes the session, and `report perf` reads live and
