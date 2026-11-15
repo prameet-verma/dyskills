@@ -8,8 +8,7 @@
   },
   "dependencies": {
     "@dynamic-skills/core": "workspace:*",
-    "@dynamic-skills/eval-engine": "workspace:*",
-    "@dynamic-skills/evidence-registry": "workspace:*"
+    "@dynamic-skills/eval-engine": "workspace:*"
   },
   "devDependencies": {
     "@dynamic-skills/skill-compiler": "workspace:*"

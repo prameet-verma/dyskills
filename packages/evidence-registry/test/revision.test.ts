@@ -38,3 +38,12 @@ it("fingerprints files as 64-char hex", async () => {
   expect(h).toMatch(/^[0-9a-f]{64}$/);
   expect(h).toBe("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
 });
+
+it("refuses to fingerprint a directory, an oversize file or a missing file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ds-fp-"));
+  const f = join(dir, "big.txt");
+  writeFileSync(f, "x".repeat(20));
+  await expect(fingerprintFile(dir)).rejects.toThrow(/not-a-file/);
+  await expect(fingerprintFile(f, 10)).rejects.toThrow(/too-large/);
+  await expect(fingerprintFile(join(dir, "nope"))).rejects.toThrow(/missing/);
+});

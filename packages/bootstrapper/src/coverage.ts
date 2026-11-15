@@ -1,7 +1,5 @@
+import { BOOTSTRAP_SKILL_NAME } from "@dynamic-skills/core";
 import type { ExistingSkill, InvocationMode } from "@dynamic-skills/core";
-
-/** Name of the bootstrap skill itself; it must never be offered as a candidate. */
-const BOOTSTRAP_SKILL = "dynamic-skill-bootstrap";
 
 const MAX_CANDIDATES = 3;
 
@@ -74,7 +72,7 @@ export function assessCoverage(
 ): CoverageAssessment {
   const taskTokens = tokens(task);
   const candidates = skills
-    .filter((s) => s.name !== BOOTSTRAP_SKILL)
+    .filter((s) => s.name !== BOOTSTRAP_SKILL_NAME)
     .map((s) => {
       const own = tokens(`${s.name} ${s.description}`);
       let hits = 0;

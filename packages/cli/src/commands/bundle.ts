@@ -5,11 +5,9 @@ import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { scanExistingSkills } from "@dynamic-skills/bootstrapper";
+import { BOOTSTRAP_SKILL_NAME } from "@dynamic-skills/core";
 import type { ExistingSkill, SessionState } from "@dynamic-skills/core";
 import { CliError } from "../io";
-
-/** The bootstrap skill drives this CLI; it is never a candidate, a base or a duplicate. */
-export const BOOTSTRAP_SKILL = "dynamic-skill-bootstrap";
 
 /** Where the agent writes the skill bundle, the smoke eval and the brief, inside the session. */
 export function sessionPaths(sessionDir: string): {
@@ -41,7 +39,7 @@ export async function existingSkillsFor(
   const scanned = await scanExistingSkills({ repo: state.repo, home: userHome });
   const basePath =
     state.sufficiency?.outcome === "partial" ? (state.sufficiency.baseSkill?.path ?? null) : null;
-  return scanned.skills.filter((s) => s.name !== BOOTSTRAP_SKILL && s.path !== basePath);
+  return scanned.skills.filter((s) => s.name !== BOOTSTRAP_SKILL_NAME && s.path !== basePath);
 }
 
 /** Most entries (files and directories) a skill bundle may contain; the agent controls the tree. */

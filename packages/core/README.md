@@ -2,7 +2,7 @@
 
 Shared contracts and primitives for Dynamic Skills: the zod schemas every package exchanges,
 the pipeline's fixed limits, a bounded-concurrency helper and the token estimator. It has no
-network access or harness-specific logic; its only I/O is the ephemeral session store.
+network access or harness-specific logic; its only I/O is the ephemeral session store and the safe file reader (`readSafeFile`).
 
 ## API
 
@@ -74,6 +74,16 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   validated `reports/performance.json` to `<home>/reports/<sessionId>.json` (0600, directory
   0700, never through a symlink) so `clean` keeps the metrics (Ruling R21); `false` when there is
   no valid report.
+- **`readSafeFile(path, { maxBytes?, realBasename? })`, `checkSafeFile`** (`safe-read.ts`): the
+  one safe file reader. One non-blocking handle (a FIFO or device never hangs it), a regular file
+  only, a size cap (default 1 MB), and an optional required real basename (so a symlinked
+  `SKILL.md` cannot reach `.env`). Returns `{ ok: true, bytes, text, sha256 }`, the hash being of
+  exactly the bytes decoded, or `{ ok: false, reason }` (`missing`, `not-a-file`, `too-large`,
+  `wrong-name`, `unreadable`). Never rejects for file problems; a `maxBytes` that is not a finite non-negative integer throws a
+  `TypeError`. `checkSafeFile` validates without reading.
+- **`BOOTSTRAP_SKILL_NAME`, `FALLBACK_MESSAGE`, `REUSE_NOTICE`, `NOTICE_GENERATED`,
+  `NOTICE_AUGMENTED`** (`constants.ts`): the bootstrap skill's name and the fixed texts shown to
+  the agent, defined once.
 - **`MAX_BASE_FILE_BYTES`** (`constants.ts`): the 200,000-byte cap on an existing `SKILL.md` or
   instruction file read as a base (and on a `SKILL.md` read by the skills scan).
 

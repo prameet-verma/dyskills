@@ -39,9 +39,14 @@ Phase 1, the JIT Core Engine:
 - Terminal paths also write `reports/assumptions.json`.
 - Discovery no longer hides ordinary source files named `secrets.*` (`secrets.ts`, `secrets.py`,
   `secrets.test.ts`); they are indexed and readable again.
+- `BOOTSTRAP_SKILL_NAME` and the fallback and notice texts are defined once in core.
 
 ### Security
 
+- One shared safe file reader in core (`readSafeFile`) now serves the CLI base read, activation's
+  base read, `fingerprintFile` and discovery's readers: a FIFO, device symlink or oversize base can
+  no longer hang or bloat `activate`, `evaluate` or `sufficiency submit`. `sufficiency submit`
+  hashes the bytes it read instead of reading the file twice.
 - The evaluated skill bundle is pinned by digest; `eval record` and `activate` refuse a changed
   bundle.
 - Agent-written regular expressions run in a bounded worker.

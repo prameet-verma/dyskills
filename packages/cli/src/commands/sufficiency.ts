@@ -5,6 +5,8 @@ import {
 } from "@dynamic-skills/bootstrapper";
 import {
   CONTRACT_VERSION,
+  FALLBACK_MESSAGE,
+  REUSE_NOTICE,
   SkillSufficiencyAssessmentSchema,
   SkillsScanSchema,
   SlaClock,
@@ -16,7 +18,6 @@ import type {
   SkillSufficiencyAssessment,
   SufficiencyReport,
 } from "@dynamic-skills/core";
-import { fingerprintFile } from "@dynamic-skills/evidence-registry";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -30,12 +31,6 @@ import {
   toJson,
 } from "../io";
 import type { SessionCommandDef } from "./types";
-
-/** Shown to the agent with a reused skill (PRD §5.5: reuse is unchanged, no compile, no evals). */
-const REUSE_NOTICE = "Load this existing skill unchanged and continue the original task.";
-
-/** Shown when the user declines synthesis in suggest mode (PRD §5.4). */
-const DECLINE_FALLBACK = "Continue the original task with existing capabilities.";
 
 /**
  * Builds `reports/sufficiency.json` from the recorded verdict (PRD §5.5). Validates before
@@ -112,7 +107,7 @@ export const sufficiencySubmitCommand: SessionCommandDef = {
       baseSkill = {
         name: matched.name,
         path: matched.path,
-        sha256: await fingerprintFile(matched.path),
+        sha256: read.sha256,
       };
       if (verdict.outcome === "sufficient") {
         reused = { path: matched.path, content: read.content, notice: REUSE_NOTICE };
@@ -232,7 +227,7 @@ export const sufficiencyApproveCommand: SessionCommandDef = {
       writeReports: decision === "decline",
       data: {
         approval: sufficiency.approval,
-        fallback: decision === "decline" ? DECLINE_FALLBACK : null,
+        fallback: decision === "decline" ? FALLBACK_MESSAGE : null,
       },
     };
   },

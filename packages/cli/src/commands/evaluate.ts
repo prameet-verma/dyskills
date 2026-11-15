@@ -3,7 +3,6 @@ import type { SessionState } from "@dynamic-skills/core";
 import { createRepoReader } from "@dynamic-skills/discovery";
 import { runEvaluations } from "@dynamic-skills/eval-engine";
 import type { AugmentationContext, EvalContext } from "@dynamic-skills/eval-engine";
-import { fingerprintFile } from "@dynamic-skills/evidence-registry";
 import { loadSmokeEval, parseSkillBundle } from "@dynamic-skills/skill-compiler";
 import { FALLBACK, readBaseSkillFile, readEvidence, requireArtifactJson, toJson } from "../io";
 import { bundleChanged, bundleDigest, existingSkillsFor, sessionPaths } from "./bundle";
@@ -35,7 +34,7 @@ async function augmentationContext(
   return {
     baseName: base.name,
     baseSha256: base.sha256,
-    currentBaseSha256: await fingerprintFile(base.path).catch(() => ""),
+    currentBaseSha256: read.ok ? read.sha256 : "",
     baseBody: read.ok ? read.content : "",
   };
 }
