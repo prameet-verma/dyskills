@@ -31,19 +31,19 @@ the repository contains the library packages below. The design rationale is in t
 
 ## Packages
 
-| Package                                                                             | Purpose                                                                                                        |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [`@dynamic-skills/core`](packages/core/README.md)                                   | Shared zod schemas, fixed limits, SLA clock, ephemeral session store, status rendering, performance reporting. |
-| [`@dynamic-skills/evidence-registry`](packages/evidence-registry/README.md)         | Provenance-tracking store of repository facts, with conflict recording and value sanitisation.                 |
-| [`@dynamic-skills/discovery`](packages/discovery/README.md)                         | Parallel, task-directed deterministic discovery with secret-file exclusion.                                    |
-| [`@dynamic-skills/context-analyzer`](packages/context-analyzer/README.md)           | Task requirements, evidence gap classification and semantic probe planning.                                    |
-| [`@dynamic-skills/context-packet`](packages/context-packet/README.md)               | Context Packet builder, safe targeted enrichment and excerpt sanitising.                                       |
-| [`@dynamic-skills/bootstrapper`](packages/bootstrapper/README.md)                   | Existing skill scan and coverage assessment (reuse, synthesize, suggest or none).                              |
-| [`@dynamic-skills/clarification-manager`](packages/clarification-manager/README.md) | Clarification rounds, SLA pause/resume and assumption recording.                                               |
-| [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                       |
-| [`@dynamic-skills/eval-engine`](packages/eval-engine/README.md)                     | Generation evals: spec, metadata, references, conciseness, portability and security.                           |
-| [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                              |
-| [`@dynamic-skills/cli`](packages/cli/README.md)                                     | The `dynamic-skills` command: framework, session state machine and the assess-to-clarify commands.             |
+| Package                                                                             | Purpose                                                                                                               |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [`@dynamic-skills/core`](packages/core/README.md)                                   | Shared zod schemas, fixed limits, SLA clock, ephemeral session store, status rendering, performance reporting.        |
+| [`@dynamic-skills/evidence-registry`](packages/evidence-registry/README.md)         | Provenance-tracking store of repository facts, with conflict recording and value sanitisation.                        |
+| [`@dynamic-skills/discovery`](packages/discovery/README.md)                         | Parallel, task-directed deterministic discovery with secret-file exclusion.                                           |
+| [`@dynamic-skills/context-analyzer`](packages/context-analyzer/README.md)           | Task requirements, evidence gap classification and semantic probe planning.                                           |
+| [`@dynamic-skills/context-packet`](packages/context-packet/README.md)               | Context Packet builder, safe targeted enrichment and excerpt sanitising.                                              |
+| [`@dynamic-skills/bootstrapper`](packages/bootstrapper/README.md)                   | Existing skill scan and coverage assessment (reuse, synthesize, suggest or none).                                     |
+| [`@dynamic-skills/clarification-manager`](packages/clarification-manager/README.md) | Clarification rounds, SLA pause/resume and assumption recording.                                                      |
+| [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                              |
+| [`@dynamic-skills/eval-engine`](packages/eval-engine/README.md)                     | Generation evals: spec, metadata, references, conciseness, portability and security.                                  |
+| [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                                     |
+| [`@dynamic-skills/cli`](packages/cli/README.md)                                     | The `dynamic-skills` command: framework, session state machine and every command (assess to activate, status, clean). |
 
 Further packages land as Phase 1 progresses.
 

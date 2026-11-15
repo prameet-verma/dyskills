@@ -14,7 +14,7 @@ import type { SessionState } from "@dynamic-skills/core";
 import { Command, CommanderError, Option } from "commander";
 import { COMMANDS } from "./commands/index";
 import type { CommandDef, CommandResult } from "./commands/types";
-import { CliError, writeTerminalReports } from "./io";
+import { CliError, FALLBACK, stripControlChars, writeTerminalReports } from "./io";
 import type { CliEnv } from "./io";
 import { assertCanRun, isTerminal } from "./state-machine";
 
@@ -25,11 +25,14 @@ export interface CliOutcome {
   stderr: string;
 }
 
-/** Shown to the agent whenever the pipeline ends without a skill (PRD §10.7). */
-const FALLBACK = "Continue the original task with existing capabilities.";
-
 /** Exit code for a session that exceeded its active budget (PRD §10.1). */
 const EXIT_TIMEOUT = 3;
+
+/** Exit code for a failed evaluation gate (PRD §10.5). */
+const EXIT_GATE = 2;
+
+/** Error codes that are evaluation-gate failures rather than usage or state errors. */
+const GATE_CODES: ReadonlySet<string> = new Set(["BUNDLE_INVALID", "EVAL_ATTEMPTS_EXHAUSTED"]);
 
 /** Line-terminated JSON for stdout. */
 function jsonLine(value: Record<string, unknown>): string {
@@ -51,9 +54,21 @@ function describeError(e: unknown): { exitCode: number; doc: Record<string, unkn
   }
   if (code === "TIMEOUT") message = "The active processing budget was exceeded.";
   return {
-    exitCode: code === "TIMEOUT" ? EXIT_TIMEOUT : 1,
+    exitCode: code === "TIMEOUT" ? EXIT_TIMEOUT : GATE_CODES.has(code) ? EXIT_GATE : 1,
     doc: { ok: false, schemaVersion: CONTRACT_VERSION, error: code, message, ...extra },
   };
+}
+
+/** What one wrapped command produces before it is rendered into {@link CliOutcome}. */
+interface RunOutput {
+  doc: Record<string, unknown>;
+  /** The human status block for stderr. */
+  status: string;
+  exitCode: number;
+  /** Plain-text stdout replacing the JSON document, when set. */
+  text?: string;
+  /** One-line error text for stderr in front of the status block, for a saved failure. */
+  failure?: string;
 }
 
 /**
@@ -68,15 +83,24 @@ async function finish(
   result: CommandResult,
   startedAt: number,
   now: () => number,
-): Promise<{ doc: Record<string, unknown>; status: string }> {
+): Promise<RunOutput> {
   const end = now();
   if (def.stage) recordStage(state, def.stage, Math.max(0, end - startedAt));
   if (def.step && result.recordStep !== false) state.completedSteps.push(def.step);
   if (result.writeReports) await writeTerminalReports(store, state, end);
-  await store.save(state);
+  if (result.save !== false) await store.save(state);
+  const failure = result.error;
   return {
-    doc: { ok: true, schemaVersion: CONTRACT_VERSION, ...result.data },
+    doc: {
+      ok: result.ok ?? failure === undefined,
+      schemaVersion: CONTRACT_VERSION,
+      ...(failure ? { error: failure.code, message: failure.message } : {}),
+      ...result.data,
+    },
     status: renderStatus(state, end),
+    exitCode: result.exitCode ?? 0,
+    text: result.text,
+    failure: failure ? `Error ${failure.code}: ${failure.message}` : undefined,
   };
 }
 
@@ -95,7 +119,7 @@ async function runSessionCommand(
   def: Extract<CommandDef, { kind: "session" }>,
   env: Required<CliEnv>,
   opts: Record<string, string | boolean | undefined>,
-): Promise<{ doc: Record<string, unknown>; status: string; exitCode: number }> {
+): Promise<RunOutput> {
   const store = new SessionStore(env.home);
   const id = String(opts.session);
   // withLock creates the directory, so an unknown id must be rejected before taking the lock.
@@ -116,7 +140,7 @@ async function runSessionCommand(
       if (already || enforceDeadline(state, startedAt)) {
         if (!already) await failOnTimeout(store, state, startedAt);
         const err = describeError(new CliError("TIMEOUT", "", { fallback: FALLBACK }));
-        return { ...err, doc: err.doc, status: renderStatus(state, startedAt) };
+        return { ...err, status: renderStatus(state, startedAt) };
       }
     }
     assertCanRun(state, def.name);
@@ -129,7 +153,7 @@ async function runSessionCommand(
       userHome: env.userHome,
       now: env.now,
     });
-    return { ...(await finish(def, store, state, result, startedAt, env.now)), exitCode: 0 };
+    return finish(def, store, state, result, startedAt, env.now);
   });
 }
 
@@ -138,7 +162,7 @@ async function runCreateCommand(
   def: Extract<CommandDef, { kind: "create" }>,
   env: Required<CliEnv>,
   opts: Record<string, string | boolean | undefined>,
-): Promise<{ doc: Record<string, unknown>; status: string; exitCode: number }> {
+): Promise<RunOutput> {
   const store = new SessionStore(env.home);
   const startedAt = env.now();
   const result = await def.run({
@@ -149,7 +173,7 @@ async function runCreateCommand(
     now: env.now,
   });
   try {
-    return { ...(await finish(def, store, result.state, result, startedAt, env.now)), exitCode: 0 };
+    return await finish(def, store, result.state, result, startedAt, env.now);
   } catch (e) {
     await store.remove(result.state.id);
     throw e;
@@ -195,19 +219,36 @@ function buildProgram(
   return program;
 }
 
+/** The `a | b` list of subcommands when `argv` names a command group, else `null`. */
+function missingSubcommand(argv: string[]): string | null {
+  const group = argv[0];
+  const subs = COMMANDS.map((c) => c.name.split(" ")).filter(
+    (w) => w.length === 2 && w[0] === group,
+  );
+  return subs.length > 0 ? subs.map((w) => w[1]).join(" | ") : null;
+}
+
 /**
  * In-process CLI entry (PRD §10.5, §13). Parses `argv`, runs the command through the shared
- * wrapper and returns the exit code with stdout (always one JSON object) and stderr (the human
- * status block). Never throws and never writes to the real streams, so tests drive it directly.
+ * wrapper and returns the exit code with stdout (one JSON object, except plain-text `status`) and
+ * stderr (the human status block, help or usage text). Never throws and never writes to the real
+ * streams, so tests drive it directly.
  *
  * Wrapper order: load the session under its lock, enforce the deadline, check the state machine,
  * run, record stage and step, save, print. A failed command saves nothing; only the terminal
- * `TIMEOUT` path saves a failed session.
+ * paths (`TIMEOUT`, exhausted evaluation attempts, a refused activation) save a failed session.
+ * Everything written to stderr has C0 and C1 control characters removed (except newline), because
+ * ids and option values are agent-controlled and could otherwise drive the terminal.
  *
  * @param argv - Arguments after the program name.
  * @param env - Injectable `home`, `cwd`, `userHome` and `now`; each defaults to the real value.
  */
 export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutcome> {
+  const out = await runCliRaw(argv, env);
+  return { ...out, stderr: stripControlChars(out.stderr) };
+}
+
+async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
   const resolved: Required<CliEnv> = {
     home: env.home ?? resolveHome(),
     cwd: env.cwd ?? process.cwd(),
@@ -224,8 +265,22 @@ export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutco
     await program.parseAsync(argv, { from: "user" });
   } catch (e) {
     if (e instanceof CommanderError) {
-      if (e.exitCode === 0) return { exitCode: 0, stdout: "", stderr: usageText };
-      const message = e.message.replace(/^error: /, "");
+      if (e.exitCode === 0) {
+        // Help text is for humans on stderr; stdout stays one machine-readable object.
+        return {
+          exitCode: 0,
+          stdout: jsonLine({ ok: true, schemaVersion: CONTRACT_VERSION, help: true }),
+          stderr: usageText,
+        };
+      }
+      // `commander.help` is commander showing help because a command or group was given no
+      // subcommand; its own message is just "(outputHelp)".
+      const message =
+        e.code === "commander.help"
+          ? missingSubcommand(argv) !== null
+            ? `missing subcommand: ${missingSubcommand(argv)}`
+            : "A command is required."
+          : e.message.replace(/^error: /, "");
       const err = describeError(new CliError("USAGE", message));
       return { exitCode: err.exitCode, stdout: jsonLine(err.doc), stderr: usageText };
     }
@@ -245,7 +300,10 @@ export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutco
       def.kind === "create"
         ? await runCreateCommand(def, resolved, opts)
         : await runSessionCommand(def, resolved, opts);
-    return { exitCode: out.exitCode, stdout: jsonLine(out.doc), stderr: `${out.status}\n` };
+    const stdout = out.text !== undefined ? `${out.text}\n` : jsonLine(out.doc);
+    const stderr =
+      out.text !== undefined ? "" : `${out.failure ? `${out.failure}\n` : ""}${out.status}\n`;
+    return { exitCode: out.exitCode, stdout, stderr };
   } catch (e) {
     const err = describeError(e);
     return {

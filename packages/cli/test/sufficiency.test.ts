@@ -9,11 +9,11 @@ import type { Harness } from "./helpers";
 let h: Harness;
 let userBefore: Record<string, string> | undefined;
 beforeEach(async () => {
-  userBefore = undefined;
   h = await harness();
+  userBefore = await hashTree(h.userHome);
 });
 afterEach(async () => {
-  // Skills and instruction files are only ever read.
+  // Skills and instruction files are only ever read: the user home never changes.
   if (userBefore) expect(await hashTree(h.userHome)).toEqual(userBefore);
   await h.cleanup();
 });
@@ -50,6 +50,9 @@ describe("sufficiency state rules", () => {
     const q = await h.doc("q.json", { schemaVersion: "1", questions: [] });
     const ask = await h.run(["clarify", "ask", "--session", id, "--file", q]);
     expect(ask.out).toMatchObject({ error: "INVALID_STATE", expected: ["sufficiency-submit"] });
+    const compile = await h.run(["compile", "--session", id]);
+    expect(compile.exitCode).toBe(1);
+    expect(compile.out).toMatchObject({ error: "INVALID_STATE", expected: ["sufficiency-submit"] });
   });
 
   it("accepts one verdict only", async () => {
@@ -136,6 +139,13 @@ describe("sufficiency validation", () => {
     const id = await analysed(h);
     const scan = await h.readJson(id, "skills-scan.json");
     expect(scan.skills[0].name).toBe("../evil");
+    // Nothing may appear outside the session directory, wherever "../evil" would resolve.
+    const outside = async () => ({
+      ...(await hashTree(h.home, [join("sessions", id)])),
+      ...(await hashTree(h.userHome)),
+      ...(await hashTree(h.repo)),
+    });
+    const outsideBefore = await outside();
     const r = await submit(
       id,
       verdict({
@@ -145,8 +155,21 @@ describe("sufficiency validation", () => {
       }),
     );
     expect(r.out.error).toBe("SCHEMA_INVALID");
-    expect(await hashTree(h.home + "/sessions")).not.toHaveProperty("../evil");
+    expect(await outside()).toEqual(outsideBefore);
     expect(await h.exists(id, "sufficiency.json")).toBe(false);
+  });
+});
+
+describe("sufficiency submit failure", () => {
+  it("leaves no artifact behind and saves nothing when the report cannot be written", async () => {
+    const id = await analysed(h);
+    // reports/ as a regular file makes every write below it fail.
+    await writeFile(join(h.home, "sessions", id, "reports"), "not a directory");
+    const before = await h.read(id, "session.json");
+    const r = await submit(id, verdict({ outcome: "insufficient" }));
+    expect(r.exitCode).toBe(1);
+    expect(await h.exists(id, "sufficiency.json")).toBe(false);
+    expect(await h.read(id, "session.json")).toBe(before);
   });
 });
 
@@ -190,13 +213,9 @@ describe("sufficient verdicts", () => {
     expect(await h.exists(id, "brief.md")).toBe(false);
     expect(await h.exists(id, "skills")).toBe(false);
 
-    // compile is a Task 16 command; the state machine already refuses it on a finished session.
-    const { assertCanRun } = await import("../src/state-machine");
-    const { SessionStore } = await import("@dynamic-skills/core");
-    const loaded = await new SessionStore(h.home).load(id);
-    expect(() => assertCanRun(loaded, "compile")).toThrowError(
-      expect.objectContaining({ code: "INVALID_STATE", extra: { expected: [] } }),
-    );
+    const compile = await h.run(["compile", "--session", id]);
+    expect(compile.exitCode).toBe(1);
+    expect(compile.out).toMatchObject({ error: "INVALID_STATE", expected: [] });
     const next = await h.run(["clarify", "ask", "--session", id, "--file", "x.json"]);
     expect(next.out).toMatchObject({ error: "INVALID_STATE", expected: [] });
   });

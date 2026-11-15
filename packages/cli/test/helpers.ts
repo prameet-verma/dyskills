@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { runCli } from "../src/run";
 
 /** Repository root of the monorepo under test. */
@@ -82,13 +82,20 @@ export async function harness(fixture = "ts-monorepo"): Promise<Harness> {
   };
 }
 
-/** sha256 of every file under `dir`, keyed by relative path (empty for a missing directory). */
-export async function hashTree(dir: string): Promise<Record<string, string>> {
+/**
+ * sha256 of every file under `dir`, keyed by relative path (empty for a missing directory).
+ * @param exclude - Directories relative to `dir` that are skipped.
+ */
+export async function hashTree(
+  dir: string,
+  exclude: string[] = [],
+): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   const walk = async (d: string): Promise<void> => {
     const entries = await readdir(d, { withFileTypes: true }).catch(() => []);
     for (const e of entries) {
       const p = join(d, e.name);
+      if (exclude.includes(p.slice(dir.length + 1))) continue;
       if (e.isDirectory()) await walk(p);
       else
         out[p.slice(dir.length)] = createHash("sha256")
@@ -151,4 +158,70 @@ export function verdict(over: Record<string, unknown>): Record<string, unknown> 
     coveredAspects: [],
     ...over,
   };
+}
+
+/** The fixture analysis that grounds the golden skills. */
+export async function groundedAnalysis(h: Harness, id: string): Promise<void> {
+  const file = await h.doc("analysis.json", await analysisFixture("ts-monorepo-caching.json"));
+  const r = await h.run(["context", "submit", "--session", id, "--file", file]);
+  if (r.exitCode !== 0) throw new Error(JSON.stringify(r.out));
+}
+
+/**
+ * Runs assess, discover, context submit (grounding analysis) and sufficiency submit. With
+ * `partial` the base skill is installed first and the verdict names its scanned path.
+ */
+export async function ready(
+  h: Harness,
+  kind: "insufficient" | "partial" = "insufficient",
+  extra: string[] = [],
+): Promise<string> {
+  if (kind === "partial") await h.installBase();
+  const id = await discovered(h, CACHING_TASK, extra);
+  await groundedAnalysis(h, id);
+  const doc =
+    kind === "partial"
+      ? verdict({
+          outcome: "partial",
+          baseSkill: {
+            name: "order-caching",
+            path: (await h.readJson(id, "skills-scan.json")).skills[0].path,
+          },
+          missingAspects: ["Repository read and write paths"],
+          coveredAspects: ["Cache keys and TTLs"],
+        })
+      : verdict({ outcome: "insufficient" });
+  const file = await h.doc("verdict.json", doc);
+  const r = await h.run(["sufficiency", "submit", "--session", id, "--file", file]);
+  if (r.exitCode !== 0) throw new Error(JSON.stringify(r.out));
+  return id;
+}
+
+/** Copies a golden skill fixture and `smoke.json` into the paths `compile` returned. */
+export async function installGolden(
+  h: Harness,
+  id: string,
+  fixture: "valid/order-cache-specialist" | "augmentation/order-caching-augment",
+): Promise<string> {
+  const name = fixture.split("/")[1] as string;
+  const dest = join(h.home, "sessions", id, "skills", name);
+  await mkdir(dirname(dest), { recursive: true });
+  await cp(join(ROOT, "fixtures/skills", fixture), dest, { recursive: true });
+  await mkdir(join(h.home, "sessions", id, "evals"), { recursive: true });
+  await cp(
+    join(ROOT, "fixtures/skills/smoke.json"),
+    join(h.home, "sessions", id, "evals/smoke.json"),
+  );
+  return join(dest, "SKILL.md");
+}
+
+/** Records a passing behavioural result. */
+export async function record(
+  h: Harness,
+  id: string,
+  output = "Plan: invalidate the cache on every order write.",
+  verdictValue = "pass",
+): Promise<Call> {
+  const file = await h.doc("output.txt", output);
+  return h.run(["eval", "record", "--session", id, "--output", file, "--verdict", verdictValue]);
 }

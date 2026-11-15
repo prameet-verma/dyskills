@@ -140,6 +140,28 @@ describe("context submit", () => {
     expect(evidence.items.map((e: any) => e.key)).toContain("agentic.architecture.order-read-path");
   });
 
+  it("drops an unknown, its requirement and its gap when the analysis is resubmitted without it", async () => {
+    const id = await discovered(h);
+    const first = await submit(id, await analysisFixture("ts-monorepo-caching.json"));
+    const [unknownId] = first.out.unknowns as string[];
+    expect(unknownId).toMatch(/^unknown\./);
+    expect(first.out.gaps.map((g: any) => g.requirement)).toContain(unknownId);
+    expect((await h.readJson(id, "session.json")).requirements.map((r: any) => r.id)).toContain(
+      unknownId,
+    );
+
+    const second = await submit(id, {
+      ...(await analysisFixture("ts-monorepo-caching.json")),
+      unknowns: [],
+    });
+    expect(second.exitCode).toBe(0);
+    expect(second.out.unknowns).toEqual([]);
+    expect(second.out.gaps.map((g: any) => g.requirement)).not.toContain(unknownId);
+    const state = await h.readJson(id, "session.json");
+    expect(state.requirements.map((r: any) => r.id)).not.toContain(unknownId);
+    expect(state.gaps.map((g: any) => g.requirement)).not.toContain(unknownId);
+  });
+
   it("measures the analysis stage from the end of discovery, excluding nothing else", async () => {
     const id = await discovered(h);
     h.clock.t += 7_000;

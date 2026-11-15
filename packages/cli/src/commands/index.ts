@@ -1,7 +1,13 @@
+import { activateCommand } from "./activate";
 import { assessCommand } from "./assess";
 import { clarifyAnswerCommand, clarifyAskCommand } from "./clarify";
+import { cleanCommand } from "./clean";
+import { compileCommand } from "./compile";
 import { contextRequestCommand, contextSubmitCommand } from "./context";
 import { discoverCommand } from "./discover";
+import { evaluateCommand } from "./evaluate";
+import { evalRecordCommand } from "./record";
+import { statusCommand } from "./status";
 import { sufficiencyApproveCommand, sufficiencySubmitCommand } from "./sufficiency";
 import type { CommandDef } from "./types";
 
@@ -18,4 +24,10 @@ export const COMMANDS: CommandDef[] = [
   sufficiencyApproveCommand,
   clarifyAskCommand,
   clarifyAnswerCommand,
+  compileCommand,
+  evaluateCommand,
+  evalRecordCommand,
+  activateCommand,
+  statusCommand,
+  cleanCommand,
 ];

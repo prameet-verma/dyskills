@@ -12,12 +12,15 @@ import { readRealFile, resolveRepoPath } from "@dynamic-skills/discovery";
 import type { ZodType, z } from "zod";
 
 /** One problem found in an agent-supplied document: a dotted path and a message. */
-export interface CliIssue {
+interface CliIssue {
   path: string;
   message: string;
 }
 
-/** Stable machine-readable error codes (PRD §10.5, §13). `TIMEOUT` exits 3, every other code 1. */
+/**
+ * Stable machine-readable error codes (PRD §10.5, §13). `TIMEOUT` exits 3; `BUNDLE_INVALID` and
+ * `EVAL_ATTEMPTS_EXHAUSTED` are evaluation-gate failures and exit 2; every other code exits 1.
+ */
 export type CliErrorCode =
   | "SESSION_NOT_FOUND"
   | "SESSION_LOCKED"
@@ -27,6 +30,8 @@ export type CliErrorCode =
   | "BASE_CHANGED"
   | "SCHEMA_INVALID"
   | "VERDICT_INVALID"
+  | "BUNDLE_INVALID"
+  | "EVAL_ATTEMPTS_EXHAUSTED"
   | "TIMEOUT"
   | "INTERNAL";
 
@@ -67,25 +72,29 @@ export interface CliEnv {
 const MAX_INPUT_BYTES = 1_000_000;
 
 /** Largest base skill or instruction file whose content is returned for reuse (PRD §5.5). */
-export const MAX_BASE_BYTES = 200_000;
+const MAX_BASE_BYTES = 200_000;
 
 /** Maximum issues reported for one invalid document. */
 const MAX_ISSUES = 50;
 
+/** Shown to the agent whenever the pipeline ends without a skill (PRD §10.7). */
+export const FALLBACK = "Continue the original task with existing capabilities.";
+
 /**
- * Reads an agent-supplied `--file` document as text.
+ * Reads an agent-supplied input file as text.
  * @param cwd - Directory relative paths resolve against.
- * @param file - The `--file` value.
+ * @param file - The option value.
+ * @param flag - The option name used in the error message.
  * @throws {CliError} `USAGE` when the file is missing, unreadable, not a file or over 1 MB.
  */
-export async function readInputFile(cwd: string, file: string): Promise<string> {
+export async function readInputFile(cwd: string, file: string, flag = "--file"): Promise<string> {
   const abs = resolve(cwd, file);
   try {
     const info = await stat(abs);
     if (!info.isFile() || info.size > MAX_INPUT_BYTES) throw new Error("bad file");
     return await readFile(abs, "utf8");
   } catch {
-    throw new CliError("USAGE", `Cannot read --file ${file} (missing, not a file, or over 1 MB).`);
+    throw new CliError("USAGE", `Cannot read ${flag} ${file} (missing, not a file, or over 1 MB).`);
   }
 }
 
@@ -193,6 +202,23 @@ export async function writeTerminalReports(
     "reports/discovery.json",
     toJson(buildDiscoveryReport(state, packet, evidence)),
   );
+}
+
+/** Turns a failed base read into a `VERDICT_INVALID` error on the field that named the base. */
+export function baseFailure(path: string, read: Extract<BaseRead, { ok: false }>): CliError {
+  return new CliError("VERDICT_INVALID", "The named base could not be used.", {
+    issues: [{ path, message: read.message }],
+  });
+}
+
+/**
+ * Removes C0 and C1 control characters, except newline, from text bound for a terminal. Session
+ * ids, question ids and option values are agent-controlled and can carry ESC or OSC sequences
+ * (title changes, cursor moves) that a terminal would execute. A character-class replace is
+ * linear in the input.
+ */
+export function stripControlChars(text: string): string {
+  return text.replace(/[^\P{Cc}\n]/gu, "");
 }
 
 /** Result of reading a reusable base file. */

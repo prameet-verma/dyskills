@@ -1,4 +1,5 @@
 import type { SessionState, SessionStore, StageName } from "@dynamic-skills/core";
+import type { CliErrorCode } from "../io";
 import type { CliCommand, CompletedStep } from "../state-machine";
 
 /** Everything a command handler may use. */
@@ -31,6 +32,20 @@ export interface CommandResult {
   writeReports?: boolean;
   /** Set to `false` when the command changed nothing and must not append its completed step. */
   recordStep?: boolean;
+  /**
+   * Process exit code; defaults to 0. A non-zero code is for a gate failure that must still be
+   * saved (a failed evaluation attempt, a refused activation), as opposed to a thrown `CliError`
+   * which discards the handler's changes.
+   */
+  exitCode?: number;
+  /** Set for a saved failure: `ok` becomes false and `error` and `message` lead the document. */
+  error?: { code: CliErrorCode; message: string };
+  /** Overrides `ok` when it must differ from "no `error` set" (a refused activation). */
+  ok?: boolean;
+  /** Plain text printed on stdout instead of the JSON document (only `status`). */
+  text?: string;
+  /** Set to `false` when the command must not write `session.json` (`status`, `clean`). */
+  save?: boolean;
 }
 
 /** Declarative description of one option, mirrored into commander. */

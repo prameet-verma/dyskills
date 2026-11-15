@@ -17,9 +17,11 @@ import type {
   SufficiencyReport,
 } from "@dynamic-skills/core";
 import { fingerprintFile } from "@dynamic-skills/evidence-registry";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   CliError,
+  baseFailure,
   parseDocument,
   readBaseInstructionFile,
   readBaseSkillFile,
@@ -27,7 +29,6 @@ import {
   requireArtifactJson,
   toJson,
 } from "../io";
-import type { BaseRead } from "../io";
 import type { SessionCommandDef } from "./types";
 
 /** Shown to the agent with a reused skill (PRD §5.5: reuse is unchanged, no compile, no evals). */
@@ -60,24 +61,13 @@ function buildSufficiencyReport(
   });
 }
 
-/** Writes `reports/sufficiency.json`. */
+/** Writes `reports/sufficiency.json` from an already built and validated report. */
 async function writeSufficiencyReport(
   store: SessionStore,
-  state: SessionState,
-  verdict: SkillSufficiencyAssessment,
+  id: string,
+  report: SufficiencyReport,
 ): Promise<void> {
-  await store.writeArtifact(
-    state.id,
-    "reports/sufficiency.json",
-    toJson(buildSufficiencyReport(state, verdict)),
-  );
-}
-
-/** Turns a failed base read into a `VERDICT_INVALID` error on the field that named the base. */
-function baseFailure(path: string, read: Extract<BaseRead, { ok: false }>): CliError {
-  return new CliError("VERDICT_INVALID", "The named base could not be used.", {
-    issues: [{ path, message: read.message }],
-  });
+  await store.writeArtifact(id, "reports/sufficiency.json", toJson(report));
 }
 
 /**
@@ -148,8 +138,9 @@ export const sufficiencySubmitCommand: SessionCommandDef = {
       approval: pending ? "pending" : "not-required",
     };
     state.metrics.llmInteractions += 1;
-    await store.writeArtifact(state.id, "sufficiency.json", toJson(verdict));
-    await writeSufficiencyReport(store, state, verdict);
+    // Validate the report before the first write; session artifacts are written last so that a
+    // failure leaves nothing behind (the wrapper saves nothing either).
+    const report = buildSufficiencyReport(state, verdict);
 
     let next: "done" | "approve" | "clarify-or-compile" = "clarify-or-compile";
     if (verdict.outcome === "sufficient") {
@@ -164,6 +155,15 @@ export const sufficiencySubmitCommand: SessionCommandDef = {
       state.sla = clock.snapshot(at);
       state.status = "waiting-for-approval";
       next = "approve";
+    }
+    try {
+      await store.writeArtifact(state.id, "sufficiency.json", toJson(verdict));
+      await writeSufficiencyReport(store, state.id, report);
+    } catch (e) {
+      const dir = store.dir(state.id);
+      await rm(join(dir, "sufficiency.json"), { force: true }).catch(() => undefined);
+      await rm(join(dir, "reports", "sufficiency.json"), { force: true }).catch(() => undefined);
+      throw e;
     }
     return {
       writeReports: verdict.outcome === "sufficient",
@@ -222,7 +222,7 @@ export const sufficiencyApproveCommand: SessionCommandDef = {
       state.status = "completed";
       state.metrics.outcome = "skipped";
     }
-    await writeSufficiencyReport(store, state, verdict);
+    await writeSufficiencyReport(store, state.id, buildSufficiencyReport(state, verdict));
     return {
       writeReports: decision === "decline",
       data: {
