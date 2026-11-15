@@ -29,9 +29,14 @@ failing detector never stops the others.
   were not walked).
 - **`isSecretPath(rel)`** (`secrets.ts`): true (case-insensitive) for `.env*`/`.envrc`/`.netrc`,
   keys, certificates, SSH keys, `*.pfx`/`*.jks`/`*.keystore`, `credentials.json`, `.npmrc`,
-  `.pypirc`, `*.tfvars`(`.json`), `*.tfstate`(`.backup`), `.git-credentials`, `secrets.*`,
-  `kubeconfig`, `.htpasswd`, `.pgpass`, `.docker/config.json`, `.kube/config`, and anything under
-  a `secrets/` or `.aws/` directory. Every pattern is an anchored literal, so matching is linear.
+  `.pypirc`, `*.tfvars`(`.json`), `*.tfstate`(`.backup`), `.git-credentials`, `kubeconfig`,
+  `.htpasswd`, `.pgpass`, `.docker/config.json`, `.kube/config`, a bare `secrets` or `.secrets`
+  file, and anything under a `secrets/`, `.secrets/` or `.aws/` directory. `secrets.*` fails
+  closed: every such basename is secret unless its last segment is a plain source extension
+  (`ts`, `py`, `go`, `rs`, ...) and no segment is a config, data or encryption marker (`json`,
+  `yaml`, `env`, `enc`, `sops`, `gpg`, ...). So `secrets.ts` and `secrets.test.ts` are indexed,
+  while `secrets.yaml.bak`, `secrets.ts.enc`, `secrets.sh` and `secrets.` are not. Matching is
+  linear: set lookups over the basename segments.
 - **`MANIFEST_DETECTORS`, `STRUCTURE_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime,
   package manager, framework, database (data tasks only), testing, monorepo and build
   detectors, plus language, CI, architecture and convention detectors.
