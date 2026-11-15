@@ -1,7 +1,7 @@
-import { EvaluationReportSchema } from "@dynamic-skills/core";
+import { EvaluationReportSchema, MAX_EVAL_ATTEMPTS } from "@dynamic-skills/core";
 import { recordBehaviouralResult } from "@dynamic-skills/eval-engine";
 import { loadSmokeEval } from "@dynamic-skills/skill-compiler";
-import { CliError, readInputFile, requireArtifactJson, toJson } from "../io";
+import { CliError, FALLBACK, readInputFile, requireArtifactJson, toJson } from "../io";
 import { assertBundlePinned, sessionPaths } from "./bundle";
 import type { SessionCommandDef } from "./types";
 
@@ -9,7 +9,9 @@ import type { SessionCommandDef } from "./types";
  * `eval record`: the agent ran the smoke scenario with the new skill and reports the output and
  * its own rubric verdict (PRD §9.2, §9.4). The assertions in `evals/smoke.json` are checked
  * against the output (agent-written regexes run in a bounded worker), and the combined
- * `behavioural` result is stored in `reports/evaluation.json`, where `activate` reads it.
+ * `behavioural` result is stored in `reports/evaluation.json`, where `activate` reads it. A `fail`
+ * on the last allowed attempt ends the session as `failed` with reports and a `fallback` (Ruling
+ * R22); the exit code stays 0 because the recording itself succeeded.
  */
 export const evalRecordCommand: SessionCommandDef = {
   name: "eval record",
@@ -57,6 +59,19 @@ export const evalRecordCommand: SessionCommandDef = {
       toJson({ ...report, behavioural }),
     );
     state.metrics.llmInteractions += 1;
-    return { data: { outcome: behavioural.outcome, messages: behavioural.messages } };
+    // R22: a failed behavioural result with no attempt left to revise ends the session here.
+    const ended = behavioural.outcome === "fail" && state.evalAttempts >= MAX_EVAL_ATTEMPTS;
+    if (ended) {
+      state.status = "failed";
+      state.metrics.outcome = "failed";
+    }
+    return {
+      writeReports: ended,
+      data: {
+        outcome: behavioural.outcome,
+        messages: behavioural.messages,
+        ...(ended ? { fallback: FALLBACK } : {}),
+      },
+    };
   },
 };

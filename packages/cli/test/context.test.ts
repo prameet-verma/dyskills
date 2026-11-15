@@ -92,6 +92,16 @@ describe("context request", () => {
 });
 
 describe("context submit", () => {
+  it("shows Analysing once the analysis is accepted, not before (M3)", async () => {
+    const id = await discovered(h);
+    expect((await h.readJson(id, "session.json")).status).toBe("discovering");
+    await submit(id, { schemaVersion: "1" });
+    expect((await h.readJson(id, "session.json")).status).toBe("discovering");
+    const r = await submit(id, await analysisFixture("minimal.json"));
+    expect(r.stderr).toContain("Status: Analysing");
+    expect((await h.readJson(id, "session.json")).status).toBe("analysing");
+  });
+
   it("rejects an invalid analysis and leaves evidence untouched", async () => {
     const id = await discovered(h);
     const count = (await h.readJson(id, "evidence.json")).items.length;

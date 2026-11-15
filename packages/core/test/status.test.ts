@@ -72,6 +72,12 @@ const RESUMING_APPROVAL_TEXT = RESUMING_TEXT.replace(
 );
 
 describe("renderStatus", () => {
+  it("labels the analysis stage (M3)", () => {
+    const text = renderStatus(state({ status: "analysing" }), 12_000);
+    expect(text).toContain("Status: Analysing");
+    expect(text).toContain("Processing SLA: RUNNING");
+  });
+
   it("renders the waiting block exactly", () => {
     const clock = SlaClock.start(60_000, 0);
     clock.pause(18_000);

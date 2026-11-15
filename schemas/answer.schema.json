@@ -15,19 +15,23 @@
       ]
     },
     "value": {
-      "type": "string"
+      "type": "string",
+      "maxLength": 2000
     },
     "assumption": {
       "type": "object",
       "properties": {
         "assumption": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 1000
         },
         "basis": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 1000
         },
         "impact": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 1000
         }
       },
       "required": [

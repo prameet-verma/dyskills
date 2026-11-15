@@ -39,6 +39,48 @@ async function answer(id: string, ...answers: unknown[]) {
   return h.run(["clarify", "answer", "--session", id, "--file", file]);
 }
 
+describe("clarification field limits (M6)", () => {
+  it("accepts the bootstrap skill's r1-q1 id convention", async () => {
+    const id = await ready();
+    const r = await ask(id, question({ id: "r1-q1" }));
+    expect(r.out.accepted.map((q: any) => q.id)).toEqual(["r1-q1"]);
+  });
+
+  it.each([["has space"], ["a,b"], [""], ["Upper"], ["a".repeat(65)], ["-lead"]])(
+    "rejects the question id %j with SCHEMA_INVALID",
+    async (bad) => {
+      const id = await ready();
+      const r = await ask(id, question({ id: bad }));
+      expect(r.exitCode).toBe(1);
+      expect(r.out.error).toBe("SCHEMA_INVALID");
+      expect(r.out.issues[0].path).toBe("questions.0.id");
+      expect((await h.readJson(id, "session.json")).clarification.round).toBe(0);
+    },
+  );
+
+  it("caps question text, requirement, answer value and assumption fields", async () => {
+    const id = await ready();
+    expect((await ask(id, question({ text: "x".repeat(1001) }))).out.error).toBe("SCHEMA_INVALID");
+    expect((await ask(id, question({ requirement: "x".repeat(201) }))).out.error).toBe(
+      "SCHEMA_INVALID",
+    );
+    expect((await ask(id, question({ text: "x".repeat(1000) }))).exitCode).toBe(0);
+    const long = (value: string) =>
+      answer(id, { questionId: "q-migration", status: "answered", value });
+    expect((await long("x".repeat(2001))).out.error).toBe("SCHEMA_INVALID");
+    const declined = (field: string) =>
+      answer(id, {
+        questionId: "q-migration",
+        status: "declined",
+        assumption: { assumption: "a", basis: "b", impact: "i", [field]: "x".repeat(1001) },
+      });
+    for (const field of ["assumption", "basis", "impact"]) {
+      expect((await declined(field)).out.error, field).toBe("SCHEMA_INVALID");
+    }
+    expect((await long("x".repeat(2000))).exitCode).toBe(0);
+  });
+});
+
 describe("clarify ask", () => {
   it("pauses the SLA and reports round 1 of 3", async () => {
     const id = await ready();

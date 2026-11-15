@@ -1,5 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, rename, rm, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   CONTRACT_VERSION,
   AssumptionsReportSchema,
@@ -202,23 +202,36 @@ export async function writeTerminalReports(
     ContextPacketSchema,
   );
   const evidence = await readEvidence(store, state.id);
-  await store.writeArtifact(
-    state.id,
-    "reports/performance.json",
-    toJson(buildPerformanceReport(state, now)),
-  );
-  await store.writeArtifact(
-    state.id,
-    "reports/discovery.json",
-    toJson(buildDiscoveryReport(state, packet, evidence)),
-  );
-  await store.writeArtifact(
-    state.id,
-    "reports/assumptions.json",
-    toJson(
-      AssumptionsReportSchema.parse({ schemaVersion: CONTRACT_VERSION, items: state.assumptions }),
-    ),
-  );
+  // Build every document first, then write temp files and rename them into place, so a failure
+  // never leaves a partial set (a lone `performance.json` would be counted by `report perf`).
+  const docs: [string, string][] = [
+    ["performance.json", toJson(buildPerformanceReport(state, now))],
+    ["discovery.json", toJson(buildDiscoveryReport(state, packet, evidence))],
+    [
+      "assumptions.json",
+      toJson(
+        AssumptionsReportSchema.parse({
+          schemaVersion: CONTRACT_VERSION,
+          items: state.assumptions,
+        }),
+      ),
+    ],
+  ];
+  const dir = join(store.dir(state.id), "reports");
+  const temps = docs.map(([name]) => `.${name}.tmp`);
+  try {
+    for (const [i, [, content]] of docs.entries()) {
+      await store.writeArtifact(state.id, `reports/${temps[i] as string}`, content);
+    }
+    // `performance.json` goes last: it is the only file `report perf` reads, so a rename that
+    // fails partway never leaves a counted report behind.
+    for (const i of [1, 2, 0]) {
+      await rename(join(dir, temps[i] as string), join(dir, (docs[i] as [string, string])[0]));
+    }
+  } catch (e) {
+    await Promise.all(temps.map((t) => rm(join(dir, t), { force: true }).catch(() => undefined)));
+    throw e;
+  }
 }
 
 /** Turns a failed base read into a `VERDICT_INVALID` error on the field that named the base. */

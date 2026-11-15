@@ -148,6 +148,7 @@ export const contextSubmitCommand: SessionCommandDef = {
     state.gaps = out.gaps;
     m.analysisSubmissions += 1;
     m.llmInteractions += 1;
+    state.status = "analysing";
     // PRD §10.8: analysis time is active time since discovery ended (human waits excluded).
     m.stageMs.analysis =
       SlaClock.from(state.sla).activeMs(now()) - (m.analysisStartedAtActiveMs ?? 0);

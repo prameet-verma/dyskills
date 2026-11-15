@@ -85,9 +85,12 @@ Phase 1 writes only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_S
 into the repository, and existing skills and instruction files are only read.
 
 The home is private to its user. Each command checks it and `<home>/sessions` before the first
-write: a symlink, a non-directory or a directory owned by another uid is refused with
-`HOME_UNSAFE`, and group or other permission bits are removed. Every directory the CLI creates is
-mode 0700 and every file it writes is 0600.
+write: a symlink (also one written with a trailing slash, because the path is resolved before the
+`lstat`), a non-directory or a directory owned by another uid is refused with `HOME_UNSAFE`. Only
+directories the store creates are tightened: a missing home is created 0700, and `<home>/sessions`
+loses any group or other bits, but an existing home keeps its mode and is never chmodded (it may
+be a user-provided `DYNAMIC_SKILLS_HOME`, even `$HOME`; Ruling R23). Every directory the CLI
+creates is mode 0700 and every file it writes is 0600.
 
 | Path                    | Written by                                                                                        | Content                                                                                                                                                                                               |
 | ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -123,19 +126,33 @@ later with `Processing SLA: STOPPED`.
 ## Terminal outcomes
 
 Every path that can no longer progress ends the session, writes `reports/performance.json`,
-`discovery.json` and `assumptions.json`, and hands the agent a `fallback` (Ruling R20):
+`discovery.json` and `assumptions.json`, and hands the agent a `fallback` (Rulings R20, R22):
 
-| Path                                                            | Status      | Outcome     | Exit |
-| --------------------------------------------------------------- | ----------- | ----------- | ---- |
-| `assess` with recommendation `none`                             | `completed` | `skipped`   | 0    |
-| `sufficiency submit` with `sufficient`                          | `completed` | `reused`    | 0    |
-| `sufficiency approve --decision decline`                        | `completed` | `skipped`   | 0    |
-| `clarify answer` leaving a blocking question unresolved         | `completed` | `skipped`   | 0    |
-| `compile` with a changed base (`BASE_CHANGED`)                  | `failed`    | `failed`    | 1    |
-| `evaluate` beyond the attempt limit (`EVAL_ATTEMPTS_EXHAUSTED`) | `failed`    | `failed`    | 2    |
-| `activate` refused (`ACTIVATION_REFUSED`)                       | `failed`    | `failed`    | 2    |
-| deadline passed (`TIMEOUT`)                                     | `timeout`   | `timeout`   | 3    |
-| `activate` succeeded                                            | `completed` | `activated` | 0    |
+| Path                                                              | Status      | Outcome     | Exit |
+| ----------------------------------------------------------------- | ----------- | ----------- | ---- |
+| `assess` with recommendation `none`                               | `completed` | `skipped`   | 0    |
+| `sufficiency submit` with `sufficient`                            | `completed` | `reused`    | 0    |
+| `sufficiency approve --decision decline`                          | `completed` | `skipped`   | 0    |
+| `clarify answer` leaving a blocking question unresolved           | `completed` | `skipped`   | 0    |
+| `compile` with a changed base (`BASE_CHANGED`)                    | `failed`    | `failed`    | 1    |
+| `evaluate` on the last attempt, not activatable                   | `failed`    | `failed`    | 0    |
+| `evaluate` on the last attempt, bundle invalid (`BUNDLE_INVALID`) | `failed`    | `failed`    | 2    |
+| `eval record` with `outcome: fail` and no attempts left           | `failed`    | `failed`    | 0    |
+| `evaluate` beyond the attempt limit (`EVAL_ATTEMPTS_EXHAUSTED`)   | `failed`    | `failed`    | 2    |
+| `clean` on a session that has not ended                           | `failed`    | `failed`    | 0    |
+| `activate` refused (`ACTIVATION_REFUSED`)                         | `failed`    | `failed`    | 2    |
+| deadline passed (`TIMEOUT`)                                       | `timeout`   | `timeout`   | 3    |
+| `activate` succeeded                                              | `completed` | `activated` | 0    |
+
+The last-attempt rows are decided by the CLI, not by the agent: `evaluate` ends the session when
+the third attempt (`MAX_EVAL_ATTEMPTS`) is still not activatable, and `eval record` ends it when it
+records a `fail` after the third attempt. Both keep `ok: true` and exit 0 (a bundle error keeps
+exit 2) and add `fallback`; the session accepts nothing further. `EVAL_ATTEMPTS_EXHAUSTED` remains
+for the agent that revises and runs a fourth `evaluate` after an activatable third attempt.
+`clean` is the catch-all: a session that has not ended (for example, abandoned by the agent) is
+ended `timeout` if its budget has run out, otherwise `failed`. Idle time after the budget ran out
+is not counted as active time. It gets terminal reports before it is archived, so it counts in
+`fallbackRate`.
 
 `activate` may also end as `warning` (with limitations) or with outcome `augmented`. `clean`
 archives the performance report before it removes the session, and `report perf` reads live and

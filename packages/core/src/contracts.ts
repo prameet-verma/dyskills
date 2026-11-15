@@ -218,7 +218,11 @@ export const ClarificationResponseSchema = z.strictObject({
       z.strictObject({
         ...AnswerSchema.shape,
         assumption: z
-          .strictObject({ assumption: z.string(), basis: z.string(), impact: z.string() })
+          .strictObject({
+            assumption: z.string().max(1000),
+            basis: z.string().max(1000),
+            impact: z.string().max(1000),
+          })
           .optional(),
       }),
     )

@@ -137,6 +137,9 @@ export const sufficiencySubmitCommand: SessionCommandDef = {
     // failure leaves nothing behind (the wrapper saves nothing either).
     const report = buildSufficiencyReport(state, verdict);
 
+    // The verdict is the coverage assessment: `Assessing skill coverage` until a branch below
+    // ends or pauses the session (M3).
+    state.status = "assessing";
     let next: "done" | "approve" | "clarify-or-compile" = "clarify-or-compile";
     if (verdict.outcome === "sufficient") {
       state.status = "completed";
