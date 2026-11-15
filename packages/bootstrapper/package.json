@@ -9,5 +9,9 @@
   "dependencies": {
     "@dynamic-skills/core": "workspace:*",
     "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@dynamic-skills/eval-engine": "workspace:*",
+    "@dynamic-skills/skill-compiler": "workspace:*"
   }
 }

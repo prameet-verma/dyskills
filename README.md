@@ -25,8 +25,8 @@ skill.
   (`$DYNAMIC_SKILLS_HOME/sessions/<id>/`, defaulting to the OS temp directory) and never into any
   harness skill directory.
 
-The CLI is partly built (Phase 1, Task 15: assess to clarify; compile and activate follow) and the bootstrap skill is planned (Task 17). Today
-the repository contains the library packages below. The design rationale is in the
+The CLI and the bootstrap skill ([`skills/dynamic-skill-bootstrap/SKILL.md`](skills/dynamic-skill-bootstrap/SKILL.md)) are built.
+The repository contains the library packages below. The design rationale is in the
 [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
 
 ## Packages
