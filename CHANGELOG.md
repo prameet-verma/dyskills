@@ -37,6 +37,8 @@ Phase 1, the JIT Core Engine:
   `message`.
 - An ended session stops its SLA clock; the status block prints `Processing SLA: STOPPED`.
 - Terminal paths also write `reports/assumptions.json`.
+- Discovery no longer hides ordinary source files named `secrets.*` (`secrets.ts`, `secrets.py`,
+  `secrets.test.ts`); they are indexed and readable again.
 
 ### Security
 
@@ -54,14 +56,6 @@ Phase 1, the JIT Core Engine:
 - More credential files are treated as secrets: Terraform variables and state,
   `.git-credentials`, `.aws/`, `.docker/config.json`, `secrets.*`, `kubeconfig`, `.kube/config`,
   keystores, `.htpasswd` and `.pgpass`.
-
-### Changed
-
-- Discovery no longer hides ordinary source files named `secrets.*` (`secrets.ts`, `secrets.py`,
-  `secrets.test.ts`); they are indexed and readable again.
-
-### Security
-
 - Secret-file exclusion for `secrets.*` fails closed: any such name is secret unless it is plain
   source with no config, data or encryption marker. A bare `secrets`, `.secrets` and `.secrets/`
   are now secret too.
