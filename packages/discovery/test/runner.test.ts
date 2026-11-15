@@ -96,13 +96,47 @@ describe("runDiscovery", () => {
         },
       }));
 
-    it("runs detectors in parallel, bounded by DISCOVERY_CONCURRENCY, in detector order", async () => {
+    it("runs detectors in parallel, bounded by DISCOVERY_CONCURRENCY", async () => {
       const inflight = { cur: 0, max: 0 };
-      const detectors = slow(inflight);
-      const r = await runDiscovery({ repo: fixture("ts-monorepo"), task: "x", detectors });
+      await runDiscovery({ repo: fixture("ts-monorepo"), task: "x", detectors: slow(inflight) });
       expect(inflight.max).toBeGreaterThan(1);
       expect(inflight.max).toBeLessThanOrEqual(DISCOVERY_CONCURRENCY);
+    });
+
+    it("merges evidence and errors in detector order even when detectors finish in reverse", async () => {
+      const n = 6;
+      const detectors: Detector[] = Array.from({ length: n }, (_, i) => ({
+        id: `d${i}`,
+        categories: ["runtime"],
+        always: true,
+        async run(ctx) {
+          await new Promise((r) => setTimeout(r, (n - i) * 15));
+          if (i % 2 === 1) throw new Error(`boom${i}`);
+          return [
+            {
+              key: "runtime.order",
+              value: `v${i}`,
+              category: "runtime",
+              source: `d${i}`,
+              confidence: "inferred",
+              revision: ctx.revision,
+            },
+          ];
+        },
+      }));
+      const r = await runDiscovery({
+        repo: fixture("ts-monorepo"),
+        task: "x",
+        detectors,
+        concurrency: n,
+      });
+      const e = r.registry.get("runtime.order");
+      expect(e?.conflicts[0]).toBe("v0 (d0)");
+      expect(e?.conflicts[1]).toBe("v2 (d2)");
+      expect(e?.conflicts[2]).toBe("v4 (d4)");
       expect(r.detectorsRun).toEqual(detectors.map((d) => d.id));
+      // Errors are recorded as detectors fail (reverse completion), which proves the delays bite.
+      expect(r.errors.map((x) => x.detector)).toEqual(["d5", "d3", "d1"]);
     });
 
     it("honours an explicit concurrency of 1", async () => {
@@ -116,19 +150,30 @@ describe("runDiscovery", () => {
       expect(inflight.max).toBe(1);
     });
 
-    it("rejects with an AbortError when the signal aborts", async () => {
-      const inflight = { cur: 0, max: 0 };
+    it("rejects with an AbortError when aborted mid-run, before all detectors start", async () => {
+      const started: string[] = [];
       const ac = new AbortController();
-      setTimeout(() => ac.abort(), 5);
+      const detectors: Detector[] = Array.from({ length: 12 }, (_, i) => ({
+        id: `d${i}`,
+        categories: [],
+        always: true,
+        async run() {
+          started.push(`d${i}`);
+          if (i === 0) ac.abort();
+          await new Promise((r) => setTimeout(r, 5));
+          return [];
+        },
+      }));
       await expect(
         runDiscovery({
           repo: fixture("ts-monorepo"),
           task: "x",
-          detectors: slow(inflight),
+          detectors,
           concurrency: 1,
           signal: ac.signal,
         }),
       ).rejects.toMatchObject({ name: "AbortError" });
+      expect(started.length).toBeLessThan(12);
     });
   });
 });

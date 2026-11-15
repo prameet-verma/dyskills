@@ -1,5 +1,5 @@
-/** Directory names whose entire subtree is treated as secret material (`.aws`: credentials, config). */
-const SECRET_DIRS = new Set(["secrets", ".aws"]);
+/** Directory names whose entire subtree is treated as secret material (`.secrets`: `act` credentials; `.aws`: credentials, config). */
+const SECRET_DIRS = new Set(["secrets", ".secrets", ".aws"]);
 
 /**
  * Basename patterns of files that commonly hold credentials or private keys. Every pattern is a
@@ -28,13 +28,51 @@ const SECRET_NAMES: RegExp[] = [
   /\.tfstate$/,
   /\.tfstate\.backup$/,
   /^\.git-credentials$/,
+  /^\.?secrets$/,
   /^kubeconfig$/,
   /^\.htpasswd$/,
   /^\.pgpass$/,
 ];
 
-/** Config and data extensions that make a `secrets.*` file secret (`secrets.ts` is source, not). */
-const SECRETS_FILE_EXTS = new Set([
+/** Plain source-code extensions: the only `secrets.*` files that may stay visible. */
+const SOURCE_EXTS = new Set([
+  "ts",
+  "tsx",
+  "mts",
+  "cts",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "py",
+  "go",
+  "rb",
+  "rs",
+  "java",
+  "kt",
+  "kts",
+  "scala",
+  "cs",
+  "fs",
+  "swift",
+  "php",
+  "vue",
+  "svelte",
+  "dart",
+  "ex",
+  "exs",
+  "clj",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "m",
+  "mm",
+  "lua",
+]);
+
+/** Config, data and encryption markers: any such segment keeps a `secrets.*` file secret. */
+const SECRET_MARKERS = new Set([
   "json",
   "yaml",
   "yml",
@@ -46,25 +84,27 @@ const SECRETS_FILE_EXTS = new Set([
   "conf",
   "cfg",
   "xml",
-  // Encrypted forms (sops, git-crypt style) are still secret-bearing artefacts.
   "enc",
   "sops",
+  "dec",
+  "gpg",
+  "age",
+  "asc",
 ]);
 
 /**
- * Tells whether a lowercased basename is a `secrets.<...>` config or data file. Secret when the
- * final extension is a config/data one (`secrets.yaml`, `secrets.prod.json`), or when the second
- * segment marks encryption (`secrets.enc.*`, `secrets.sops.*`, any final extension). Source files
- * (`secrets.ts`, `secrets.py`, `secrets.test.ts`) are not. Fail safe: an unlisted extension stays
- * visible only because it is plainly not config; every listed or encrypted form is hidden.
- * Linear: one `startsWith`, one `split`, set lookups.
+ * Tells whether a lowercased basename is a secret `secrets.<...>` file. Fails closed (ruling R24):
+ * every basename starting with `secrets.` is secret unless its last segment is a source extension
+ * (`secrets.ts`, `secrets.test.ts`, `secrets.d.ts`) and no segment is a config, data or encryption
+ * marker (`secrets.ts.enc` and `secrets.enc.ts` stay secret). Unknown, backup, archive and
+ * trailing-dot forms are therefore secret. Shell scripts and Markdown also stay secret, since
+ * scripts often export tokens. Linear: one `split` and set lookups per segment.
  */
 function isSecretsFile(name: string): boolean {
   if (!name.startsWith("secrets.")) return false;
   const segs = name.split(".");
-  const last = segs[segs.length - 1] ?? "";
-  const second = segs[1] ?? "";
-  return SECRETS_FILE_EXTS.has(last) || second === "enc" || second === "sops";
+  if (!SOURCE_EXTS.has(segs[segs.length - 1] ?? "")) return true;
+  return segs.slice(1).some((s) => SECRET_MARKERS.has(s));
 }
 
 /**

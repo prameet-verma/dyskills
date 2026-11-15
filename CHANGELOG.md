@@ -6,11 +6,6 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- Discovery no longer hides source files named `secrets.*` (`secrets.ts`, `secrets.py`); only config and
-  data forms (`secrets.yaml`, `secrets.json`, `secrets.enc.*`, ...) and `secrets/` directories are secret.
-
 ### Added
 
 Phase 1, the JIT Core Engine:
@@ -59,3 +54,14 @@ Phase 1, the JIT Core Engine:
 - More credential files are treated as secrets: Terraform variables and state,
   `.git-credentials`, `.aws/`, `.docker/config.json`, `secrets.*`, `kubeconfig`, `.kube/config`,
   keystores, `.htpasswd` and `.pgpass`.
+
+### Changed
+
+- Discovery no longer hides ordinary source files named `secrets.*` (`secrets.ts`, `secrets.py`,
+  `secrets.test.ts`); they are indexed and readable again.
+
+### Security
+
+- Secret-file exclusion for `secrets.*` fails closed: any such name is secret unless it is plain
+  source with no config, data or encryption marker. A bare `secrets`, `.secrets` and `.secrets/`
+  are now secret too.

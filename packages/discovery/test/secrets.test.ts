@@ -78,29 +78,90 @@ describe("secret exclusion", () => {
     }
   });
 
-  it("hides secrets.* config/data files but not source files named secrets", () => {
+  it("fails closed on every secrets.* variant that is not plain source (R24)", () => {
     for (const p of [
+      "secrets.yaml.bak",
+      "secrets.json.orig",
+      "secrets.env.local",
+      "secrets.gpg",
+      "secrets.asc",
+      "secrets.age",
+      "secrets.yaml.gpg",
+      "secrets.json5",
+      "secrets.jsonc",
+      "secrets.hcl",
+      "secrets.csv",
+      "secrets.dat",
+      "secrets.db",
+      "secrets.sqlite",
+      "secrets.kdbx",
+      "secrets.vault",
+      "secrets.encrypted",
+      "secrets.bak",
+      "secrets.old",
+      "secrets.backup",
+      "secrets.yaml~",
+      "secrets.yaml.swp",
+      "secrets.yaml.dist",
+      "secrets.yaml.template",
+      "secrets.yml.example",
+      "secrets.env.example",
+      "secrets.zip",
+      "secrets.tar.gz",
+      "secrets.7z",
+      "secrets.",
       "secrets.yaml",
       "config/secrets.json",
       "secrets.enc.yaml",
       "secrets/db.txt",
       "secrets.sops.json",
       "secrets.enc.ts",
+      "secrets.ts.enc",
+      "secrets.dec.ts",
+      "secrets.json.ts",
       "SECRETS.TOML",
       "secrets.prod.env",
       "a/secrets.cfg",
+      "secrets.sh",
+      "secrets.bash",
+      "secrets.zsh",
+      "secrets.ps1",
+      "secrets.md",
+      "secrets",
+      "dir/secrets",
+      ".secrets",
+      ".SECRETS",
+      "app/.secrets/token",
+      "secrets.ts~",
+      "secrets.d.ts.gpg",
     ]) {
       expect(isSecretPath(p), p).toBe(true);
     }
+  });
+
+  it("keeps plain source files named secrets visible", () => {
     for (const p of [
       "secrets.ts",
       "src/secrets.py",
       "secrets.test.ts",
+      "secrets.d.ts",
+      "secrets.js",
       "secrets.go",
       "packages/discovery/src/secrets.ts",
+      "secrets.tsx",
+      "secrets.rs",
+      "secrets.spec.js",
+      "Secrets.Java",
     ]) {
       expect(isSecretPath(p), p).toBe(false);
     }
+  });
+
+  it("stays linear on a hostile secrets.* name", () => {
+    const started = performance.now();
+    isSecretPath(`secrets.${"a.".repeat(50_000)}x`);
+    isSecretPath(`secrets.${"ts.".repeat(50_000)}ts`);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it("matches in linear time on hostile names", () => {
