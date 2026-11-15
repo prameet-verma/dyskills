@@ -8,8 +8,12 @@ commands, flags, preconditions, stdout fields, exit codes and error codes. The a
 
 - Every command prints exactly one JSON object on stdout. It always has `ok` and
   `schemaVersion: "1"`. A failure adds `error` (a code from the table below) and `message`.
-- A human status block goes to stderr (a one-line `Error <CODE>: <message>` precedes it on a saved
-  failure). Control characters other than newline are removed from everything written to stderr.
+- stderr carries a human status block, with these variants. A thrown error (for example
+  `INVALID_STATE` or `SCHEMA_INVALID`) prints only the one-line `Error <CODE>: <message>`, with no
+  status block. `TIMEOUT` and a refused `activate` print the status block without an `Error` line.
+  A saved `EVAL_ATTEMPTS_EXHAUSTED` or an `evaluate` `BUNDLE_INVALID` prints the `Error` line and
+  then the status block. Control characters other than newline are removed from everything written
+  to stderr.
 - Two commands differ. `status` prints its status block as **plain text on stdout** (nothing on
   stderr). `report perf` prints JSON on stdout and **no status block** on stderr, because it has no
   session.
@@ -32,7 +36,8 @@ commands, flags, preconditions, stdout fields, exit codes and error codes. The a
 Every command except `assess` and `report perf` takes `--session <id>`. A command may run only when
 the session's last completed step is one of its allowed predecessors; otherwise it fails with
 `INVALID_STATE` and `expected` lists the allowed steps. A session that has ended (`completed`,
-`warning` or `failed`) accepts only `status` and `clean`.
+`warning` or `failed`) accepts only `status` and `clean`. So does a `timeout` session: any other
+command returns `TIMEOUT` again without saving.
 
 | Command                          | Allowed after (completed step)                                                                                                               |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -77,8 +82,9 @@ learns the smoke-eval field types, caps and the behavioural-definition rule befo
 
 The agent asks for specific extra repository files. Files go through the safe-read rules (no secret
 files, nothing outside the repository, bounded size). At most `MAX_CONTEXT_REQUEST_ROUNDS` (3)
-rounds, `MAX_CONTEXT_REQUEST_FILES` (8) files per round. A request that is rejected whole does not
-use a round.
+rounds, `MAX_CONTEXT_REQUEST_FILES` (8) files per round. Every request uses a round, even if all
+its files are rejected. Once the 3 rounds are used, a request is answered with every path rejected
+as `round-limit` and uses no round.
 
 stdout: `packetPath`, `packetRevision`, `added`, `rejected`, `roundsRemaining`.
 
@@ -153,8 +159,8 @@ stdout: `briefPath`, `skillsDir`, `skillPath` (augmentation only), `mode` (`new`
 
 Runs the 14 generation evals on the bundle in `skills/` and `evals/smoke.json`. Each call consumes
 one of `MAX_EVAL_ATTEMPTS` (3: the first plus two revisions). A passing or failing report still
-exits 0; `activatable` and `revisionHints` tell the agent what to fix. On success it **pins a
-sha256 digest of the evaluated bundle** (everything under `skills/` plus `evals/smoke.json`,
+exits 0; `activatable` and `revisionHints` tell the agent what to fix. Whenever the evals run, pass
+or fail, it **pins a sha256 digest of the evaluated bundle** (everything under `skills/` plus `evals/smoke.json`,
 directories included, at most 500 entries and 5 MB, symlinks refused).
 
 `evaluate` may follow `compile`, another `evaluate` or `eval record`. After a failed evaluation or
@@ -173,7 +179,8 @@ against the output file (regexes run in a worker under a total budget of one sec
 with the agent's rubric verdict into the `behavioural` result in `reports/evaluation.json`.
 
 The bundle must still match the digest pinned by `evaluate`; otherwise the command fails with
-`BUNDLE_INVALID` (exit 2) and **nothing is saved**.
+`BUNDLE_INVALID` (exit 2) and **nothing is saved**. It also fails with `BUNDLE_INVALID` when
+`evals/smoke.json` is missing or not a valid smoke eval.
 
 stdout: `outcome`, `messages`.
 
@@ -183,11 +190,12 @@ The final, gated step. First the bundle digest is checked (`BUNDLE_INVALID`, exi
 when it changed). Then the activation checks run in order: deadline, pending clarifications, base
 integrity, the evaluation report, the behavioural result.
 
-- Success: `activated: true`, `kind` (`new` or `augmentation`), `skillPath`, `content`, `base`
-  (the unchanged base, augmentation only), `loadOrder` (base first), `limitations`, `notice`.
+- Success: `activated: true`, `kind` (`generated` or `augmented`), `skillPath`, `content`, `base`
+  (the unchanged base, `augmented` only), `loadOrder` (base first), `limitations`, `notice`.
 - Refusal (saved, session ends as failed, exit 2; exit 3 when `reason` is `timeout`):
   `activated: false`, `reason` (`timeout`, `blocked-by-clarification`, `base-changed`,
-  `evaluation-failed`, `behavioural-missing`), `fallback`.
+  `evaluation-failed`, `behavioural-missing`), `fallback`. A refusal with reason `timeout` leaves
+  the session status as `timeout`.
 
 ### `status --session <id>`
 

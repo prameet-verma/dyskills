@@ -12,8 +12,8 @@ before the repository is understood would be a guess.
 
 ## Decision
 
-- The sufficiency verdict comes after context analysis (`sufficiency submit` follows `context
-submit`). The agent judges; the core validates the verdict against the scan, the invocation mode
+- The sufficiency verdict comes after context analysis (`sufficiency submit` follows
+  `context submit`). The agent judges; the core validates the verdict against the scan, the invocation mode
   and the explicit flag.
 - `sufficient` returns the existing skill unchanged and ends the session; there is no compile and
   no evaluation. `partial` produces an augmentation. `insufficient` produces a new skill.

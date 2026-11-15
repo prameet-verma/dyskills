@@ -1,42 +1,28 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { COMMANDS } from "../packages/cli/src/commands/index";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
-/** Every CLI command, as the command table in `docs/cli-reference.md` must name it. */
-const COMMANDS = [
-  "assess",
-  "discover",
-  "context request",
-  "context submit",
-  "sufficiency submit",
-  "sufficiency approve",
-  "clarify ask",
-  "clarify answer",
-  "compile",
-  "evaluate",
-  "eval record",
-  "activate",
-  "status",
-  "clean",
-  "report perf",
-];
+/** Every registered CLI command, as the command table in `docs/cli-reference.md` must name it. */
+const COMMAND_NAMES = COMMANDS.map((c) => c.name);
 
-/**
- * Markdown files under `dir`, recursively. `docs/superpowers` (planning documents that quote
- * example links in code samples) is not product documentation and is skipped.
- */
+/** Markdown files under `dir`, recursively. */
 function markdownFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) return name === "superpowers" ? [] : markdownFiles(full);
+    if (statSync(full).isDirectory()) return markdownFiles(full);
     return name.endsWith(".md") ? [full] : [];
   });
 }
 
 /** Relative link targets (fragment removed) in a markdown text; external and anchor links skipped. */
-function relativeLinks(text: string): string[] {
+function relativeLinks(markdown: string): string[] {
+  // Links inside fenced code blocks and inline code spans are examples, not links.
+  const text = markdown
+    .replace(/^( {0,3})(```|~~~)[^\n]*\n[\s\S]*?^\1?\2[^\n]*$/gm, "")
+    .replace(/`[^`\n]*`/g, "");
   const targets: string[] = [];
   for (const m of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
     const target = m[1] as string;
@@ -62,7 +48,8 @@ describe("documentation set", () => {
 
   it("documents every CLI command and no `evidence add`", () => {
     const text = readFileSync(join(ROOT, "docs/cli-reference.md"), "utf8");
-    for (const command of COMMANDS) expect(text, command).toContain(`\`${command}`);
+    expect(COMMAND_NAMES.length).toBeGreaterThan(10);
+    for (const command of COMMAND_NAMES) expect(text, command).toContain(`\`${command}`);
     expect(text).not.toContain("evidence add");
   });
 
@@ -77,9 +64,11 @@ describe("documentation set", () => {
 
   it("keeps every relative markdown link resolvable", () => {
     const files = [
-      join(ROOT, "README.md"),
-      join(ROOT, "CONTRIBUTING.md"),
+      ...["README.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "CODE_OF_CONDUCT.md"].map(
+        (f) => join(ROOT, f),
+      ),
       ...markdownFiles(join(ROOT, "docs")),
+      ...readdirSync(join(ROOT, "packages")).map((d) => join(ROOT, "packages", d, "README.md")),
     ];
     const broken: string[] = [];
     for (const file of files) {

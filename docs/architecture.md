@@ -83,19 +83,19 @@ Phase 1 writes only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_S
 `<os tmpdir>/dynamic-skills`. Nothing is written into any harness skill directory or into the
 repository, and existing skills and instruction files are only read.
 
-| Path                    | Written by                                   | Content                                                                 |
-| ----------------------- | -------------------------------------------- | ----------------------------------------------------------------------- |
-| `session.json`          | every command                                | State: status, completed steps, SLA snapshot, gaps, metrics, bundle pin |
-| `skills-scan.json`      | `assess`                                     | Existing skills (name, scope, scanned path) and instruction files       |
-| `evidence.json`         | `discover`, `context submit`, `clarify`      | Evidence with provenance, confidence and origin                         |
-| `context-packet.json`   | `discover`, `context request`                | The untrusted, secret-free packet the agent analyses                    |
-| `context-analysis.json` | `context submit`                             | The normalised Context Analysis Result (replaced on every submission)   |
-| `sufficiency.json`      | `sufficiency submit`                         | The agent's verdict                                                     |
-| `schemas/`              | `discover`                                   | Six JSON Schemas for the documents the agent writes                     |
-| `brief.md`              | `compile`                                    | The compilation brief                                                   |
-| `skills/`               | the agent                                    | The generated skill bundle (one directory)                              |
-| `evals/smoke.json`      | the agent                                    | The smoke eval (scenario, assertions, rubric)                           |
-| `reports/`              | `evaluate`, `eval record` and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`  |
+| Path                    | Written by                                                                                        | Content                                                                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.json`          | every command that changes state (not `status`, `clean` or `report perf`)                         | State: status, completed steps, SLA snapshot, gaps, metrics, bundle pin                                                                                                                               |
+| `skills-scan.json`      | `assess`                                                                                          | Existing skills (name, scope, scanned path) and instruction files                                                                                                                                     |
+| `evidence.json`         | `discover`, `context submit`, `clarify answer`                                                    | Evidence with provenance, confidence and origin                                                                                                                                                       |
+| `context-packet.json`   | `discover`, `context request`                                                                     | The untrusted, secret-free packet the agent analyses                                                                                                                                                  |
+| `context-analysis.json` | `context submit`                                                                                  | The normalised Context Analysis Result (replaced on every submission)                                                                                                                                 |
+| `sufficiency.json`      | `sufficiency submit`                                                                              | The agent's verdict                                                                                                                                                                                   |
+| `schemas/`              | `discover`                                                                                        | Six JSON Schemas for the documents the agent writes: `context-analysis-result`, `context-request`, `skill-sufficiency-assessment`, `clarification-request`, `clarification-response` and `smoke-eval` |
+| `brief.md`              | `compile`                                                                                         | The compilation brief                                                                                                                                                                                 |
+| `skills/`               | the agent                                                                                         | The generated skill bundle (one directory)                                                                                                                                                            |
+| `evals/smoke.json`      | the agent                                                                                         | The smoke eval (scenario, assertions, rubric)                                                                                                                                                         |
+| `reports/`              | `evaluate`, `eval record`, `sufficiency submit` and `approve` (`sufficiency`), and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`                                                                                                                                |
 
 ## SLA clock model
 
@@ -103,8 +103,9 @@ Active processing time is wall-clock time since the session started, minus time 
 (PRD §10.1, §10.3). The default budget is 60 seconds (`DEFAULT_BUDGET_MS`), overridable with the
 `DYNAMIC_SKILLS_BUDGET_MS` environment variable at `assess`. The clock pauses when a clarification
 round or a suggest-mode approval is pending and resumes on the answer; resuming never resets the
-budget. Agent analysis and context requests count as active time. Every command checks the
-deadline first. On expiry the unvalidated `skills/` directory is deleted, reports are written, the
+budget. Agent analysis and context requests count as active time. Every session command except
+`status` and `clean` checks the deadline first (`assess` creates the session and `report perf` has
+none). On expiry the unvalidated `skills/` directory is deleted, reports are written, the
 session is saved as `timeout` and the command exits 3 with a fallback. `status` and `clean` bypass
 the timeout check, and a session that has already finished keeps its outcome.
 

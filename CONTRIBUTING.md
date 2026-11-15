@@ -47,8 +47,8 @@ pnpm check         # run before every commit
 ## Adding a detector
 
 A detector reports repository facts as evidence. Implement the `Detector` interface in
-`packages/discovery/src/detectors/types.ts` (an id, whether it is `always` run or selected by task
-`keywords`, and a `run` function that returns observations with a source and confidence), add it to
+`packages/discovery/src/detectors/types.ts` (an `id`, the evidence `categories` it can produce, whether it is
+`always` run or selected by task `keywords`, and a `run` function that returns observations with a source and confidence), add it to
 `MANIFEST_DETECTORS` or `STRUCTURE_DETECTORS`, and test it against a fixture under
 `fixtures/repos/`. Never read secret files (go through the safe-read helpers), and keep values
 short, because the registry sanitises and truncates them. Document any new evidence key in the
