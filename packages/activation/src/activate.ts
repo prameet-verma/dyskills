@@ -4,6 +4,8 @@ import { join } from "node:path";
 import {
   AssumptionsReportSchema,
   CONTRACT_VERSION,
+  PRIVATE_DIR_MODE,
+  PRIVATE_FILE_MODE,
   buildDiscoveryReport,
   buildPerformanceReport,
   enforceDeadline,
@@ -98,9 +100,12 @@ async function readUnchangedBase(
 async function writeReports(input: ActivationInput): Promise<void> {
   const { state, sessionDir, report, behavioural, packet, evidence, now } = input;
   const reports = join(sessionDir, "reports");
-  await mkdir(reports, { recursive: true });
+  // Session data is private: owner-only directory and files, like every SessionStore write.
+  await mkdir(reports, { recursive: true, mode: PRIVATE_DIR_MODE });
   const put = (name: string, doc: unknown): Promise<void> =>
-    writeFile(join(reports, name), `${JSON.stringify(doc, null, 2)}\n`);
+    writeFile(join(reports, name), `${JSON.stringify(doc, null, 2)}\n`, {
+      mode: PRIVATE_FILE_MODE,
+    });
   await Promise.all([
     put("performance.json", buildPerformanceReport(state, now)),
     put("discovery.json", buildDiscoveryReport(state, packet, evidence)),

@@ -34,6 +34,13 @@ const EXIT_GATE = 2;
 /** Error codes that are evaluation-gate failures rather than usage or state errors. */
 const GATE_CODES: ReadonlySet<string> = new Set(["BUNDLE_INVALID", "EVAL_ATTEMPTS_EXHAUSTED"]);
 
+/** Codes of the session store's own errors, reported as they are (each exits 1). */
+const CORE_CODES: ReadonlySet<string> = new Set([
+  "SESSION_NOT_FOUND",
+  "SESSION_LOCKED",
+  "HOME_UNSAFE",
+]);
+
 /** Line-terminated JSON for stdout. */
 function jsonLine(value: Record<string, unknown>): string {
   return `${JSON.stringify(value)}\n`;
@@ -47,10 +54,8 @@ function describeError(e: unknown): { exitCode: number; doc: Record<string, unkn
   if (e instanceof CliError) {
     code = e.code;
     extra = e.extra;
-  } else if (e instanceof Error && (e as { code?: unknown }).code === "SESSION_NOT_FOUND") {
-    code = "SESSION_NOT_FOUND";
-  } else if (e instanceof Error && (e as { code?: unknown }).code === "SESSION_LOCKED") {
-    code = "SESSION_LOCKED";
+  } else if (e instanceof Error && CORE_CODES.has(String((e as { code?: unknown }).code))) {
+    code = String((e as { code?: unknown }).code);
   }
   if (code === "TIMEOUT") message = "The active processing budget was exceeded.";
   return {
@@ -127,6 +132,8 @@ async function runSessionCommand(
 ): Promise<RunOutput> {
   const store = new SessionStore(env.home);
   const id = String(opts.session);
+  // The home is checked first: an unsafe home is reported as such, never as an unknown session.
+  await store.prepare();
   // withLock creates the directory, so an unknown id must be rejected before taking the lock.
   // lstat, so a symlinked session directory is unknown and no lock is written into its target.
   const exists = await lstat(store.dir(id)).then(

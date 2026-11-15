@@ -1,5 +1,16 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { CONTRACT_VERSION, DEFAULT_BUDGET_MS } from "./constants";
@@ -10,12 +21,93 @@ import { SlaClock } from "./sla";
 /** A lock file older than this is assumed to belong to a crashed process and is reclaimed. */
 const STALE_LOCK_MS = 30_000;
 
+/** Mode of every directory the store creates: owner only (session data is private). */
+export const PRIVATE_DIR_MODE = 0o700;
+
+/** Mode of every file the store creates: owner read/write only. */
+export const PRIVATE_FILE_MODE = 0o600;
+
 /**
  * Root directory for ephemeral session data: `DYNAMIC_SKILLS_HOME` if set, otherwise
- * `<os tmpdir>/dynamic-skills`. Phase 1 writes only beneath `<home>/sessions/<id>/`.
+ * `<os tmpdir>/dynamic-skills-<uid>` (`-user` where the platform has no uid). The uid suffix keeps
+ * users of a shared temp dir (Linux `/tmp`) from sharing, or squatting on, one home. Phase 1
+ * writes only beneath `<home>/sessions/<id>/`, plus the archived metrics in `<home>/reports/`.
  */
 export function resolveHome(): string {
-  return process.env.DYNAMIC_SKILLS_HOME ?? join(tmpdir(), "dynamic-skills");
+  return (
+    process.env.DYNAMIC_SKILLS_HOME ??
+    join(tmpdir(), `dynamic-skills-${process.getuid?.() ?? "user"}`)
+  );
+}
+
+/**
+ * Thrown when the session home (or a directory the store keeps directly under it) is not a
+ * private directory of the current user: a symlink, not a directory, owned by another uid, or
+ * impossible to create. Code `HOME_UNSAFE`.
+ */
+export class UnsafeHomeError extends Error {
+  /** Stable machine-readable error code. */
+  readonly code = "HOME_UNSAFE";
+  /**
+   * Creates the error.
+   * @param path - The refused directory.
+   * @param reason - Why it was refused.
+   */
+  constructor(path: string, reason: string) {
+    super(
+      `Unsafe session home ${path}: ${reason}. Remove it or set DYNAMIC_SKILLS_HOME to a private directory.`,
+    );
+    this.name = "UnsafeHomeError";
+  }
+}
+
+/**
+ * Filesystem operations {@link ensurePrivateDir} uses, injectable so tests can simulate a
+ * directory owned by another user (a real `chown` needs root).
+ */
+export interface DirProbe {
+  /** `lstat` of the path (never follows a symlink). */
+  lstat(path: string): Promise<{
+    isSymbolicLink(): boolean;
+    isDirectory(): boolean;
+    uid: number;
+    mode: number;
+  }>;
+  /** Changes the permission bits. */
+  chmod(path: string, mode: number): Promise<void>;
+  /** Current uid; absent on platforms without uids (then owner and mode are not checked). */
+  getuid?: () => number;
+}
+
+const REAL_PROBE: DirProbe = { lstat, chmod, getuid: process.getuid?.bind(process) };
+
+/**
+ * Makes sure `path` is a private directory of the current user, creating it (mode 0700) when
+ * missing. Refuses a symlink, a non-directory and, where uids exist, a directory owned by
+ * another uid: on a shared temp dir another user could pre-create the home to read or redirect
+ * session data. A directory of ours that grants any group or other access is tightened to 0700
+ * (a home made by an earlier version, or by hand, is fixed instead of refused).
+ *
+ * @param path - Absolute directory path.
+ * @param probe - Injectable filesystem operations; defaults to the real ones.
+ * @throws {UnsafeHomeError} when the directory is unsafe or cannot be created.
+ */
+export async function ensurePrivateDir(path: string, probe: DirProbe = REAL_PROBE): Promise<void> {
+  // A failure here (for example EEXIST on a dangling symlink) is diagnosed by the lstat below.
+  await mkdir(path, { recursive: true, mode: PRIVATE_DIR_MODE }).catch(() => undefined);
+  let info;
+  try {
+    info = await probe.lstat(path);
+  } catch {
+    throw new UnsafeHomeError(path, "it cannot be created");
+  }
+  if (info.isSymbolicLink()) throw new UnsafeHomeError(path, "it is a symbolic link");
+  if (!info.isDirectory()) throw new UnsafeHomeError(path, "it is not a directory");
+  if (probe.getuid === undefined) return;
+  if (info.uid !== probe.getuid()) {
+    throw new UnsafeHomeError(path, "it is owned by another user");
+  }
+  if ((info.mode & 0o077) !== 0) await probe.chmod(path, PRIVATE_DIR_MODE);
 }
 
 /** Thrown by {@link SessionStore.load} when no session exists for an id. Code `SESSION_NOT_FOUND`. */
@@ -64,6 +156,7 @@ function stamp(ms: number): string {
  */
 export class SessionStore {
   private readonly home: string;
+  private prepared: Promise<void> | undefined;
 
   /**
    * Creates a store rooted at `home`.
@@ -86,8 +179,25 @@ export class SessionStore {
   }
 
   /**
-   * Creates a session directory and persists its initial state (status `assessing`, running SLA
-   * clock started at `now`, zeroed metrics).
+   * Ensures the home and `<home>/sessions` are private directories of the current user (see
+   * {@link ensurePrivateDir}). Runs once per store; {@link SessionStore.create} and
+   * {@link SessionStore.withLock} call it first, so no session data is written into an unsafe home.
+   *
+   * @throws {UnsafeHomeError} when either directory is unsafe.
+   */
+  prepare(): Promise<void> {
+    this.prepared ??= (async () => {
+      await ensurePrivateDir(this.home);
+      await ensurePrivateDir(join(this.home, "sessions"));
+    })();
+    return this.prepared;
+  }
+
+  /**
+   * Creates a session directory (mode 0700, inside a checked private home) and persists its
+   * initial state (status `assessing`, running SLA clock started at `now`, zeroed metrics).
+   *
+   * @throws {UnsafeHomeError} if the home is unsafe.
    *
    * @param init.budgetMs - Active budget; defaults to {@link DEFAULT_BUDGET_MS}.
    * @param init.now - Epoch ms used for the id, clock and metrics; defaults to `Date.now()`.
@@ -139,7 +249,8 @@ export class SessionStore {
         analysisStartedAtActiveMs: null,
       },
     };
-    await mkdir(this.dir(id), { recursive: true });
+    await this.prepare();
+    await mkdir(this.dir(id), { mode: PRIVATE_DIR_MODE });
     await this.save(state);
     return state;
   }
@@ -164,20 +275,23 @@ export class SessionStore {
   /** Persists state atomically: write `session.json.tmp`, then rename over `session.json`. */
   async save(s: SessionState): Promise<void> {
     const file = join(this.dir(s.id), "session.json");
-    await mkdir(dirname(file), { recursive: true });
-    await writeFile(`${file}.tmp`, JSON.stringify(s, null, 2));
+    await mkdir(dirname(file), { recursive: true, mode: PRIVATE_DIR_MODE });
+    await writeFile(`${file}.tmp`, JSON.stringify(s, null, 2), { mode: PRIVATE_FILE_MODE });
     await rename(`${file}.tmp`, file);
   }
 
   /**
    * Runs `fn` while holding the session lock (`session.lock`, created exclusively). A lock older
-   * than 30 s is treated as abandoned and reclaimed. The lock is always released.
+   * than 30 s is treated as abandoned and reclaimed. The lock is always released. The home is
+   * checked ({@link SessionStore.prepare}) before the lock is written.
    *
    * @throws {SessionLockedError} if a fresh lock is held by someone else.
+   * @throws {UnsafeHomeError} if the home is unsafe.
    */
   async withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const lock = join(this.dir(id), "session.lock");
-    await mkdir(this.dir(id), { recursive: true });
+    await this.prepare();
+    await mkdir(this.dir(id), { recursive: true, mode: PRIVATE_DIR_MODE });
     await this.acquire(id, lock);
     try {
       return await fn();
@@ -189,7 +303,7 @@ export class SessionStore {
   private async acquire(id: string, lock: string): Promise<void> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await (await open(lock, "wx")).close();
+        await (await open(lock, "wx", PRIVATE_FILE_MODE)).close();
         return;
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -216,15 +330,16 @@ export class SessionStore {
   }
 
   /**
-   * Writes a UTF-8 artifact at `rel` inside the session directory, creating parents.
+   * Writes a UTF-8 artifact at `rel` inside the session directory (file mode 0600), creating
+   * parents (mode 0700).
    *
    * @returns The absolute path written.
    * @throws if `rel` would escape the session directory.
    */
   async writeArtifact(id: string, rel: string, content: string): Promise<string> {
     const abs = this.resolveInside(id, rel);
-    await mkdir(dirname(abs), { recursive: true });
-    await writeFile(abs, content);
+    await mkdir(dirname(abs), { recursive: true, mode: PRIVATE_DIR_MODE });
+    await writeFile(abs, content, { mode: PRIVATE_FILE_MODE });
     return abs;
   }
 

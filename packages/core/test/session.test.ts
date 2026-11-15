@@ -1,9 +1,16 @@
 import { existsSync, readdirSync } from "node:fs";
-import { mkdtemp, rm, utimes, writeFile, mkdir } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat, symlink, utimes, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionStore, enforceDeadline, recordStage, resolveHome } from "../src/index";
+import {
+  SessionStore,
+  UnsafeHomeError,
+  enforceDeadline,
+  ensurePrivateDir,
+  recordStage,
+  resolveHome,
+} from "../src/index";
 
 let home: string;
 let store: SessionStore;
@@ -153,5 +160,87 @@ describe("recordStage / enforceDeadline", () => {
     expect(enforceDeadline(s, 60_000)).toBe(true);
     expect(s.status).toBe("timeout");
     expect(s.metrics.outcome).toBe("timeout");
+  });
+});
+
+describe("private session home (I3)", () => {
+  const mode = async (p: string) => (await stat(p)).mode & 0o777;
+
+  it("defaults to a per-user directory under the OS temp dir", () => {
+    const prev = process.env.DYNAMIC_SKILLS_HOME;
+    delete process.env.DYNAMIC_SKILLS_HOME;
+    try {
+      expect(resolveHome()).toBe(join(tmpdir(), `dynamic-skills-${process.getuid?.() ?? "user"}`));
+    } finally {
+      if (prev !== undefined) process.env.DYNAMIC_SKILLS_HOME = prev;
+    }
+  });
+
+  it("creates the home, sessions/, session and artifact dirs 0700 and files 0600", async () => {
+    const fresh = join(home, "nested", "home");
+    const s = await new SessionStore(fresh).create(init);
+    const st = new SessionStore(fresh);
+    await st.writeArtifact(s.id, "reports/performance.json", "{}");
+    const dir = join(fresh, "sessions", s.id);
+    expect(await mode(fresh)).toBe(0o700);
+    expect(await mode(join(fresh, "sessions"))).toBe(0o700);
+    expect(await mode(dir)).toBe(0o700);
+    expect(await mode(join(dir, "reports"))).toBe(0o700);
+    expect(await mode(join(dir, "session.json"))).toBe(0o600);
+    expect(await mode(join(dir, "reports/performance.json"))).toBe(0o600);
+  });
+
+  it("tightens an existing home and sessions/ that grant group or other access", async () => {
+    await mkdir(join(home, "sessions"), { recursive: true });
+    await chmod(home, 0o755);
+    await chmod(join(home, "sessions"), 0o777);
+    await store.create(init);
+    expect(await mode(home)).toBe(0o700);
+    expect(await mode(join(home, "sessions"))).toBe(0o700);
+  });
+
+  it("refuses a symlinked home, a symlinked sessions/ and a home that is a file", async () => {
+    const real = join(home, "real");
+    await mkdir(real);
+    await symlink(real, join(home, "link"));
+    await expect(new SessionStore(join(home, "link")).create(init)).rejects.toMatchObject({
+      code: "HOME_UNSAFE",
+    });
+    await writeFile(join(home, "file"), "x");
+    await expect(new SessionStore(join(home, "file")).create(init)).rejects.toMatchObject({
+      code: "HOME_UNSAFE",
+    });
+    const h2 = join(home, "h2");
+    await mkdir(h2);
+    await symlink(real, join(h2, "sessions"));
+    await expect(new SessionStore(h2).create(init)).rejects.toBeInstanceOf(UnsafeHomeError);
+    expect(readdirSync(real)).toEqual([]);
+  });
+
+  it("refuses a directory owned by another user (injected stat)", async () => {
+    const chmodCalls: string[] = [];
+    const probe = {
+      lstat: async () => ({
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+        uid: 4242,
+        mode: 0o40700,
+      }),
+      chmod: async (p: string) => {
+        chmodCalls.push(p);
+      },
+      getuid: () => 1000,
+    };
+    await expect(ensurePrivateDir(home, probe)).rejects.toMatchObject({ code: "HOME_UNSAFE" });
+    await expect(ensurePrivateDir(home, { ...probe, getuid: () => 4242 })).resolves.toBeUndefined();
+    expect(chmodCalls).toEqual([]);
+  });
+
+  it("checks the home before a lock is taken on an existing session", async () => {
+    const s = await store.create(init);
+    await chmod(home, 0o750);
+    // A new store, as in a new CLI process: each process checks the home once.
+    await new SessionStore(home).withLock(s.id, async () => undefined);
+    expect(await mode(home)).toBe(0o700);
   });
 });

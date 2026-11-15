@@ -27,6 +27,7 @@ interface CliIssue {
 export type CliErrorCode =
   | "SESSION_NOT_FOUND"
   | "SESSION_LOCKED"
+  | "HOME_UNSAFE"
   | "INVALID_STATE"
   | "USAGE"
   | "ANALYSIS_LIMIT"

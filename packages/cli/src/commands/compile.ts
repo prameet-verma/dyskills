@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import {
   ContextAnalysisResultSchema,
+  PRIVATE_DIR_MODE,
   SkillSufficiencyAssessmentSchema,
   SlaClock,
 } from "@dynamic-skills/core";
@@ -114,8 +115,8 @@ export const compileCommand: SessionCommandDef = {
       remainingMs: SlaClock.from(state.sla).remainingMs(now()),
     });
     await store.writeArtifact(state.id, "brief.md", brief);
-    await mkdir(paths.skillsDir, { recursive: true });
-    await mkdir(paths.evalsDir, { recursive: true });
+    await mkdir(paths.skillsDir, { recursive: true, mode: PRIVATE_DIR_MODE });
+    await mkdir(paths.evalsDir, { recursive: true, mode: PRIVATE_DIR_MODE });
 
     state.status = "generating";
     state.metrics.llmInteractions += 1;
