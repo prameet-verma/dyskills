@@ -1,7 +1,6 @@
-import { EvaluationReportSchema } from "@dynamic-skills/core";
+import { EvaluationReportSchema, MAX_EVAL_ATTEMPTS } from "@dynamic-skills/core";
 import { recordBehaviouralResult } from "@dynamic-skills/eval-engine";
 import { loadSmokeEval } from "@dynamic-skills/skill-compiler";
-import { MAX_EVAL_ATTEMPTS } from "@dynamic-skills/core";
 import { CliError, FALLBACK, readInputFile, requireArtifactJson, toJson } from "../io";
 import { assertBundlePinned, sessionPaths } from "./bundle";
 import type { SessionCommandDef } from "./types";

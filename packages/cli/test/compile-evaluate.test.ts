@@ -298,6 +298,19 @@ describe("evaluate", () => {
     expect((await h.run(["activate", "--session", id])).out.error).toBe("INVALID_STATE");
   });
 
+  it("fails a fourth evaluate after an activatable third with EVAL_ATTEMPTS_EXHAUSTED", async () => {
+    const id = await ready(h);
+    await compile(id);
+    await installGolden(h, id, "valid/order-cache-specialist");
+    for (let i = 0; i < 3; i++) expect((await evaluate(id)).out.activatable).toBe(true);
+    const r = await evaluate(id);
+    expect(r.exitCode).toBe(2);
+    expect(r.out.error).toBe("EVAL_ATTEMPTS_EXHAUSTED");
+    expect(r.out.fallback).toContain("Continue the original task");
+    expect((await h.readJson(id, "session.json")).status).toBe("failed");
+    expect(await h.exists(id, "reports/performance.json")).toBe(true);
+  });
+
   it("keeps an activatable last attempt open", async () => {
     const id = await ready(h);
     await compile(id);

@@ -264,8 +264,8 @@ function missingSubcommand(argv: string[]): string | null {
 /**
  * In-process CLI entry (PRD §10.5, §13). Parses `argv`, runs the command through the shared
  * wrapper and returns the exit code with stdout (one JSON object, except plain-text `status`) and
- * stderr (the human status block, help text, or `Error USAGE: <message>` for a parse error). Never throws and never writes to the real
- * streams, so tests drive it directly.
+ * stderr (the human status block, help text, or `Error USAGE: <message>` for a parse error).
+ * Never throws and never writes to the real streams, so tests drive it directly.
  *
  * Wrapper order: load the session under its lock, enforce the deadline, check the state machine,
  * run, record stage and step, save, print. A failed command saves nothing; only the terminal

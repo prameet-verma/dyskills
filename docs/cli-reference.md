@@ -193,7 +193,7 @@ attempt limit.
 stdout: `overall`, `activatable`, `results`, `limitations`, `revisionHints`, `attempt`,
 `attemptsRemaining`. Failure modes are saved with exit 2: `BUNDLE_INVALID` (the bundle is missing,
 malformed, over the caps or changed while it was being evaluated; the attempt is consumed and the
-pin cleared) and `EVAL_ATTEMPTS_EXHAUSTED` (a guard for a fourth attempt; it ends the session as
+pin cleared) and `EVAL_ATTEMPTS_EXHAUSTED` (returned when the agent runs a fourth `evaluate`, for example after an activatable third attempt; it ends the session as
 failed with `fallback`).
 
 **Last attempt (Ruling R22).** When the attempt just spent leaves `attemptsRemaining` at 0 and the
@@ -245,8 +245,9 @@ that has timed out.
 First archives the session's `reports/performance.json`, when the session has ended with a valid
 report, to `<home>/reports/<sessionId>.json` (file mode 0600, directory 0700, never through a
 symlink), then removes the session directory (Ruling R21: cleaning never erases the metrics).
-Always allowed, including on a timed-out session. A session that has not ended is first ended as
-`failed` (outcome `failed`, clock stopped, terminal reports written; Ruling R22), so abandoning a
+Always allowed, including on a timed-out session. A session that has not ended is first ended (Ruling R22) as `timeout` if its budget has run
+out, otherwise `failed`; the clock stops no later than the budget, so `activeMs` never exceeds it,
+and terminal reports are written, so abandoning a
 session still counts in `fallbackRate`. If the archive cannot be written the command fails and
 nothing is removed.
 
@@ -278,7 +279,7 @@ Percentiles are `null` when there are no sessions.
 | `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)               | yes       |
 | `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                      | yes       |
 | `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate`                    | see below |
-| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (guard)                                 | yes       |
+| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (a 4th `evaluate`)                      | yes       |
 | `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                | yes       |
 | `INTERNAL`                | 1    | An unexpected failure                                                             | no        |
 

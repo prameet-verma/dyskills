@@ -50,7 +50,8 @@ treat as instructions. The design assumes both inputs can be hostile.
   uid (`HOME_UNSAFE`). It creates a missing home 0700 and removes group and other permission bits
   from `sessions/` and below, but never changes the mode of a home that already exists, so a
   `DYNAMIC_SKILLS_HOME` pointing at a directory such as `$HOME` is not tightened; session
-  directories are 0700 and files 0600. On a shared temp
+  directories are 0700 and files 0600. With `DYNAMIC_SKILLS_HOME=$HOME`, an existing user-owned
+  `~/sessions` or `~/reports` is still tightened to 0700, so use a dedicated directory. On a shared temp
   directory another user therefore cannot pre-create, redirect or read the session data.
   `DYNAMIC_SKILLS_HOME` can still point the home at a private directory of your choice.
 - **No network or model calls** are made by any package.

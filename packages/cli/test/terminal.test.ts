@@ -1,4 +1,4 @@
-import { appendFile, readFile, stat } from "node:fs/promises";
+import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/run";
@@ -227,6 +227,39 @@ describe("clean archives the metrics (I4c, R21)", () => {
     const perf = (await h.run(["report", "perf"])).out;
     expect(perf.count).toBe(1);
     expect(perf.fallbackRate).toBe(1);
+  });
+
+  it("archives an abandoned, expired session as timeout with activeMs capped at the budget", async () => {
+    const id = await analysed(h);
+    h.clock.t += 2 * HOUR;
+    const r = await h.run(["clean", "--session", id]);
+    expect(r.out).toMatchObject({ removed: true, archived: true });
+    const archived = JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8"));
+    expect(archived.outcome).toBe("timeout");
+    expect(archived.activeMs).toBeLessThanOrEqual(60_000);
+    const perf = (await h.run(["report", "perf"])).out;
+    expect(perf.timeoutRate).toBe(1);
+    expect(perf.maxActiveMs).toBeLessThanOrEqual(60_000);
+  });
+
+  it("archives an abandoned session within budget as failed with its real active time", async () => {
+    const id = await analysed(h);
+    h.clock.t += 5_000;
+    await h.run(["clean", "--session", id]);
+    const archived = JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8"));
+    expect(archived.outcome).toBe("failed");
+    expect(archived.activeMs).toBeGreaterThanOrEqual(5_000);
+    expect(archived.activeMs).toBeLessThan(60_000);
+  });
+
+  it("leaves no partial reports when a terminal report cannot be built", async () => {
+    const id = await analysed(h);
+    await writeFile(join(h.home, "sessions", id, "context-packet.json"), "{ corrupt");
+    const r = await h.run(["clean", "--session", id]);
+    expect(r.exitCode).not.toBe(0);
+    expect(await h.exists(id, "session.json")).toBe(true);
+    expect(await h.exists(id, "reports/performance.json")).toBe(false);
+    expect(await stat(join(h.home, "reports", `${id}.json`)).catch(() => null)).toBeNull();
   });
 
   it("archives an ended session's own outcome, not failed", async () => {

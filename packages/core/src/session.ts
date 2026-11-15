@@ -192,8 +192,9 @@ export class SessionStore {
 
   /**
    * Ensures the home and `<home>/sessions` are directories of the current user (see
-   * {@link ensurePrivateDir}); only `sessions` is tightened to 0700, the home is left as it is. Runs once per store; {@link SessionStore.create} and
-   * {@link SessionStore.withLock} call it first, so no session data is written into an unsafe home.
+   * {@link ensurePrivateDir}); only `sessions` is tightened to 0700, the home is left as it is.
+   * Runs once per store; {@link SessionStore.create} and {@link SessionStore.withLock} call it
+   * first, so no session data is written into an unsafe home.
    *
    * @throws {UnsafeHomeError} when either directory is unsafe.
    */
