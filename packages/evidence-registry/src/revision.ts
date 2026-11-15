@@ -20,8 +20,9 @@ export function getRepoRevision(repo: string): Promise<string> {
 /**
  * Computes a content fingerprint used to detect changed files between sessions. The read goes
  * through the shared safe reader (one non-blocking handle, regular files only, size-capped), so a
- * FIFO, device or huge file cannot hang or exhaust the caller. Every caller fingerprints a skill
- * file, so the cap defaults to `MAX_BASE_FILE_BYTES`.
+ * FIFO, device or huge file cannot hang or exhaust the caller. The cap defaults to
+ * `MAX_BASE_FILE_BYTES` because the current callers all fingerprint skill files; pass `maxBytes`
+ * for anything else.
  *
  * @param absPath - Absolute path of the file to hash.
  * @param maxBytes - Largest file hashed; defaults to `MAX_BASE_FILE_BYTES`.

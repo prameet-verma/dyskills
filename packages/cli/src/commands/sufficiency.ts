@@ -32,10 +32,6 @@ import {
 } from "../io";
 import type { SessionCommandDef } from "./types";
 
-/** Shown to the agent with a reused skill (PRD §5.5: reuse is unchanged, no compile, no evals). */
-
-/** Shown when the user declines synthesis in suggest mode (PRD §5.4). */
-
 /**
  * Builds `reports/sufficiency.json` from the recorded verdict (PRD §5.5). Validates before
  * returning so a contract drift fails loudly instead of writing a bad report.

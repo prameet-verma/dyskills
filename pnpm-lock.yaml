@@ -205,9 +205,6 @@ importers:
       '@dynamic-skills/eval-engine':
         specifier: workspace:*
         version: link:../eval-engine
-      '@dynamic-skills/evidence-registry':
-        specifier: workspace:*
-        version: link:../evidence-registry
     devDependencies:
       '@dynamic-skills/skill-compiler':
         specifier: workspace:*

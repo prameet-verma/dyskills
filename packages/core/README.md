@@ -2,7 +2,7 @@
 
 Shared contracts and primitives for Dynamic Skills: the zod schemas every package exchanges,
 the pipeline's fixed limits, a bounded-concurrency helper and the token estimator. It has no
-network access or harness-specific logic; its only I/O is the ephemeral session store.
+network access or harness-specific logic; its only I/O is the ephemeral session store and the safe file reader (`readSafeFile`).
 
 ## API
 

@@ -79,11 +79,28 @@ describe("readSafeFile", () => {
   });
 });
 
+describe("readSafeFile limits", () => {
+  it("accepts a file of exactly maxBytes and hashes only those bytes", async () => {
+    const p = join(dir, "exact");
+    await writeFile(p, "x".repeat(10));
+    const r = await readSafeFile(p, { maxBytes: 10 });
+    expect(r.ok && r.bytes.length).toBe(10);
+  });
+
+  it("follows a link only through its resolved target when a real basename is required", async () => {
+    const real = join(dir, "SKILL.md");
+    await writeFile(real, "ok");
+    await symlink(real, join(dir, "alias"));
+    // The name check resolves the link; the open then targets the resolved file, not the link.
+    expect((await readSafeFile(join(dir, "alias"), { realBasename: "SKILL.md" })).ok).toBe(true);
+  });
+});
+
 describe("checkSafeFile", () => {
   it("validates without reading", async () => {
     const p = join(dir, "f");
     await writeFile(p, "abc");
-    expect((await checkSafeFile(p)).ok).toBe(true);
+    expect(await checkSafeFile(p)).toEqual({ ok: true });
     expect(await checkSafeFile(dir)).toEqual({ ok: false, reason: "not-a-file" });
   });
 });

@@ -18,7 +18,7 @@ import type {
   SessionState,
   SessionStore,
 } from "@dynamic-skills/core";
-import { readRealFile, resolveRepoPath } from "@dynamic-skills/discovery";
+import { readRegularFile, resolveRepoPath } from "@dynamic-skills/discovery";
 import type { ZodType, z } from "zod";
 
 /** One problem found in an agent-supplied document: a dotted path and a message. */
@@ -281,15 +281,16 @@ export async function readBaseInstructionFile(repo: string, rel: string): Promis
   if (!resolved.ok) {
     return { ok: false, message: `base instruction file was rejected (${resolved.reason})` };
   }
-  try {
-    const info = await stat(resolved.abs);
-    if (info.size > MAX_BASE_FILE_BYTES) {
-      return { ok: false, message: `base instruction file exceeds ${MAX_BASE_FILE_BYTES} bytes` };
-    }
-  } catch {
-    return { ok: false, message: "base instruction file could not be read" };
+  const read = await readRegularFile(resolved.abs, MAX_BASE_FILE_BYTES);
+  if (!read.ok) {
+    return {
+      ok: false,
+      message:
+        read.reason === "too-large"
+          ? `base instruction file exceeds ${MAX_BASE_FILE_BYTES} bytes`
+          : "base instruction file could not be read",
+    };
   }
-  const content = await readRealFile(resolved.abs);
-  if (content === null) return { ok: false, message: "base instruction file could not be read" };
+  const content = read.text;
   return { ok: true, content };
 }

@@ -20,7 +20,7 @@ repository content cannot leak secrets or break out of the fenced evidence block
 - **`redactSecrets(raw)`** (`sanitize.ts`): the secret redaction step alone, with no whitespace or
   bracket changes (used for code excerpts). `sanitizeEvidenceValue` calls it first.
 - **`getRepoRevision(repo)`** (`revision.ts`): `git rev-parse HEAD`, or `"untracked"`.
-- **`fingerprintFile(absPath)`** (`revision.ts`): sha256 hex of a file, read through
+- **`fingerprintFile(absPath, maxBytes?)`** (`revision.ts`): sha256 hex of a file, read through
   core's `readSafeFile` (regular files only, capped at `MAX_BASE_FILE_BYTES` unless `maxBytes` is
   given). It throws on a missing, non-regular, oversize or unreadable file.
 

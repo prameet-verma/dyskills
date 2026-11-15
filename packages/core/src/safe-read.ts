@@ -6,6 +6,9 @@ import { basename } from "node:path";
 /** O_NONBLOCK so opening a FIFO or device never blocks; the type check then rejects it. */
 const OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
 
+/** As {@link OPEN_FLAGS}, plus O_NOFOLLOW: a symlink swapped in after the name check is refused. */
+const OPEN_FLAGS_NOFOLLOW = OPEN_FLAGS | constants.O_NOFOLLOW;
+
 /** Default size cap of {@link readSafeFile} when none is given: 1 MB. */
 const DEFAULT_MAX_BYTES = 1_000_000;
 
@@ -29,6 +32,9 @@ export type SafeRead =
   | { ok: true; bytes: Buffer; text: string; sha256: string }
   | { ok: false; reason: SafeReadRejection };
 
+/** Outcome of {@link checkSafeFile}: no content, only whether the file passes the checks. */
+export type SafeCheck = { ok: true } | { ok: false; reason: SafeReadRejection };
+
 /**
  * Opens one non-blocking handle, checks the file is a regular file within the size cap, and (when
  * `read` is set) reads it through that same handle. Never throws.
@@ -42,7 +48,9 @@ async function openChecked(path: string, opts: SafeReadOptions, read: boolean): 
       target = await realpath(path);
       if (basename(target) !== opts.realBasename) return { ok: false, reason: "wrong-name" };
     }
-    handle = await open(target, OPEN_FLAGS);
+    // The resolved target is opened without following links: if a symlink is swapped in after
+    // the name check, the open fails with ELOOP (reported as unreadable) instead of escaping.
+    handle = await open(target, opts.realBasename !== undefined ? OPEN_FLAGS_NOFOLLOW : OPEN_FLAGS);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     return {
@@ -55,9 +63,17 @@ async function openChecked(path: string, opts: SafeReadOptions, read: boolean): 
     if (!info.isFile()) return { ok: false, reason: "not-a-file" };
     if (info.size > maxBytes) return { ok: false, reason: "too-large" };
     if (!read) return { ok: true, bytes: Buffer.alloc(0), text: "", sha256: "" };
-    const bytes = await handle.readFile();
-    // The file may have grown between stat and read; the cap applies to the bytes actually read.
-    if (bytes.length > maxBytes) return { ok: false, reason: "too-large" };
+    // Read at most maxBytes + 1 bytes: a file that grew after stat (or lies about its size) is
+    // rejected without ever buffering more than the cap.
+    const buf = Buffer.alloc(maxBytes + 1);
+    let length = 0;
+    while (length < buf.length) {
+      const { bytesRead } = await handle.read(buf, length, buf.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length > maxBytes) return { ok: false, reason: "too-large" };
+    const bytes = buf.subarray(0, length);
     return {
       ok: true,
       bytes,
@@ -92,8 +108,9 @@ export function readSafeFile(path: string, opts: SafeReadOptions = {}): Promise<
  *
  * @param path - Absolute path.
  * @param opts - Size cap and optional required real basename.
- * @returns `{ ok: true }` (with empty content) or the rejection. Never throws.
+ * @returns `{ ok: true }` or the rejection. Never throws.
  */
-export function checkSafeFile(path: string, opts: SafeReadOptions = {}): Promise<SafeRead> {
-  return openChecked(path, opts, false);
+export async function checkSafeFile(path: string, opts: SafeReadOptions = {}): Promise<SafeCheck> {
+  const r = await openChecked(path, opts, false);
+  return r.ok ? { ok: true } : r;
 }
