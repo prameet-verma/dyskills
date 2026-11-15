@@ -116,7 +116,7 @@ async function openChecked(path: string, opts: SafeReadOptions, read: boolean): 
  * @param opts - Size cap and optional required real basename.
  * @throws {TypeError} When `maxBytes` is not a finite non-negative integer (synchronously).
  * @returns The bytes, text and sha256, or `{ ok: false, reason }` (`missing`, `not-a-file`,
- *   `too-large`, `wrong-name`, `unreadable`). Never throws.
+ *   `too-large`, `wrong-name`, `unreadable`). Never rejects for file problems.
  */
 export function readSafeFile(path: string, opts: SafeReadOptions = {}): Promise<SafeRead> {
   assertMaxBytes(opts.maxBytes);
