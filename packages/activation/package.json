@@ -1,0 +1,17 @@
+{
+  "name": "@dynamic-skills/activation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dynamic-skills/core": "workspace:*",
+    "@dynamic-skills/eval-engine": "workspace:*",
+    "@dynamic-skills/evidence-registry": "workspace:*"
+  },
+  "devDependencies": {
+    "@dynamic-skills/skill-compiler": "workspace:*"
+  }
+}

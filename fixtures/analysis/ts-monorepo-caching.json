@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1",
+  "analysedPacketRevision": 1,
+  "technology": { "languages": ["typescript"], "frameworks": ["react"], "runtimes": ["node 20.11.0"], "packageManagers": ["pnpm"] },
+  "architecture": {
+    "patterns": ["Each workspace package exposes its public API from src/index.ts"],
+    "moduleStructure": ["packages/orders owns order reads and writes"],
+    "conventions": ["Tests run through the workspace test script"],
+    "dependencies": ["nx orchestrates workspace builds"]
+  },
+  "taskContext": {
+    "relevantComponents": ["packages/orders/src/index.ts"],
+    "existingImplementations": ["getOrder(id) reads an order and updateOrder writes one"],
+    "constraints": ["Keep the public getOrder signature unchanged"],
+    "expectedOutcome": "Order reads are cached and every order write invalidates the affected keys"
+  },
+  "evidence": [
+    { "key": "order-read-path", "claim": "getOrder(id) in packages/orders/src/index.ts is the order read path", "source": "packages/orders/src/index.ts", "type": "observed", "category": "architecture", "confidence": 0.9 },
+    { "key": "order-write-path", "claim": "updateOrder is the only order write path that must invalidate cached reads", "source": "packages/orders/src/index.ts", "type": "inferred", "category": "architecture", "confidence": 0.6 }
+  ],
+  "assumptions": [],
+  "unknowns": [{ "question": "Which cache backend is available in production?", "importance": "optional", "category": "architecture" }],
+  "conflicts": []
+}

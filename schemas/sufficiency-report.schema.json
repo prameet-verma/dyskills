@@ -1,0 +1,100 @@
+{
+  "$id": "dynamic-skills/v1/sufficiency-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "sufficient",
+        "partial",
+        "insufficient"
+      ]
+    },
+    "baseSkill": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "baseInstructionFile": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "missingAspects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coveredAspects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "suggest",
+        "manual"
+      ]
+    },
+    "explicit": {
+      "type": "boolean"
+    },
+    "approval": {
+      "type": "string",
+      "enum": [
+        "not-required",
+        "pending",
+        "approved",
+        "declined"
+      ]
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "outcome",
+    "baseSkill",
+    "baseInstructionFile",
+    "rationale",
+    "missingAspects",
+    "coveredAspects",
+    "mode",
+    "explicit",
+    "approval"
+  ],
+  "additionalProperties": false
+}

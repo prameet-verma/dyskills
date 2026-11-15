@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1",
+  "analysedPacketRevision": 1,
+  "technology": { "languages": [], "frameworks": [], "runtimes": [], "packageManagers": [] },
+  "architecture": { "patterns": [], "moduleStructure": [], "conventions": [], "dependencies": [] },
+  "taskContext": { "relevantComponents": [], "existingImplementations": [], "constraints": [] },
+  "evidence": [],
+  "unknowns": [],
+  "conflicts": []
+}

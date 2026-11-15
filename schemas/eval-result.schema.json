@@ -1,0 +1,56 @@
+{
+  "$id": "dynamic-skills/v1/eval-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": [
+        "spec",
+        "metadata",
+        "grounding",
+        "completeness",
+        "scope",
+        "role",
+        "evidence-classification",
+        "assumptions",
+        "duplication",
+        "conciseness",
+        "references",
+        "portability",
+        "security",
+        "behavioural-definition",
+        "behavioural"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "warning",
+        "fail",
+        "not-applicable"
+      ]
+    },
+    "mandatory": {
+      "type": "boolean"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "durationMs": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "id",
+    "outcome",
+    "mandatory",
+    "messages",
+    "durationMs"
+  ],
+  "additionalProperties": false
+}

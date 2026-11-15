@@ -1,0 +1,363 @@
+{
+  "$id": "dynamic-skills/v1/context-analysis-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "analysedPacketRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "technology": {
+      "type": "object",
+      "properties": {
+        "languages": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "frameworks": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "runtimes": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "packageManagers": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "required": [
+        "languages",
+        "frameworks",
+        "runtimes",
+        "packageManagers"
+      ],
+      "additionalProperties": false
+    },
+    "architecture": {
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "moduleStructure": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "conventions": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "dependencies": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "required": [
+        "patterns",
+        "moduleStructure",
+        "conventions",
+        "dependencies"
+      ],
+      "additionalProperties": false
+    },
+    "taskContext": {
+      "type": "object",
+      "properties": {
+        "relevantComponents": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "existingImplementations": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "constraints": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "expectedOutcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "relevantComponents",
+        "existingImplementations",
+        "constraints"
+      ],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "inferred"
+            ]
+          },
+          "category": {
+            "default": "semantic",
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "claim",
+          "source",
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "assumptions": {
+      "default": [],
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "assumption": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "basis": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "impact": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "subject",
+          "assumption",
+          "basis",
+          "impact"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unknowns": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "importance": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "optional"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic"
+            ]
+          }
+        },
+        "required": [
+          "question",
+          "importance"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "conflicts": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "observations": {
+            "minItems": 2,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "sources": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic"
+            ]
+          }
+        },
+        "required": [
+          "subject",
+          "observations",
+          "sources"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "analysedPacketRevision",
+    "technology",
+    "architecture",
+    "taskContext",
+    "evidence",
+    "unknowns",
+    "conflicts"
+  ],
+  "additionalProperties": false
+}

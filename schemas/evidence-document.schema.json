@@ -1,0 +1,93 @@
+{
+  "$id": "dynamic-skills/v1/evidence-document.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic",
+              "user"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "inferred",
+              "conflicting",
+              "assumed"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "origin": {
+            "default": "programmatic",
+            "type": "string",
+            "enum": [
+              "programmatic",
+              "agentic",
+              "user"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "category",
+          "source",
+          "confidence",
+          "timestamp",
+          "revision",
+          "conflicts",
+          "origin"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "items"
+  ],
+  "additionalProperties": false
+}

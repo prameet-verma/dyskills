@@ -1,0 +1,104 @@
+{
+  "$id": "dynamic-skills/v1/performance-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "wallMs": {
+      "type": "number"
+    },
+    "activeMs": {
+      "type": "number"
+    },
+    "humanWaitMs": {
+      "type": "number"
+    },
+    "clarificationRounds": {
+      "type": "number"
+    },
+    "stageMs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "assessment",
+          "discovery",
+          "analysis",
+          "clarification",
+          "compilation",
+          "evaluation",
+          "activation"
+        ]
+      },
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "llmInteractions": {
+      "type": "number"
+    },
+    "parallelOps": {
+      "type": "number"
+    },
+    "cacheHitRate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "evaluationMs": {
+      "type": "number"
+    },
+    "activationMs": {
+      "type": "number"
+    },
+    "contextRequests": {
+      "type": "number"
+    },
+    "contextRequestRounds": {
+      "type": "number"
+    },
+    "analysisSubmissions": {
+      "type": "number"
+    },
+    "packetTokens": {
+      "type": "number"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "activated",
+        "augmented",
+        "reused",
+        "timeout",
+        "failed",
+        "skipped"
+      ]
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "wallMs",
+    "activeMs",
+    "humanWaitMs",
+    "clarificationRounds",
+    "stageMs",
+    "llmInteractions",
+    "parallelOps",
+    "cacheHitRate",
+    "evaluationMs",
+    "activationMs",
+    "contextRequests",
+    "contextRequestRounds",
+    "analysisSubmissions",
+    "packetTokens"
+  ],
+  "additionalProperties": false
+}

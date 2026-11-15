@@ -1,0 +1,576 @@
+{
+  "$id": "dynamic-skills/v1/session-state.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "id": {
+      "type": "string"
+    },
+    "task": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "suggest",
+        "manual"
+      ]
+    },
+    "explicit": {
+      "type": "boolean"
+    },
+    "repo": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "assessing",
+        "discovering",
+        "generating",
+        "evaluating",
+        "waiting-for-clarification",
+        "waiting-for-approval",
+        "resuming",
+        "activating",
+        "completed",
+        "warning",
+        "timeout",
+        "failed"
+      ]
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "sla": {
+      "type": "object",
+      "properties": {
+        "budgetMs": {
+          "type": "number"
+        },
+        "activeMs": {
+          "type": "number"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "segmentStartedAt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "budgetMs",
+        "activeMs",
+        "paused",
+        "segmentStartedAt"
+      ],
+      "additionalProperties": false
+    },
+    "completedSteps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "clarification": {
+      "type": "object",
+      "properties": {
+        "round": {
+          "type": "number"
+        },
+        "asked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "requirement": {
+                "type": "string"
+              },
+              "evidenceKey": {
+                "type": "string"
+              },
+              "material": {
+                "type": "boolean"
+              },
+              "blocking": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "text",
+              "requirement",
+              "material",
+              "blocking"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "requirement": {
+                "type": "string"
+              },
+              "evidenceKey": {
+                "type": "string"
+              },
+              "material": {
+                "type": "boolean"
+              },
+              "blocking": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "text",
+              "requirement",
+              "material",
+              "blocking"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "questionId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "answered",
+                  "declined",
+                  "skipped"
+                ]
+              },
+              "value": {
+                "type": "string"
+              },
+              "assumption": {
+                "type": "object",
+                "properties": {
+                  "assumption": {
+                    "type": "string"
+                  },
+                  "basis": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assumption",
+                  "basis",
+                  "impact"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "questionId",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "round",
+        "asked",
+        "pending",
+        "answers"
+      ],
+      "additionalProperties": false
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "questionId": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "assumption": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "declined",
+              "skipped",
+              "unanswered",
+              "not-asked"
+            ]
+          }
+        },
+        "required": [
+          "questionId",
+          "question",
+          "assumption",
+          "basis",
+          "impact",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "requirement": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic",
+              "user"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "needs-investigation",
+              "missing",
+              "conflicting"
+            ]
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "none",
+              "inspect",
+              "ask"
+            ]
+          },
+          "evidenceKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "material": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirement",
+          "category",
+          "status",
+          "resolution",
+          "evidenceKeys",
+          "material"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "blockedBy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evalAttempts": {
+      "type": "number"
+    },
+    "skillName": {
+      "type": "string"
+    },
+    "evaluatedBundleSha256": {
+      "type": "string"
+    },
+    "requirements": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "language",
+              "runtime",
+              "package-manager",
+              "framework",
+              "database",
+              "monorepo",
+              "testing",
+              "build",
+              "ci",
+              "architecture",
+              "conventions",
+              "semantic",
+              "user"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "humanOnly": {
+            "type": "boolean"
+          },
+          "material": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "description",
+          "humanOnly",
+          "material"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sufficiency": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "sufficient",
+                "partial",
+                "insufficient"
+              ]
+            },
+            "baseSkill": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "path",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "baseInstructionFile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "approval": {
+              "type": "string",
+              "enum": [
+                "not-required",
+                "pending",
+                "approved",
+                "declined"
+              ]
+            }
+          },
+          "required": [
+            "outcome",
+            "baseSkill",
+            "baseInstructionFile",
+            "approval"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "wallStartedAt": {
+          "type": "number"
+        },
+        "stageMs": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "assessment",
+              "discovery",
+              "analysis",
+              "clarification",
+              "compilation",
+              "evaluation",
+              "activation"
+            ]
+          },
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "humanWaitMs": {
+          "type": "number"
+        },
+        "llmInteractions": {
+          "type": "number"
+        },
+        "parallelOps": {
+          "type": "number"
+        },
+        "cacheHits": {
+          "type": "number"
+        },
+        "cacheLookups": {
+          "type": "number"
+        },
+        "evaluationMs": {
+          "type": "number"
+        },
+        "activationMs": {
+          "type": "number"
+        },
+        "contextRequests": {
+          "default": 0,
+          "type": "number"
+        },
+        "contextRequestRounds": {
+          "default": 0,
+          "type": "number"
+        },
+        "analysisSubmissions": {
+          "default": 0,
+          "type": "number"
+        },
+        "packetTokens": {
+          "default": 0,
+          "type": "number"
+        },
+        "analysisStartedAtActiveMs": {
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "activated",
+            "augmented",
+            "reused",
+            "timeout",
+            "failed",
+            "skipped"
+          ]
+        }
+      },
+      "required": [
+        "wallStartedAt",
+        "stageMs",
+        "humanWaitMs",
+        "llmInteractions",
+        "parallelOps",
+        "cacheHits",
+        "cacheLookups",
+        "evaluationMs",
+        "activationMs",
+        "contextRequests",
+        "contextRequestRounds",
+        "analysisSubmissions",
+        "packetTokens",
+        "analysisStartedAtActiveMs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "task",
+    "mode",
+    "explicit",
+    "repo",
+    "revision",
+    "status",
+    "createdAt",
+    "sla",
+    "completedSteps",
+    "clarification",
+    "assumptions",
+    "gaps",
+    "blockedBy",
+    "evalAttempts",
+    "requirements",
+    "sufficiency",
+    "metrics"
+  ],
+  "additionalProperties": false
+}

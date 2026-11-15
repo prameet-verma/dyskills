@@ -1,0 +1,9 @@
+dist/
+coverage/
+schemas/
+fixtures/
+.superpowers/
+.claude/
+pnpm-lock.yaml
+PRD.md
+docs/superpowers/

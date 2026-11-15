@@ -1,0 +1,17 @@
+{
+  "name": "@dynamic-skills/context-packet",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dynamic-skills/core": "workspace:*",
+    "@dynamic-skills/discovery": "workspace:*",
+    "@dynamic-skills/evidence-registry": "workspace:*"
+  },
+  "devDependencies": {
+    "@dynamic-skills/context-analyzer": "workspace:*"
+  }
+}

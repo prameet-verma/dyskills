@@ -1,0 +1,34 @@
+{
+  "name": "@dynamic-skills/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "dynamic-skills": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup"
+  },
+  "dependencies": {
+    "@dynamic-skills/activation": "workspace:*",
+    "@dynamic-skills/bootstrapper": "workspace:*",
+    "@dynamic-skills/clarification-manager": "workspace:*",
+    "@dynamic-skills/context-analyzer": "workspace:*",
+    "@dynamic-skills/context-packet": "workspace:*",
+    "@dynamic-skills/core": "workspace:*",
+    "@dynamic-skills/discovery": "workspace:*",
+    "@dynamic-skills/eval-engine": "workspace:*",
+    "@dynamic-skills/evidence-registry": "workspace:*",
+    "@dynamic-skills/skill-compiler": "workspace:*",
+    "commander": "^15.1.0",
+    "smol-toml": "^1.9.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsup": "^9.0.0"
+  }
+}
