@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DISCOVERY_CONCURRENCY } from "@dynamic-skills/core";
 import { describe, expect, it } from "vitest";
 import { ALL_DETECTORS, runDiscovery, selectDetectors, type Detector } from "../src/index";
 import { fixture } from "./helpers";
@@ -78,5 +79,56 @@ describe("runDiscovery", () => {
     expect(ids("fix README typo")).not.toContain("database");
     expect(ids("write a database migration")).toContain("database");
     expect(ids("fix README typo")).toContain("runtime");
+  });
+
+  describe("concurrency", () => {
+    const slow = (inflight: { cur: number; max: number }): Detector[] =>
+      Array.from({ length: 12 }, (_, i) => ({
+        id: `d${i}`,
+        categories: [],
+        always: true,
+        async run() {
+          inflight.cur++;
+          inflight.max = Math.max(inflight.max, inflight.cur);
+          await new Promise((r) => setTimeout(r, 15));
+          inflight.cur--;
+          return [];
+        },
+      }));
+
+    it("runs detectors in parallel, bounded by DISCOVERY_CONCURRENCY, in detector order", async () => {
+      const inflight = { cur: 0, max: 0 };
+      const detectors = slow(inflight);
+      const r = await runDiscovery({ repo: fixture("ts-monorepo"), task: "x", detectors });
+      expect(inflight.max).toBeGreaterThan(1);
+      expect(inflight.max).toBeLessThanOrEqual(DISCOVERY_CONCURRENCY);
+      expect(r.detectorsRun).toEqual(detectors.map((d) => d.id));
+    });
+
+    it("honours an explicit concurrency of 1", async () => {
+      const inflight = { cur: 0, max: 0 };
+      await runDiscovery({
+        repo: fixture("ts-monorepo"),
+        task: "x",
+        detectors: slow(inflight),
+        concurrency: 1,
+      });
+      expect(inflight.max).toBe(1);
+    });
+
+    it("rejects with an AbortError when the signal aborts", async () => {
+      const inflight = { cur: 0, max: 0 };
+      const ac = new AbortController();
+      setTimeout(() => ac.abort(), 5);
+      await expect(
+        runDiscovery({
+          repo: fixture("ts-monorepo"),
+          task: "x",
+          detectors: slow(inflight),
+          concurrency: 1,
+          signal: ac.signal,
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+    });
   });
 });

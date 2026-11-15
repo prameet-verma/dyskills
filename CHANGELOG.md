@@ -6,6 +6,11 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Discovery no longer hides source files named `secrets.*` (`secrets.ts`, `secrets.py`); only config and
+  data forms (`secrets.yaml`, `secrets.json`, `secrets.enc.*`, ...) and `secrets/` directories are secret.
+
 ### Added
 
 Phase 1, the JIT Core Engine:

@@ -28,11 +28,44 @@ const SECRET_NAMES: RegExp[] = [
   /\.tfstate$/,
   /\.tfstate\.backup$/,
   /^\.git-credentials$/,
-  /^secrets\./,
   /^kubeconfig$/,
   /^\.htpasswd$/,
   /^\.pgpass$/,
 ];
+
+/** Config and data extensions that make a `secrets.*` file secret (`secrets.ts` is source, not). */
+const SECRETS_FILE_EXTS = new Set([
+  "json",
+  "yaml",
+  "yml",
+  "toml",
+  "env",
+  "ini",
+  "properties",
+  "txt",
+  "conf",
+  "cfg",
+  "xml",
+  // Encrypted forms (sops, git-crypt style) are still secret-bearing artefacts.
+  "enc",
+  "sops",
+]);
+
+/**
+ * Tells whether a lowercased basename is a `secrets.<...>` config or data file. Secret when the
+ * final extension is a config/data one (`secrets.yaml`, `secrets.prod.json`), or when the second
+ * segment marks encryption (`secrets.enc.*`, `secrets.sops.*`, any final extension). Source files
+ * (`secrets.ts`, `secrets.py`, `secrets.test.ts`) are not. Fail safe: an unlisted extension stays
+ * visible only because it is plainly not config; every listed or encrypted form is hidden.
+ * Linear: one `startsWith`, one `split`, set lookups.
+ */
+function isSecretsFile(name: string): boolean {
+  if (!name.startsWith("secrets.")) return false;
+  const segs = name.split(".");
+  const last = segs[segs.length - 1] ?? "";
+  const second = segs[1] ?? "";
+  return SECRETS_FILE_EXTS.has(last) || second === "enc" || second === "sops";
+}
 
 /**
  * `[parent directory, basename]` pairs that are secret only together: `config.json` and `config`
@@ -58,5 +91,6 @@ export function isSecretPath(rel: string): boolean {
   const parent = (parts[parts.length - 2] ?? "").toLowerCase();
   if (parts.slice(0, -1).some((p) => SECRET_DIRS.has(p.toLowerCase()))) return true;
   if (SECRET_FILES_IN_DIR.some(([dir, file]) => parent === dir && name === file)) return true;
+  if (isSecretsFile(name)) return true;
   return SECRET_NAMES.some((re) => re.test(name));
 }

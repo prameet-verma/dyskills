@@ -78,6 +78,31 @@ describe("secret exclusion", () => {
     }
   });
 
+  it("hides secrets.* config/data files but not source files named secrets", () => {
+    for (const p of [
+      "secrets.yaml",
+      "config/secrets.json",
+      "secrets.enc.yaml",
+      "secrets/db.txt",
+      "secrets.sops.json",
+      "secrets.enc.ts",
+      "SECRETS.TOML",
+      "secrets.prod.env",
+      "a/secrets.cfg",
+    ]) {
+      expect(isSecretPath(p), p).toBe(true);
+    }
+    for (const p of [
+      "secrets.ts",
+      "src/secrets.py",
+      "secrets.test.ts",
+      "secrets.go",
+      "packages/discovery/src/secrets.ts",
+    ]) {
+      expect(isSecretPath(p), p).toBe(false);
+    }
+  });
+
   it("matches in linear time on hostile names", () => {
     const hostile = `${"a/".repeat(5_000)}${".".repeat(50_000)}tfvarsx`;
     const started = performance.now();

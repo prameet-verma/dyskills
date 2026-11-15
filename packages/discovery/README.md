@@ -29,7 +29,9 @@ failing detector never stops the others.
   were not walked).
 - **`isSecretPath(rel)`** (`secrets.ts`): true (case-insensitive) for `.env*`/`.envrc`/`.netrc`,
   keys, certificates, SSH keys, `*.pfx`/`*.jks`/`*.keystore`, `credentials.json`, `.npmrc`,
-  `.pypirc`, `*.tfvars`(`.json`), `*.tfstate`(`.backup`), `.git-credentials`, `secrets.*`,
+  `.pypirc`, `*.tfvars`(`.json`), `*.tfstate`(`.backup`), `.git-credentials`, `secrets.*` config/data files (`.json`, `.yaml`, `.yml`, `.toml`, `.env`, `.ini`,
+  `.properties`, `.txt`, `.conf`, `.cfg`, `.xml`, `.enc`, `.sops`, or `secrets.enc.*`/`secrets.sops.*`;
+  source such as `secrets.ts` is not secret),
   `kubeconfig`, `.htpasswd`, `.pgpass`, `.docker/config.json`, `.kube/config`, and anything under
   a `secrets/` or `.aws/` directory. Every pattern is an anchored literal, so matching is linear.
 - **`MANIFEST_DETECTORS`, `STRUCTURE_DETECTORS`, `ALL_DETECTORS`** (`detectors/`): runtime,
