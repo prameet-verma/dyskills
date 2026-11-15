@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
+import type { Dirent, Stats } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -43,8 +44,11 @@ export async function existingSkillsFor(
   return scanned.skills.filter((s) => s.name !== BOOTSTRAP_SKILL && s.path !== basePath);
 }
 
-/** Most files a skill bundle may contain; the agent controls the tree, so the walk is bounded. */
-const MAX_BUNDLE_FILES = 500;
+/** Most entries (files and directories) a skill bundle may contain; the agent controls the tree. */
+const MAX_BUNDLE_ENTRIES = 500;
+
+/** Most bytes a skill bundle may hold in total (5 MB), so one digest pass stays cheap. */
+export const MAX_BUNDLE_BYTES = 5_000_000;
 
 /** The error for a bundle that changed (or never was pinned) since `evaluate` (Ruling R14). */
 export function bundleChanged(): CliError {
@@ -64,33 +68,66 @@ async function hashFile(path: string): Promise<string> {
  * removing, renaming or editing any file changes it. The tree is agent-written, so anything that
  * is not a plain file or directory (a symlink, FIFO or device) is refused before it is opened.
  * @param sessionDir - Absolute session directory.
- * @throws {CliError} `BUNDLE_INVALID` for a non-regular entry or more than 500 files.
+ * @throws {CliError} `BUNDLE_INVALID` for a symlinked root, a non-regular entry, an unreadable directory,
+ * more than 500 entries or more than 5 MB.
  */
 export async function bundleDigest(sessionDir: string): Promise<string> {
   const paths = sessionPaths(sessionDir);
   const lines: string[] = [];
+  let totalBytes = 0;
   const bad = (rel: string): CliError =>
     new CliError("BUNDLE_INVALID", `${rel} must be a regular file or directory (no symlinks)`);
-  const add = async (abs: string, rel: string): Promise<void> => {
-    if (lines.length >= MAX_BUNDLE_FILES)
+  const count = (): void => {
+    if (lines.length >= MAX_BUNDLE_ENTRIES)
       throw new CliError("BUNDLE_INVALID", "too many bundle files");
+  };
+  const addFile = async (abs: string, rel: string, size: number): Promise<void> => {
+    count();
+    totalBytes += size;
+    if (totalBytes > MAX_BUNDLE_BYTES) throw new CliError("BUNDLE_INVALID", "bundle is too large");
     lines.push(`${rel}\0${await hashFile(abs)}\n`);
   };
+  /** lstat that treats only a missing path as absent; anything else unreadable is invalid. */
+  const statOrNull = async (abs: string, rel: string): Promise<Stats | null> => {
+    try {
+      return await lstat(abs);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw bad(rel);
+    }
+  };
   const walk = async (abs: string, rel: string): Promise<void> => {
-    const entries = await readdir(abs, { withFileTypes: true }).catch(() => []);
+    let entries: Dirent[];
+    try {
+      entries = await readdir(abs, { withFileTypes: true });
+    } catch {
+      throw bad(rel);
+    }
     for (const e of entries) {
       const childAbs = join(abs, e.name);
       const childRel = `${rel}/${e.name}`;
-      if (e.isDirectory()) await walk(childAbs, childRel);
-      else if (e.isFile()) await add(childAbs, childRel);
-      else throw bad(childRel);
+      if (e.isDirectory()) {
+        // Directories are digested too, so an empty sibling directory is a change.
+        count();
+        lines.push(`${childRel}/\0dir\n`);
+        await walk(childAbs, childRel);
+      } else if (e.isFile()) {
+        await addFile(childAbs, childRel, (await lstat(childAbs)).size);
+      } else throw bad(childRel);
     }
   };
-  await walk(paths.skillsDir, "skills");
-  const smoke = await lstat(paths.smoke).catch(() => null);
+  // The roots are lstat-ed first: a symlinked skills/ or evals/ would redirect every read.
+  const skillsRoot = await statOrNull(paths.skillsDir, "skills");
+  if (skillsRoot !== null) {
+    if (!skillsRoot.isDirectory()) throw bad("skills");
+    await walk(paths.skillsDir, "skills");
+  }
+  const evalsRoot = await statOrNull(paths.evalsDir, "evals");
+  if (evalsRoot !== null && !evalsRoot.isDirectory()) throw bad("evals");
+  const smoke = evalsRoot === null ? null : await statOrNull(paths.smoke, "evals/smoke.json");
   if (smoke !== null) {
     if (!smoke.isFile()) throw bad("evals/smoke.json");
-    await add(paths.smoke, "evals/smoke.json");
+    await addFile(paths.smoke, "evals/smoke.json", smoke.size);
   }
   return createHash("sha256").update(lines.sort().join("")).digest("hex");
 }

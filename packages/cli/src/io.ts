@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readFile, realpath, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import {
   CONTRACT_VERSION,
@@ -223,8 +224,11 @@ export function stripControlChars(text: string): string {
 }
 
 /** Result of reading a reusable base file. */
-export type BaseRead =
-  { ok: true; content: string; sha256: string } | { ok: false; message: string };
+export type BaseRead = { ok: true; content: string } | { ok: false; message: string };
+
+/** A {@link BaseRead} of a skill file: the sha256 is of the exact bytes the content was decoded from. */
+export type BaseSkillRead =
+  { ok: false; message: string } | { ok: true; content: string; sha256: string };
 
 /**
  * Reads a scanned base skill (`SKILL.md`) without modifying it (PRD §5.5, FR-42). A scanned path
@@ -233,19 +237,22 @@ export type BaseRead =
  * @param path - Absolute scanned path.
  * @returns The content, or a failure message (missing, not a regular file, redirected, too large).
  */
-export async function readBaseSkillFile(path: string): Promise<BaseRead> {
+export async function readBaseSkillFile(path: string): Promise<BaseSkillRead> {
+  let handle;
   try {
     const real = await realpath(path);
     if (basename(real) !== "SKILL.md") {
       return { ok: false, message: "base skill file resolves to a file that is not a SKILL.md" };
     }
-    const info = await stat(real);
+    // One non-blocking handle: the file checked is the file read (a FIFO swapped in cannot hang
+    // us), and the body shown to the agent and its hash come from the same bytes.
+    handle = await open(real, constants.O_RDONLY | constants.O_NONBLOCK);
+    const info = await handle.stat();
     if (!info.isFile()) return { ok: false, message: "base skill file is not a regular file" };
     if (info.size > MAX_BASE_BYTES) {
       return { ok: false, message: `base skill file exceeds ${MAX_BASE_BYTES} bytes` };
     }
-    // One read of the real file: the body shown to the agent and its hash come from the same bytes.
-    const bytes = await readFile(real);
+    const bytes = await handle.readFile();
     return {
       ok: true,
       content: bytes.toString("utf8"),
@@ -253,6 +260,8 @@ export async function readBaseSkillFile(path: string): Promise<BaseRead> {
     };
   } catch {
     return { ok: false, message: "base skill file could not be read" };
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -277,9 +286,5 @@ export async function readBaseInstructionFile(repo: string, rel: string): Promis
   }
   const content = await readRealFile(resolved.abs);
   if (content === null) return { ok: false, message: "base instruction file could not be read" };
-  return {
-    ok: true,
-    content,
-    sha256: createHash("sha256").update(content).digest("hex"),
-  };
+  return { ok: true, content };
 }

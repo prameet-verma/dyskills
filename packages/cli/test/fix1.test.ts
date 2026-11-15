@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { appendFile, chmod, mkdir, readdir, symlink, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { harness, installGolden, ready, record } from "./helpers";
@@ -75,8 +84,9 @@ describe("pinned bundle (R14)", () => {
     const { id } = await evaluated();
     const first = (await h.readJson(id, "session.json")).metrics.evaluationMs;
     await evaluate(id);
-    expect((await h.readJson(id, "session.json")).metrics.evaluationMs).toBeGreaterThanOrEqual(
-      first,
+    const report = await h.readJson(id, "reports/evaluation.json");
+    expect((await h.readJson(id, "session.json")).metrics.evaluationMs).toBe(
+      first + report.durationMs,
     );
     expect((await h.readJson(id, "session.json")).evalAttempts).toBe(2);
   });
@@ -162,6 +172,63 @@ describe("bundle reads", () => {
     const r = await record(h, id, "y".repeat(1_100_000));
     expect(r.exitCode).toBe(1);
     expect(r.out.error).toBe("USAGE");
+  });
+});
+
+describe("bundle digest and walk guards", () => {
+  it("refuses an empty directory added under skills/ after evaluate", async () => {
+    const { id } = await evaluated();
+    await record(h, id);
+    await mkdir(join(h.home, "sessions", id, "skills", "zzz"));
+    const r = await activate(id);
+    expect(r.exitCode).toBe(2);
+    expect(r.out.error).toBe("BUNDLE_INVALID");
+  });
+
+  it("refuses a symlinked skills/ root", async () => {
+    const id = await ready(h);
+    await h.run(["compile", "--session", id]);
+    await installGolden(h, id, GOLDEN);
+    const dir = join(h.home, "sessions", id);
+    const real = join(h.tmp, "realskills");
+    await rename(join(dir, "skills"), real);
+    await symlink(real, join(dir, "skills"));
+    const r = await evaluate(id);
+    expect(r.out.error).toBe("BUNDLE_INVALID");
+  });
+
+  it("refuses a symlinked evals/ root", async () => {
+    const id = await ready(h);
+    await h.run(["compile", "--session", id]);
+    await installGolden(h, id, GOLDEN);
+    const dir = join(h.home, "sessions", id);
+    const real = join(h.tmp, "realevals");
+    await rename(join(dir, "evals"), real);
+    await symlink(real, join(dir, "evals"));
+    expect((await evaluate(id)).out.error).toBe("BUNDLE_INVALID");
+  });
+
+  it("refuses a bundle over the total size cap", async () => {
+    const id = await ready(h);
+    await h.run(["compile", "--session", id]);
+    await installGolden(h, id, GOLDEN);
+    await writeFile(
+      join(h.home, "sessions", id, "skills/order-cache-specialist/big.bin"),
+      Buffer.alloc(5_100_000),
+    );
+    expect((await evaluate(id)).out.error).toBe("BUNDLE_INVALID");
+  });
+});
+
+describe("base skill read", () => {
+  it("returns promptly for a FIFO swapped in as the base", async () => {
+    const id = await ready(h, "partial");
+    const base = (await h.readJson(id, "skills-scan.json")).skills[0].path as string;
+    await rm(base);
+    execFileSync("mkfifo", [base]);
+    const r = await h.run(["compile", "--session", id]);
+    expect(r.exitCode).toBe(1);
+    expect(r.out.error).toBe("BASE_CHANGED");
   });
 });
 

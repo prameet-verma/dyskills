@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,6 +11,7 @@ import {
   ASSUMPTION_PATTERN,
   CITATION_PATTERN,
   INFERENCE_PATTERN,
+  MAX_SMOKE_BYTES,
   loadSmokeEval,
   parseSkillBundle,
 } from "../src/index";
@@ -232,5 +234,28 @@ describe("loadSmokeEval", () => {
     const p = join(mkdtempSync(join(tmpdir(), "smoke-")), "s.json");
     writeFileSync(p, "{}");
     await expect(loadSmokeEval(p)).rejects.toThrow();
+  });
+});
+
+describe("hardened bundle reads", () => {
+  const tmp = (): string => mkdtempSync(join(tmpdir(), "ds-parse-"));
+
+  it("loadSmokeEval rejects a symlink, a FIFO and an oversize file", async () => {
+    const dir = tmp();
+    const target = join(dir, "target.json");
+    writeFileSync(target, "{}");
+    symlinkSync(target, join(dir, "link.json"));
+    await expect(loadSmokeEval(join(dir, "link.json"))).rejects.toThrow(/regular file/);
+    execFileSync("mkfifo", [join(dir, "fifo.json")]);
+    await expect(loadSmokeEval(join(dir, "fifo.json"))).rejects.toThrow(/regular file/);
+    writeFileSync(join(dir, "big.json"), "x".repeat(MAX_SMOKE_BYTES + 1));
+    await expect(loadSmokeEval(join(dir, "big.json"))).rejects.toThrow(/exceeds/);
+  });
+
+  it("parseSkillBundle rejects a FIFO SKILL.md without blocking", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, "s"));
+    execFileSync("mkfifo", [join(dir, "s", "SKILL.md")]);
+    await expect(parseSkillBundle(dir)).rejects.toThrow(BundleError);
   });
 });
