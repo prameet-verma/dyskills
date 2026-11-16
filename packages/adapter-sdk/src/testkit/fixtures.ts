@@ -160,13 +160,15 @@ export async function treeHash(dir: string): Promise<string> {
   return h.digest("hex");
 }
 
-/** Reads every regular file under `dir` into a map of relative path to bytes. */
+/** Reads every regular file under `dir` (and every symlink, as its target) into a map of relative path to bytes. */
 export async function readTree(dir: string): Promise<Map<string, Buffer>> {
   const out = new Map<string, Buffer>();
   async function visit(p: string, rel: string): Promise<void> {
     const st = await lstat(p);
     if (st.isDirectory()) {
       for (const n of await readdir(p)) await visit(join(p, n), rel === "" ? n : `${rel}/${n}`);
+    } else if (st.isSymbolicLink()) {
+      out.set(rel, Buffer.from(`symlink\0${await readlink(p)}`));
     } else if (st.isFile()) out.set(rel, await readFile(p));
   }
   await visit(dir, "");

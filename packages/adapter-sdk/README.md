@@ -28,23 +28,41 @@ session home (`init` and `save`). It names no harness; it only uses core's `Harn
 
 `placeBundle` copies a skill bundle to `<destRoot>/<name>` byte-identically and atomically: the copy
 goes into `<destRoot>/.<name>.tmp-<8 hex>` (files 0644 / dirs 0755 for `save`, 0600 / 0700 for
-`native`) and is `rename`d into place. It never overwrites and never throws for an environment
-problem; it returns `action: "conflict"` with a `reason`:
+`native`) and is `rename`d into place. Once `destRoot` is validated every operation uses its
+realpath, so a symlink retargeted mid-way cannot redirect the write. It never overwrites.
+
+A `conflict` is returned only for these reasons; any other errno (EACCES, EPERM, EROFS, ...) is
+rethrown unchanged with its `code`, so a caller can map "denied" and "conflict" separately:
 
 - `outside project`: with `within` set, the realpath of `destRoot` is not inside it.
-- `symlink`: the target is a symlink. `differs`: the target exists with another manifest (or is not
-  a directory). `race`: the target appeared before `rename`; the temp copy is removed.
+- `symlink`: the target is a symlink. `differs`: the target exists with another manifest, is not a
+  directory, or is over the caps (`detail` says which). `race`: the target (or `destRoot`) changed
+  before `rename`; the temp copy is removed.
 - `parent is a dangling symlink` / `parent is a symlink loop` / `parent is not a directory`: the
-  `realpathOfPlanned` failures of the parent chain.
+  `realpathOfPlanned` failures (ENOENT, ELOOP, ENOTDIR) of the parent chain, or a `destRoot` that is
+  a file.
 
-`name` must pass `SkillNameSchema`, else `BundleLayoutError` is thrown (as it is for a symlink or a
-non-regular entry in the source bundle). A missing `destRoot` is created; `dryRun` creates nothing.
-An equal existing bundle is `unchanged`. The manifest ignores modes and timestamps. `testHooks` on
-`placeBundle` is an internal test seam. `removePlacedBundle` removes a bundle only when it is a plain
-directory whose current manifest equals the given sha256. `findSaveConflicts` lists `<root>/<name>`
-entries that differ or are not plain directories. `planSaveTargets` greedily picks the fewest primary
-skill roots that every selected harness reads (a harness reads a root when some `ReadRoot` for that
-directory lists it in `readBy`).
+`BundleLayoutError` is thrown for a name that fails `SkillNameSchema`, a relative `destRoot`, a
+symlink or non-regular entry (FIFO, device) in the source, a source over `BUNDLE_MAX_ENTRIES` (500)
+or `BUNDLE_MAX_BYTES` (5 MB), or a source that changed while it was copied. Source files are opened
+non-blocking with `O_NOFOLLOW`, so a file swapped for a FIFO or symlink cannot hang or redirect the
+read. A missing `destRoot` is created; `dryRun` creates and sweeps nothing. An equal existing bundle
+is `unchanged`. The manifest ignores modes and timestamps; `bundleManifest(dir, { maxEntries,
+maxBytes })` accepts tighter caps.
+
+Orphaned temp directories (a crash between copy and rename) are swept: every non-dry-run placement
+first removes `.<name>.tmp-<8 hex>` directories in `destRoot` older than `STALE_TEMP_MS` (1 h). A
+temp-name collision (EEXIST) is retried with a new suffix a bounded number of times and never
+removes the colliding directory. `testHooks` on `placeBundle` is an internal test seam.
+
+`removePlacedBundle(path, sha256, within?)` removes a bundle only when it is a plain directory (not
+a symlink) whose current manifest equals the sha256. Callers removing a path read from session state
+MUST pass `within`: the realpath of the path's parent must then lie inside `realpath(within)` (by
+path segment), and the directory is re-checked immediately before removal; otherwise it returns
+`false` and removes nothing. `findSaveConflicts` lists `<root>/<name>` entries that differ, are not
+plain directories, are over the caps or cannot be read. `planSaveTargets` greedily picks the fewest
+primary skill roots that every selected harness reads (a harness reads a root when some `ReadRoot`
+for that directory lists it in `readBy`).
 
 ## Using the testkit
 
@@ -109,3 +127,6 @@ symlink alias. Native question calls are inspected generically: a call's size is
   `ENOTDIR` (a non-directory ancestor); callers map these to a conflict or an error.
 - `applyPlan` accepts `testHooks` (`beforeWrite`, `afterCheck`, `beforeRename`), an internal test
   seam; never wire user input into it.
+
+The testkit locates the bootstrap skill and the save fixture relative to this repository, so it only
+works inside the monorepo.

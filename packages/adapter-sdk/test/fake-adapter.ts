@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -169,6 +169,7 @@ export function makeFakeFixtureHome(): string {
     "---\nname: user-skill\n---\nMine.\n",
   );
   writeFileSync(join(home, ".fake/notes.txt"), "keep me\n");
+  symlinkSync("notes.txt", join(home, ".fake/dotfile-link"));
   writeFileSync(
     join(home, ".fake/settings.json"),
     JSON.stringify(

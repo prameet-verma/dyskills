@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -14,6 +16,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  BUNDLE_MAX_BYTES,
+  BUNDLE_MAX_ENTRIES,
   BundleLayoutError,
   bundleManifest,
   findSaveConflicts,
@@ -172,13 +176,18 @@ describe("placeBundle", () => {
       action: "conflict",
       reason: "parent is not a directory",
     });
-    expect(await place({ destRoot: join(project, "file") })).toMatchObject({ action: "conflict" });
+    expect(await place({ destRoot: join(project, "file") })).toMatchObject({
+      action: "conflict",
+      reason: "parent is not a directory",
+    });
   });
 
   it("reports a conflict when the target is a file", async () => {
     await mkdir(join(project, ".skills"));
     await writeFile(join(project, ".skills", "demo-skill"), "x");
-    expect((await place()).action).toBe("conflict");
+    const r = await place();
+    expect(r).toMatchObject({ action: "conflict", reason: "differs" });
+    expect(r.detail).toMatch(/not a directory/);
   });
 
   it("returns conflict race and removes the temp copy when the target appears before rename", async () => {
@@ -272,5 +281,236 @@ describe("findSaveConflicts", () => {
     await expect(
       findSaveConflicts({ name: "../x", manifestSha256: "", roots: [root] }),
     ).rejects.toBeInstanceOf(BundleLayoutError);
+  });
+});
+
+const canChmod = process.getuid?.() !== 0;
+
+describe("placeBundle errno handling", () => {
+  it.skipIf(!canChmod)("rethrows EACCES for a read-only parent of a missing destRoot", async () => {
+    const ro = join(project, "ro");
+    await mkdir(ro);
+    await chmod(ro, 0o500);
+    try {
+      await expect(place({ destRoot: join(ro, "skills") })).rejects.toMatchObject({
+        code: "EACCES",
+      });
+    } finally {
+      await chmod(ro, 0o700);
+    }
+  });
+
+  it.skipIf(!canChmod)("rethrows EACCES for a read-only existing destRoot", async () => {
+    const dest = join(project, ".skills");
+    await mkdir(dest);
+    await chmod(dest, 0o500);
+    try {
+      await expect(place()).rejects.toMatchObject({ code: "EACCES" });
+      expect(await readdir(dest)).toEqual([]);
+    } finally {
+      await chmod(dest, 0o700);
+    }
+  });
+
+  it("throws BundleLayoutError, not a conflict, when the source changes before the copy", async () => {
+    const dest = join(project, ".skills");
+    await expect(
+      place({ testHooks: { beforeCopy: () => writeFile(join(src, "SKILL.md"), "changed\n") } }),
+    ).rejects.toBeInstanceOf(BundleLayoutError);
+    expect(await readdir(dest)).toEqual([]);
+  });
+});
+
+describe("placeBundle containment and cleanup", () => {
+  it("accepts `within` given as an alias path", async () => {
+    await symlink(project, join(root, "project-alias"));
+    const r = await place({ within: join(root, "project-alias") });
+    expect(r.action).toBe("create");
+  });
+
+  it("re-checks containment after creating destRoot", async () => {
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    const dest = join(project, "new", "skills");
+    const r = await place({
+      destRoot: dest,
+      testHooks: {
+        afterMkdir: async () => {
+          await rm(join(project, "new"), { recursive: true });
+          await symlink(outside, join(project, "new"));
+        },
+      },
+    });
+    expect(r).toMatchObject({ action: "conflict", reason: "outside project" });
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("keeps operating on the validated directory when an ancestor symlink is retargeted", async () => {
+    const outside = join(root, "outside");
+    const real1 = join(project, "real1");
+    await mkdir(outside);
+    await mkdir(real1);
+    await symlink(real1, join(project, "link"));
+    const r = await place({
+      destRoot: join(project, "link", "skills"),
+      testHooks: {
+        beforeRename: async () => {
+          await rm(join(project, "link"));
+          await symlink(outside, join(project, "link"));
+        },
+      },
+    });
+    expect(r.action).toBe("create");
+    expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(join(real1, "skills"))).toEqual(["demo-skill"]);
+  });
+
+  it("removes the temp copy when a race is found after the destRoot ancestor was retargeted", async () => {
+    const outside = join(root, "outside");
+    const real1 = join(project, "real1");
+    await mkdir(outside);
+    await mkdir(real1);
+    await symlink(real1, join(project, "link"));
+    const r = await place({
+      destRoot: join(project, "link", "skills"),
+      testHooks: {
+        beforeRename: async () => {
+          await mkdir(join(real1, "skills", "demo-skill"), { recursive: true });
+          await rm(join(project, "link"));
+          await symlink(outside, join(project, "link"));
+        },
+      },
+    });
+    expect(r).toMatchObject({ action: "conflict", reason: "race" });
+    expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(join(real1, "skills"))).toEqual(["demo-skill"]);
+  });
+
+  it("sweeps stale temp dirs of the same name and leaves the rest", async () => {
+    const dest = join(project, ".skills");
+    await mkdir(dest);
+    const old = join(dest, ".demo-skill.tmp-aaaaaaaa");
+    const fresh = join(dest, ".demo-skill.tmp-bbbbbbbb");
+    const other = join(dest, ".other-skill.tmp-cccccccc");
+    const odd = join(dest, ".demo-skill.tmp-zz");
+    for (const d of [old, fresh, other, odd]) {
+      await mkdir(d);
+      await writeFile(join(d, "x"), "x");
+    }
+    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+    for (const d of [old, other, odd]) await utimes(d, twoHoursAgo, twoHoursAgo);
+    expect((await place()).action).toBe("create");
+    expect((await readdir(dest)).sort()).toEqual(
+      [
+        ".demo-skill.tmp-bbbbbbbb",
+        ".demo-skill.tmp-zz",
+        ".other-skill.tmp-cccccccc",
+        "demo-skill",
+      ].sort(),
+    );
+  });
+
+  it("does not sweep on a dry run", async () => {
+    const dest = join(project, ".skills");
+    await mkdir(dest);
+    const old = join(dest, ".demo-skill.tmp-aaaaaaaa");
+    await mkdir(old);
+    await utimes(old, new Date(0), new Date(0));
+    await place({ dryRun: true });
+    expect(await readdir(dest)).toEqual([".demo-skill.tmp-aaaaaaaa"]);
+  });
+});
+
+describe("bundle special files and caps", () => {
+  it("refuses a real FIFO in the source without hanging", async () => {
+    execFileSync("mkfifo", [join(src, "pipe")]);
+    await expect(bundleManifest(src)).rejects.toBeInstanceOf(BundleLayoutError);
+    await expect(place()).rejects.toBeInstanceOf(BundleLayoutError);
+    await expect(stat(join(project, ".skills"))).rejects.toThrow();
+  });
+
+  it("enforces the entry and byte caps with a limits option", async () => {
+    await expect(bundleManifest(src, { maxEntries: 2 })).rejects.toBeInstanceOf(BundleLayoutError);
+    await expect(bundleManifest(src, { maxBytes: 5 })).rejects.toBeInstanceOf(BundleLayoutError);
+    await expect(bundleManifest(src, { maxEntries: 3, maxBytes: 100 })).resolves.toBeDefined();
+  });
+
+  it("exposes default caps of 500 entries and 5 MB", () => {
+    expect(BUNDLE_MAX_ENTRIES).toBe(500);
+    expect(BUNDLE_MAX_BYTES).toBe(5 * 1024 * 1024);
+  });
+
+  it("refuses a source over the default entry cap", async () => {
+    for (let i = 0; i < BUNDLE_MAX_ENTRIES; i++) await writeFile(join(src, `f${i}.md`), "x");
+    await expect(bundleManifest(src)).rejects.toBeInstanceOf(BundleLayoutError);
+    await expect(place()).rejects.toBeInstanceOf(BundleLayoutError);
+  });
+
+  it("refuses a source over the default byte cap", async () => {
+    await writeFile(join(src, "big.bin"), Buffer.alloc(BUNDLE_MAX_BYTES + 1));
+    await expect(bundleManifest(src)).rejects.toBeInstanceOf(BundleLayoutError);
+  });
+
+  it("reports an oversized existing target as a conflict and a findSaveConflicts hit", async () => {
+    const r = await place();
+    await writeFile(join(r.path, "big.bin"), Buffer.alloc(BUNDLE_MAX_BYTES + 1));
+    expect(await place()).toMatchObject({ action: "conflict", reason: "differs" });
+    expect(
+      await findSaveConflicts({
+        name: "demo-skill",
+        manifestSha256: r.manifest.sha256,
+        roots: [join(project, ".skills")],
+      }),
+    ).toEqual([r.path]);
+  });
+});
+
+describe("removePlacedBundle containment", () => {
+  it("removes a bundle inside `within`", async () => {
+    const r = await place();
+    expect(await removePlacedBundle(r.path, r.manifest.sha256, project)).toBe(true);
+    await expect(stat(r.path)).rejects.toThrow();
+  });
+
+  it("accepts `within` given as an alias", async () => {
+    const r = await place();
+    await symlink(project, join(root, "alias"));
+    expect(await removePlacedBundle(r.path, r.manifest.sha256, join(root, "alias"))).toBe(true);
+  });
+
+  it("refuses a path outside `within`, including a sibling with a shared prefix", async () => {
+    const sibling = join(root, "project2");
+    await mkdir(sibling);
+    const r = await place({ destRoot: join(sibling, "skills"), within: null });
+    expect(await removePlacedBundle(r.path, r.manifest.sha256, project)).toBe(false);
+    expect((await stat(r.path)).isDirectory()).toBe(true);
+  });
+
+  it("refuses a symlink in the parent chain that points outside", async () => {
+    const outside = join(root, "outside");
+    const r = await place({ destRoot: join(outside, "skills"), within: null });
+    await symlink(outside, join(project, "link"));
+    expect(
+      await removePlacedBundle(
+        join(project, "link", "skills", "demo-skill"),
+        r.manifest.sha256,
+        project,
+      ),
+    ).toBe(false);
+    expect((await stat(r.path)).isDirectory()).toBe(true);
+  });
+
+  it("refuses a symlink at the path even when within is given", async () => {
+    const r = await place();
+    await symlink(r.path, join(project, "pointer"));
+    expect(await removePlacedBundle(join(project, "pointer"), r.manifest.sha256, project)).toBe(
+      false,
+    );
+    expect((await stat(r.path)).isDirectory()).toBe(true);
+  });
+
+  it("refuses when within does not exist", async () => {
+    const r = await place();
+    expect(await removePlacedBundle(r.path, r.manifest.sha256, join(root, "missing"))).toBe(false);
   });
 });
