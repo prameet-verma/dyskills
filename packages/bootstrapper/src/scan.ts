@@ -104,6 +104,10 @@ export async function scanExistingSkills(opts: RootOptions): Promise<ScanResult>
     }
     for (const entry of entries) {
       const path = join(root.dir, entry, "SKILL.md");
+      // One file reached through two roots (a symlinked root) is read and reported only once.
+      const real = await realpath(path).catch(() => path);
+      if (seenFiles.has(real)) continue;
+      seenFiles.add(real);
       // The repository is untrusted: one non-blocking, regular-file-only, size-capped read, so a
       // FIFO, a device symlink, a link to another file or a huge file is skipped with a warning.
       const read = await readSafeFile(path, {
@@ -119,9 +123,6 @@ export async function scanExistingSkills(opts: RootOptions): Promise<ScanResult>
         warnings.push(`Skipped ${path}: ${parsed}`);
         continue;
       }
-      const real = await realpath(path).catch(() => path);
-      if (seenFiles.has(real)) continue;
-      seenFiles.add(real);
       const key = JSON.stringify([parsed.name, parsed.body]);
       if (seen.has(key)) continue;
       seen.add(key);

@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findProjectRoot, resolveSkillRoots } from "../src/index";
@@ -159,10 +159,31 @@ describe("resolveSkillRoots", () => {
     expect(same[0]).toMatchObject({ harness: "codex", readBy: ["codex", "opencode"] });
   });
 
-  it("accepts a repo reached through a symlinked tmp alias without throwing", async () => {
+  it("walks up from a repo reached through a symlink alias", async () => {
+    const { t, mono } = await monorepo();
+    const alias = join(t, "alias");
+    await symlink(mono, alias);
+    const roots = await resolveSkillRoots({
+      repo: join(alias, "packages/api"),
+      home: join(t, "h"),
+      etcDir: join(t, "e"),
+    });
+    const project = roots.filter((r) => r.scope === "project").map((r) => r.dir);
+    expect(project).toContain(join(alias, "packages/api/.claude/skills"));
+    expect(project).toContain(join(alias, ".codex/skills"));
+    expect(project.every((d) => d.startsWith(alias))).toBe(true);
+  });
+
+  it("drops a root nobody reads (CLAUDE_CONFIG_DIR differs and the opt-out is set)", async () => {
     const { t, repo } = await monorepo();
-    const real = await realpath(repo);
-    const roots = await resolveSkillRoots({ repo: real, home: join(t, "h"), etcDir: join(t, "e") });
-    expect(roots.length).toBeGreaterThan(0);
+    const home = join(t, "home");
+    const roots = await resolveSkillRoots({
+      repo,
+      home,
+      etcDir: join(t, "etc"),
+      vars: { CLAUDE_CONFIG_DIR: join(t, "cc"), OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1" },
+    });
+    expect(roots.some((r) => r.dir === join(home, ".claude/skills"))).toBe(false);
+    expect(roots.find((r) => r.dir === join(t, "cc/skills"))?.readBy).toEqual(["claude-code"]);
   });
 });

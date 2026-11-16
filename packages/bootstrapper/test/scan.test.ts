@@ -13,7 +13,7 @@ describe("scanExistingSkills", () => {
     const home = await tmp();
     await put(repo, ".claude/skills/a/SKILL.md", skillMd("a", "Alpha skill", "Alpha body"));
     await put(home, ".config/opencode/skills/b/SKILL.md", skillMd("b", "Beta skill"));
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(r.warnings).toEqual([]);
     expect(r.skills).toEqual([
       {
@@ -41,7 +41,7 @@ describe("scanExistingSkills", () => {
     await put(repo, ".agents/skills/x/SKILL.md", "---\nname: [unclosed\n---\nbody");
     await put(repo, ".agents/skills/y/SKILL.md", "---\nname: y\n---\nbody");
     await put(repo, ".agents/skills/z/SKILL.md", "no frontmatter");
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(r.skills).toEqual([]);
     expect(r.warnings).toHaveLength(3);
     expect(r.warnings[0]).toContain(join(repo, ".agents/skills/x/SKILL.md"));
@@ -53,7 +53,7 @@ describe("scanExistingSkills", () => {
     await put(repo, ".claude/skills/a/SKILL.md", skillMd("a", "d"));
     await put(home, ".claude/skills/a/SKILL.md", skillMd("a", "d"));
     await put(home, ".agents/skills/a/SKILL.md", skillMd("a", "d", "different"));
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(r.skills.map((s) => [s.scope, s.body])).toEqual([
       ["project", "Body."],
       ["personal", "different"],
@@ -64,7 +64,7 @@ describe("scanExistingSkills", () => {
     const repo = await tmp();
     const home = await tmp();
     await put(repo, "AGENTS.md", "x");
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(r.instructionFiles).toEqual([join(repo, "AGENTS.md")]);
     expect(r.warnings).toEqual([]);
   });
@@ -76,7 +76,7 @@ describe("scanExistingSkills yaml safety", () => {
     const home = await tmp();
     await put(repo, ".claude/skills/w/SKILL.md", "---\nname: !weird w\ndescription: d\n---\nbody");
     const spy = vi.spyOn(process, "emitWarning");
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
     // Accepted: the unknown tag is ignored and the value stays a plain string.
@@ -115,7 +115,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     const fifo = join(repo, ".claude/skills/x/SKILL.md");
     execFileSync("mkfifo", [fifo]);
     try {
-      const r = await within(2000, scanExistingSkills({ repo, home }));
+      const r = await within(2000, scanExistingSkills({ repo, home, etcDir: join(home, "etc") }));
       expect(r.skills).toEqual([]);
       expect(r.warnings).toEqual([`Skipped ${fifo}: not a regular file`]);
     } finally {
@@ -133,7 +133,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
       ".agents/skills/big/SKILL.md",
       skillMd("big", "Big skill", "x".repeat(MAX_BASE_FILE_BYTES)),
     );
-    const r = await within(2000, scanExistingSkills({ repo, home }));
+    const r = await within(2000, scanExistingSkills({ repo, home, etcDir: join(home, "etc") }));
     expect(r.skills).toEqual([]);
     expect(r.warnings).toEqual([
       `Skipped ${join(repo, ".claude/skills/z/SKILL.md")}: not a regular file`,
@@ -148,7 +148,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     execFileSync("mkfifo", [fifo]);
     await symlink("/dev/zero", join(repo, "CLAUDE.md"));
     try {
-      const r = await within(2000, scanExistingSkills({ repo, home }));
+      const r = await within(2000, scanExistingSkills({ repo, home, etcDir: join(home, "etc") }));
       expect(r.instructionFiles).toEqual([]);
       expect(r.warnings).toEqual([
         `Skipped ${fifo}: not a regular file`,
@@ -163,7 +163,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     const repo = await tmp();
     const home = await tmp();
     await put(repo, "CLAUDE.md", "y".repeat(MAX_BASE_FILE_BYTES + 1));
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(r.instructionFiles).toEqual([join(repo, "CLAUDE.md")]);
     expect(r.warnings).toEqual([]);
   });
@@ -172,7 +172,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     const repo = await tmp();
     const home = await tmp();
     await mkdir(join(repo, ".claude/skills/empty"), { recursive: true });
-    const r = await scanExistingSkills({ repo, home });
+    const r = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
     expect(r).toEqual({ skills: [], instructionFiles: [], warnings: [] });
   });
 });
@@ -278,5 +278,17 @@ describe("scanExistingSkills registry additions", () => {
     await writeFile(join(repo, "AGENTS.md"), "x");
     const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
     expect(r.instructionFiles).toEqual([join(repo, "AGENTS.md"), join(repo, "AGENTS.override.md")]);
+  });
+
+  it("reads and warns once about a bad file reached through a symlinked root", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(home, ".claude/skills/bad/SKILL.md", "no frontmatter");
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await symlink(join(home, ".claude/skills"), join(home, ".agents/skills"));
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.warnings).toEqual([
+      `Skipped ${join(home, ".claude/skills/bad/SKILL.md")}: missing frontmatter`,
+    ]);
   });
 });

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { ExistingSkill } from "@dynamic-skills/core";
 import { describe, expect, it } from "vitest";
 import { assessCoverage, scanExistingSkills } from "../src/index";
@@ -16,7 +17,7 @@ async function skills(): Promise<ExistingSkill[]> {
     ".agents/skills/dynamic-skill-bootstrap/SKILL.md",
     skillMd("dynamic-skill-bootstrap", "Review schemas and bootstrap dynamic skills for tasks"),
   );
-  return (await scanExistingSkills({ repo, home })).skills;
+  return (await scanExistingSkills({ repo, home, etcDir: join(home, "etc") })).skills;
 }
 
 const caching = "Implement a new distributed caching strategy for the order-processing service";
