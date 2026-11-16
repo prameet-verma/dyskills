@@ -98,6 +98,7 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   `<home>/sessions/<id>/session.json` (1 MB cap) and returns `{ byDir, unparsable }`, the
   `NativeReference`s (`sessionId`, `placedAt`, `outcome`) per placement `dir` and the count of
   session files that could not be read or parsed.
+- **`SESSION_ID_PATTERN`** (`session.ts`): the `/^ds-\d{14}-[0-9a-f]{6}$/` shape of every session id; `readNativeReferences` skips directory names that do not match it.
 - **`selectExpiredPlacements({ placements, refs, unparsable, now, ttlMs? })`** (`native.ts`): pure
   sweep policy. Age starts at the newest `placedAt` among references, else `mtimeMs`; older than
   the TTL expires. Otherwise, with `unparsable === 0`, a placement with no reference, or whose

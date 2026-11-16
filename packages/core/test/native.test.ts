@@ -141,23 +141,53 @@ describe("readNativeReferences", () => {
     expect((await readNativeReferences(home)).unparsable).toBe(1);
   });
 
+  /** A valid session.json carrying a native record, as a real session would write. */
+  async function validSessionJson(): Promise<string> {
+    const home = await mkdtemp(join(tmpdir(), "ds-nat-src-"));
+    tmps.push(home);
+    const s = await new SessionStore(home).create({
+      task: "t",
+      mode: "auto",
+      explicit: false,
+      repo: "/r",
+      revision: "x",
+    });
+    return JSON.stringify({
+      ...s,
+      metrics: { ...s.metrics, outcome: "activated" },
+      native: {
+        harness: "claude-code",
+        dir: "/n/skill",
+        manifestSha256: "a".repeat(64),
+        placedAt: new Date(T).toISOString(),
+      },
+    });
+  }
+
   it("counts a symlinked session dir as unparsable", async () => {
     const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
     tmps.push(home);
     const real = await mkdtemp(join(tmpdir(), "ds-nat-real-"));
     tmps.push(real);
+    await writeFile(join(real, "session.json"), await validSessionJson());
     await mkdir(join(home, "sessions"), { recursive: true });
     await symlink(real, join(home, "sessions", "ds-20260101000000-abcdef"));
-    expect((await readNativeReferences(home)).unparsable).toBe(1);
+    const r = await readNativeReferences(home);
+    expect(r.byDir.size).toBe(0);
+    expect(r.unparsable).toBe(1);
   });
 
   it("counts a symlinked session.json as unparsable", async () => {
     const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
     tmps.push(home);
+    const elsewhere = await mkdtemp(join(tmpdir(), "ds-nat-else-"));
+    tmps.push(elsewhere);
+    await writeFile(join(elsewhere, "session.json"), await validSessionJson());
     const dir = join(home, "sessions", "ds-20260101000000-abcdef");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(home, "other.json"), "{}");
-    await symlink(join(home, "other.json"), join(dir, "session.json"));
-    expect((await readNativeReferences(home)).unparsable).toBe(1);
+    await symlink(join(elsewhere, "session.json"), join(dir, "session.json"));
+    const r = await readNativeReferences(home);
+    expect(r.byDir.size).toBe(0);
+    expect(r.unparsable).toBe(1);
   });
 });
