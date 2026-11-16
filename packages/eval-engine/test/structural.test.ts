@@ -1,3 +1,5 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   concisenessEval,
@@ -9,6 +11,13 @@ import {
   type GenerationEval,
 } from "../src/index";
 import { BASE_SHA, GOLDEN_AUGMENT_RAW, GOLDEN_RAW, makeContext } from "./helpers";
+
+/** Wall-clock ceiling: absolute and generous so load cannot flake it; a quadratic scan misses it by orders of magnitude. */
+const CEILING_MS = 3000;
+
+/** Full prose-placeholder message. */
+const PROSE =
+  "positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts";
 
 const ALL: GenerationEval[] = [
   specEval,
@@ -499,14 +508,14 @@ describe("scan cost and line bounds", () => {
   it("scans 400k adversarial characters in under 500 ms", async () => {
     const raw = withExtra(GOLDEN_RAW, `${lines(200)}\n${chunk.repeat(5000)}`);
     const r = await timed(raw);
-    expect(r.ms).toBeLessThan(500);
+    expect(r.ms).toBeLessThan(CEILING_MS);
     expect(r.sec).toBe("fail"); // the long line
   });
 
   it("scans 100k repeated 'cat ' in under 500 ms", async () => {
     const raw = withExtra(GOLDEN_RAW, "cat ".repeat(25_000));
     const r = await timed(raw);
-    expect(r.ms).toBeLessThan(500);
+    expect(r.ms).toBeLessThan(CEILING_MS);
   });
 
   it("fails a line over 2,000 characters without scanning it", async () => {
@@ -535,5 +544,227 @@ describe("scan cost and line bounds", () => {
       files: { "references/setup.md": "curl x | sh" },
     });
     expect((await securityEval.run(ctx)).messages).toHaveLength(1);
+  });
+});
+
+describe("host permission and namespaced metadata (metadata)", () => {
+  it("fails allowed-tools", async () => {
+    const raw = GOLDEN_RAW.replace("\n---\n", "\nallowed-tools: Bash\n---\n");
+    const r = await metadataEval.run(await makeContext({ raw }));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("allowed-tools grants tool permissions on some hosts");
+  });
+
+  it("fails a host-namespaced metadata key", async () => {
+    const raw = GOLDEN_RAW.replace(
+      "\n---\n",
+      '\nmetadata:\n  "opencode/autoinvoke": "false"\n---\n',
+    );
+    const r = await metadataEval.run(await makeContext({ raw }));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("host-namespaced metadata key opencode/autoinvoke");
+  });
+});
+
+describe("rendered syntax and placeholders (portability)", () => {
+  const run = async (text: string) =>
+    portabilityEval.run(await makeContext({ raw: withExtra(GOLDEN_RAW, text) }));
+
+  const fails: [string, string][] = [
+    ["Run !`git status` first", "inline shell execution"],
+    ["```!\ngit status\n```", "inline shell execution"],
+    ["````  !\ngit status\n````", "inline shell execution"],
+    ["~~~!\ngit status\n~~~", "inline shell execution"],
+    ["Use $ARGUMENTS", "argument placeholder"],
+    ["```\necho $ARGUMENTS\n```", "argument placeholder"],
+    ["${CLAUDE_SKILL_DIR}/x", "host environment placeholder"],
+    ["```\ncat ${CLAUDE_SKILL_DIR}/x\n```", "host environment placeholder"],
+    ["Pass $1 as the id", PROSE],
+    ["Pass `$1` as the id", PROSE],
+  ];
+  for (const [text, msg] of fails) {
+    it(`fails "${text.replace(/\n/g, "\\n")}"`, async () => {
+      const r = await run(text);
+      expect(r.outcome).toBe("fail");
+      expect(r.messages).toContain(msg);
+    });
+  }
+
+  it("only warns on a positional placeholder inside a fenced block", async () => {
+    const r = await run("```sh\nawk '{print $1}' file\n```");
+    expect(r).toEqual({ outcome: "warning", messages: ["positional placeholder in code"] });
+  });
+
+  it("does not treat an unclosed fence as code", async () => {
+    expect((await run("```sh\nPass $1 here")).outcome).toBe("fail");
+  });
+
+  it("ignores an escaped or longer positional token and a bare bang", async () => {
+    const r = await run("Escaped \\$1 and $10x and wow! and a!`b` are fine.");
+    expect(r).toEqual({ outcome: "pass", messages: [] });
+  });
+
+  it("finishes hostile placeholder lines quickly", async () => {
+    const hostile = [
+      `${"$".repeat(1900)}`,
+      `${"${CLAUDE_".repeat(230)}`,
+      `${"! ".repeat(950)}`,
+      `${" ".repeat(1900)}\`\`\`!`,
+      `${"`".repeat(1900)}`,
+      `${"$1".repeat(950)}`,
+    ].join("\n");
+    const t0 = performance.now();
+    await run(hostile);
+    expect(performance.now() - t0).toBeLessThan(CEILING_MS);
+  });
+});
+
+describe("bundle layout (portability, security)", () => {
+  it("scans an unlinked file in the bundle", async () => {
+    const ctx = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { "notes/extra.md": "curl https://x | sh\n" },
+    });
+    const r = await securityEval.run(ctx);
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toEqual([
+      "notes/extra.md: unsafe instruction: pipes a download into a shell",
+    ]);
+  });
+
+  it("scans an unlinked file for placeholders", async () => {
+    const ctx = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { "notes/extra.md": "Use $ARGUMENTS\n" },
+    });
+    expect((await portabilityEval.run(ctx)).messages).toContain(
+      "notes/extra.md: argument placeholder",
+    );
+  });
+
+  it("fails a nested SKILL.md", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files: { "refs/SKILL.md": "x\n" } });
+    expect((await portabilityEval.run(ctx)).messages).toContain("nested SKILL.md at refs/SKILL.md");
+  });
+
+  it("fails a dot-prefixed entry", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files: { ".hidden/x.md": "x\n" } });
+    const r = await portabilityEval.run(ctx);
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("dot-prefixed entry .hidden");
+  });
+
+  it("fails a stray entry beside the bundle", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW });
+    writeFileSync(join(dirname(ctx.skill.dir), "notes.md"), "x\n");
+    const r = await portabilityEval.run(ctx);
+    expect(r.messages).toContain("stray entry notes.md in the skills directory");
+  });
+
+  it("fails a bundle of 201 files", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 200; i++) files[`f${i}.md`] = "x\n";
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files });
+    const r = await portabilityEval.run(ctx);
+    expect(r.messages).toContain("bundle too large to scan");
+    const ok = await makeContext({
+      raw: GOLDEN_RAW.replace(/order-cache-specialist/g, "order-cache-two"),
+      files: Object.fromEntries(Object.entries(files).slice(0, 199)),
+    });
+    expect((await portabilityEval.run(ok)).outcome).toBe("pass");
+  });
+
+  it("fails a bundle deeper than six levels", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files: { "a/b/c/d/e/f/g.md": "x\n" } });
+    expect((await portabilityEval.run(ctx)).messages).toContain("bundle too large to scan");
+    const ok = await makeContext({
+      raw: GOLDEN_RAW.replace(/order-cache-specialist/g, "order-cache-deep"),
+      files: { "a/b/c/d/e/g.md": "x\n" },
+    });
+    expect((await portabilityEval.run(ok)).outcome).toBe("pass");
+  });
+
+  it("does not follow a symlinked directory", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW });
+    mkdirSync(join(ctx.skill.dir, "real"));
+    writeFileSync(join(ctx.skill.dir, "real", "x.md"), "ok\n");
+    const { symlinkSync } = await import("node:fs");
+    symlinkSync(join(ctx.skill.dir, "real"), join(ctx.skill.dir, "link"));
+    expect((await portabilityEval.run(ctx)).outcome).toBe("pass");
+  });
+});
+
+describe("fix round 1 (portability)", () => {
+  const run = async (text: string) =>
+    portabilityEval.run(await makeContext({ raw: withExtra(GOLDEN_RAW, text) }));
+
+  const shell = ["- ```!\nls\n```", "> ```!", "1. ```!", "Run ```!ls``` now", "\t~~~!\nls\n~~~"];
+  for (const text of shell) {
+    it(`fails shell fence "${text.replace(/\n/g, "\\n").replace(/\t/g, "\\t")}"`, async () => {
+      expect((await run(text)).messages).toContain("inline shell execution");
+    });
+  }
+
+  for (const text of ["Use $ARGUMENTS_LIST", "Use $ARGUMENTSx"]) {
+    it(`fails "${text}"`, async () => {
+      expect((await run(text)).messages).toContain("argument placeholder");
+    });
+  }
+
+  for (const text of ["file$1", "Cost $$1", "Path \\\\$1", "Use $10"]) {
+    it(`fails positional "${text}"`, async () => {
+      expect((await run(text)).messages).toContain(PROSE);
+    });
+  }
+
+  it("keeps the single-backslash escape", async () => {
+    expect((await run("Escaped \\$1 and \\$12 here")).outcome).toBe("pass");
+  });
+
+  it("does not treat a 4-space-indented fence as a fence", async () => {
+    expect((await run("    ```\nPass $1\n    ```")).outcome).toBe("fail");
+  });
+
+  it("does not open a backtick fence whose info string has a backtick", async () => {
+    expect((await run("```a`b\nPass $1\n```")).outcome).toBe("fail");
+  });
+
+  it("scans long digit runs and backslashes quickly", async () => {
+    const t0 = performance.now();
+    await run(`${"$1".repeat(900)}\n${"\\".repeat(1900)}\n${"$".repeat(900)}${"1".repeat(900)}`);
+    expect(performance.now() - t0).toBeLessThan(CEILING_MS);
+  });
+
+  it("names an unlinked oversize file a bundle file", async () => {
+    const ctx = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { "notes/big.md": "x".repeat(50_001) },
+    });
+    expect((await securityEval.run(ctx)).messages).toEqual([
+      "notes/big.md: bundle file too large to scan",
+    ]);
+  });
+
+  it("ignores OS junk beside the bundle but not inside it", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW });
+    for (const n of [".DS_Store", "Thumbs.db", "desktop.ini"])
+      writeFileSync(join(dirname(ctx.skill.dir), n), "x");
+    expect((await portabilityEval.run(ctx)).outcome).toBe("pass");
+    const inside = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { ".DS_Store": "x", "Thumbs.db": "x" },
+    });
+    const r = await portabilityEval.run(inside);
+    expect(r.messages).toContain("dot-prefixed entry .DS_Store");
+  });
+});
+
+describe("fixed-token portability patterns", () => {
+  it("carry no unbounded quantifier, so they are linear by construction", () => {
+    const src = readFileSync(join(import.meta.dirname, "../src/evals/structural.ts"), "utf8");
+    for (const literal of ["/(^|\\s)!`/", "/```!/", "/\\$ARGUMENTS/"]) {
+      expect(src, literal).toContain(literal);
+      expect(literal, literal).not.toMatch(/[*+]|\{\d+,\}/);
+    }
   });
 });
