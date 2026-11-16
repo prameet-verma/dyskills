@@ -1,18 +1,52 @@
 {
-  "name": "@dynamic-skills/cli",
-  "version": "0.0.0",
-  "private": true,
+  "name": "dynamic-skills",
+  "version": "0.1.0",
+  "description": "Just-in-time agent skills: assess a task, gather evidence and activate an ephemeral skill for any coding-agent harness.",
+  "keywords": [
+    "agent-skills",
+    "ai-agents",
+    "coding-agents",
+    "cli",
+    "skills"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prameetverma/dyskills.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
+  "engines": {
+    "node": ">=24"
   },
   "bin": {
     "dynamic-skills": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "build": "tsup"
+    "build": "tsup && tsx scripts/copy-skills.ts",
+    "prepack": "pnpm build"
   },
   "dependencies": {
+    "commander": "^15.1.0",
+    "smol-toml": "^1.9.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
     "@dynamic-skills/activation": "workspace:*",
     "@dynamic-skills/bootstrapper": "workspace:*",
     "@dynamic-skills/clarification-manager": "workspace:*",
@@ -23,12 +57,7 @@
     "@dynamic-skills/eval-engine": "workspace:*",
     "@dynamic-skills/evidence-registry": "workspace:*",
     "@dynamic-skills/skill-compiler": "workspace:*",
-    "commander": "^15.1.0",
-    "smol-toml": "^1.9.1",
-    "yaml": "^2.9.1",
-    "zod": "^4.6.7"
-  },
-  "devDependencies": {
-    "tsup": "^9.0.0"
+    "tsup": "^9.0.0",
+    "tsx": "^4.23.15"
   }
 }
