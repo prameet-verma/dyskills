@@ -306,7 +306,7 @@ async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
   const vars = env.vars ?? process.env;
   const resolved: Required<CliEnv> = {
     // resolveHome() only reads process.env, so a caller-supplied `vars` is honoured first.
-    home: env.home ?? vars.DYNAMIC_SKILLS_HOME ?? resolveHome(),
+    home: env.home ?? (vars.DYNAMIC_SKILLS_HOME || undefined) ?? resolveHome(),
     cwd: env.cwd ?? process.cwd(),
     userHome: env.userHome ?? homedir(),
     now: env.now ?? Date.now,

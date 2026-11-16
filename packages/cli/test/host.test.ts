@@ -105,6 +105,9 @@ describe("buildHostEnv", () => {
       const dry = await buildHostEnv(input({ dryRun: true, home })).catch((e: unknown) => e);
       expect(dry).toBeInstanceOf(UnsafeHomeError);
       expect((dry as UnsafeHomeError).message).toContain("DYNAMIC_SKILLS_HOME");
+      expect((dry as UnsafeHomeError).message).toBe(
+        ((await buildHostEnv(input({ home })).catch((e: unknown) => e)) as Error).message,
+      );
       const real = await buildHostEnv(input({ home })).catch((e: unknown) => e);
       expect(real).toBeInstanceOf(UnsafeHomeError);
     }
@@ -249,6 +252,29 @@ describe("compile and evaluate pass vars and etcDir from their context", () => {
     expect(withVars).not.toBe(without);
     expect(withVars).toContain("duplicates");
   });
+
+  it("evaluate sees a duplicate skill under the injected admin root", async () => {
+    const golden = await import("node:fs/promises").then((m) =>
+      m.readFile(join(ROOT, "fixtures/skills/valid/order-cache-specialist/SKILL.md"), "utf8"),
+    );
+    const run = async (withAdmin: boolean) => {
+      const dir = join(h.etcDir, "codex/skills/order-cache-specialist");
+      await rm(dir, { recursive: true, force: true });
+      const id = await ready(h);
+      await h.run(["compile", "--session", id]);
+      await installGolden(h, id, "valid/order-cache-specialist");
+      if (withAdmin) {
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "SKILL.md"), golden);
+      }
+      const r = await h.run(["evaluate", "--session", id]);
+      return JSON.stringify(
+        r.out.results.find((x: object) => JSON.stringify(x).includes("duplication")),
+      );
+    };
+    expect(await run(false)).toContain("not-applicable");
+    expect(await run(true)).toContain("duplicates");
+  });
 });
 
 describe("real /etc/codex guard", () => {
@@ -328,6 +354,26 @@ describe("environment overrides read from vars", () => {
       expect(r.exitCode).toBe(0);
       expect((await readdir(join(home, "sessions"))).length).toBe(1);
     } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("an empty DYNAMIC_SKILLS_HOME counts as unset", async () => {
+    const h = await harness();
+    const before = process.cwd();
+    const cwd = join(h.tmp, "somewhere");
+    await mkdir(cwd);
+    process.chdir(cwd);
+    try {
+      await runCli(["status", "--session", "nope"], {
+        cwd: h.repo,
+        userHome: h.userHome,
+        etcDir: h.etcDir,
+        vars: { DYNAMIC_SKILLS_HOME: "" },
+      });
+      expect(await readdir(cwd)).toEqual([]);
+    } finally {
+      process.chdir(before);
       await h.cleanup();
     }
   });

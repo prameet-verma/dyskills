@@ -77,13 +77,15 @@ export async function buildHostEnv(input: HostEnvInput): Promise<HostEnv> {
     // directory, never a symlink or a file.
     const info = await lstat(home).catch((e: NodeJS.ErrnoException) => {
       if (e.code === "ENOENT") return null;
-      throw new UnsafeHomeError(home, `cannot be inspected (${e.code ?? "unknown"})`);
+      throw new UnsafeHomeError(home, `it cannot be inspected (${e.code ?? "unknown"})`);
     });
-    if (info !== null && (info.isSymbolicLink() || !info.isDirectory())) {
-      throw new UnsafeHomeError(
-        home,
-        info.isSymbolicLink() ? "is a symlink" : "is not a directory",
-      );
+    if (info !== null) {
+      // Same wording and order as core's `ensurePrivateDir`, without creating or changing anything.
+      if (info.isSymbolicLink()) throw new UnsafeHomeError(home, "it is a symbolic link");
+      if (!info.isDirectory()) throw new UnsafeHomeError(home, "it is not a directory");
+      if (process.getuid !== undefined && info.uid !== process.getuid()) {
+        throw new UnsafeHomeError(home, "it is owned by another user");
+      }
     }
   } else {
     await new SessionStore(home).prepare();

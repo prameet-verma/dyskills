@@ -180,6 +180,19 @@ describe("recordStage / enforceDeadline", () => {
   });
 });
 
+describe("resolveHome with an empty variable (R30)", () => {
+  it("treats an empty DYNAMIC_SKILLS_HOME as unset", () => {
+    const prev = process.env.DYNAMIC_SKILLS_HOME;
+    process.env.DYNAMIC_SKILLS_HOME = "";
+    try {
+      expect(resolveHome()).toBe(join(tmpdir(), `dynamic-skills-${process.getuid?.() ?? "user"}`));
+    } finally {
+      if (prev === undefined) delete process.env.DYNAMIC_SKILLS_HOME;
+      else process.env.DYNAMIC_SKILLS_HOME = prev;
+    }
+  });
+});
+
 describe("private session home (I3)", () => {
   const mode = async (p: string) => (await stat(p)).mode & 0o777;
 

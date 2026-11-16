@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsup";
 
-const { version } = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+const { version } = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
+) as { version: string };
 
 /**
  * Bundles the CLI into a single ESM file with a node shebang. The workspace packages ship as

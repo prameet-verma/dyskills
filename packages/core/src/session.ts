@@ -29,14 +29,15 @@ export const PRIVATE_DIR_MODE = 0o700;
 export const PRIVATE_FILE_MODE = 0o600;
 
 /**
- * Root directory for ephemeral session data: `DYNAMIC_SKILLS_HOME` if set, otherwise
+ * Root directory for ephemeral session data: `DYNAMIC_SKILLS_HOME` if set and non-empty (an empty
+ * value counts as unset, Ruling R30), otherwise
  * `<os tmpdir>/dynamic-skills-<uid>` (`-user` where the platform has no uid). The uid suffix keeps
  * users of a shared temp dir (Linux `/tmp`) from sharing, or squatting on, one home. Phase 1
  * writes only beneath `<home>/sessions/<id>/`, plus the archived metrics in `<home>/reports/`.
  */
 export function resolveHome(): string {
   return (
-    process.env.DYNAMIC_SKILLS_HOME ??
+    (process.env.DYNAMIC_SKILLS_HOME || undefined) ??
     join(tmpdir(), `dynamic-skills-${process.getuid?.() ?? "user"}`)
   );
 }
