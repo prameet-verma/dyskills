@@ -26,6 +26,8 @@ const LANGUAGES: Record<string, string> = {
 
 const MAX_LANGUAGES = 5;
 const MAX_HEADINGS = 10;
+/** Most entrypoint candidates reported; the rest are dropped after sorting by path. */
+export const MAX_ENTRYPOINTS = 20;
 
 /** Builds an observation that is read directly from the repository (hence `verified`). */
 function observe(ctx: DetectorContext, key: string, value: string, source: string): EvidenceInput {
@@ -126,9 +128,8 @@ const architectureDetector: Detector = {
     }
     for (const f of ["main.py", "app/main.py"]) if (present.has(f)) candidates.add(f);
     if (candidates.size > 0) {
-      out.push(
-        observe(ctx, "architecture.entrypoints", [...candidates].sort().join(", "), "file index"),
-      );
+      const sorted = [...candidates].sort().slice(0, MAX_ENTRYPOINTS);
+      out.push(observe(ctx, "architecture.entrypoints", sorted.join(", "), "file index"));
     }
     return out;
   },
@@ -167,9 +168,12 @@ const conventionsDetector: Detector = {
 
     // README headings are untrusted repo text: the registry sanitises the value and Task 10
     // fences it, so it is deliberately reported rather than filtered here (PRD §7).
-    const readme = await ctx.readText("README.md");
+    const readmePath = ctx.files.files.filter((f) => f.toLowerCase() === "readme.md").sort()[0];
+    const readme = readmePath === undefined ? null : await ctx.readText(readmePath);
     const hs = readme === null ? [] : headings(readme, MAX_HEADINGS);
-    if (hs.length > 0) out.push(observe(ctx, "conventions.readme", hs.join(" | "), "README.md"));
+    if (hs.length > 0 && readmePath !== undefined) {
+      out.push(observe(ctx, "conventions.readme", hs.join(" | "), readmePath));
+    }
 
     if (present.has("CONTRIBUTING.md")) {
       out.push(observe(ctx, "conventions.contributing", "CONTRIBUTING.md", "CONTRIBUTING.md"));

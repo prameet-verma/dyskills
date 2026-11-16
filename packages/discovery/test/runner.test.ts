@@ -135,8 +135,8 @@ describe("runDiscovery", () => {
       expect(e?.conflicts[1]).toBe("v2 (d2)");
       expect(e?.conflicts[2]).toBe("v4 (d4)");
       expect(r.detectorsRun).toEqual(detectors.map((d) => d.id));
-      // Errors are recorded as detectors fail (reverse completion), which proves the delays bite.
-      expect(r.errors.map((x) => x.detector)).toEqual(["d5", "d3", "d1"]);
+      // Detectors fail in reverse order (d5 first), yet errors are reported sorted by id.
+      expect(r.errors.map((x) => x.detector)).toEqual(["d1", "d3", "d5"]);
     });
 
     it("honours an explicit concurrency of 1", async () => {

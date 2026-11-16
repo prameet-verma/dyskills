@@ -27,7 +27,7 @@ export interface DiscoveryResult {
   detectorsRun: string[];
   /** Wall-clock milliseconds per detector id. */
   durations: Record<string, number>;
-  /** Detectors that threw; their evidence is absent but others are unaffected. */
+  /** Detectors that threw, sorted by detector id; their evidence is absent but others are unaffected. */
   errors: { detector: string; message: string }[];
 }
 
@@ -50,7 +50,10 @@ export async function runDiscovery(opts: {
   signal?: AbortSignal;
 }): Promise<DiscoveryResult> {
   const repo = resolve(opts.repo);
-  const [files, revision] = await Promise.all([buildFileIndex(repo), getRepoRevision(repo)]);
+  const [files, revision] = await Promise.all([
+    buildFileIndex(repo, { signal: opts.signal }),
+    getRepoRevision(repo),
+  ]);
   const ctx: DetectorContext = { repo, revision, files, readText: createRepoReader(repo) };
   const selected = selectDetectors(opts.task, opts.detectors ?? ALL_DETECTORS);
 
@@ -73,6 +76,7 @@ export async function runDiscovery(opts: {
     { signal: opts.signal },
   );
 
+  errors.sort((a, b) => (a.detector < b.detector ? -1 : a.detector > b.detector ? 1 : 0));
   const registry = new EvidenceRegistry();
   for (const batch of results) for (const e of batch) registry.add(e);
   return { registry, files, detectorsRun: selected.map((d) => d.id), durations, errors };

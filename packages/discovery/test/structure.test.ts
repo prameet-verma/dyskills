@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { MAX_ENTRYPOINTS } from "../src/detectors/structure";
 import { runDiscovery } from "../src/index";
 import { fixture } from "./helpers";
 
@@ -70,5 +71,24 @@ describe("structure detectors", () => {
     expect(v("architecture.entrypoints")).toBe("bin/x.js, lib/a.js, src/index.js");
     expect(v("conventions.readme")).toBe("One | Two");
     expect(JSON.stringify(registry.toJSON())).not.toContain("SECRET-BODY");
+  });
+
+  it("caps entrypoints at MAX_ENTRYPOINTS, sorted by path", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) files[`pkg${String(i).padStart(2, "0")}/src/index.ts`] = "";
+    const repo = makeRepo(files);
+    const { registry } = await runDiscovery({ repo, task: "x" });
+    const list = (registry.get("architecture.entrypoints")?.value ?? "").split(", ");
+    expect(MAX_ENTRYPOINTS).toBe(20);
+    expect(list).toHaveLength(20);
+    expect(list[0]).toBe("pkg00/src/index.ts");
+    expect(list[19]).toBe("pkg19/src/index.ts");
+  });
+
+  it("detects README.md case-insensitively", async () => {
+    const repo = makeRepo({ "Readme.MD": "# Hello there\n" });
+    const { registry } = await runDiscovery({ repo, task: "x" });
+    expect(registry.get("conventions.readme")?.value).toBe("Hello there");
+    expect(registry.get("conventions.readme")?.source).toBe("Readme.MD");
   });
 });

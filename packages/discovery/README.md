@@ -12,7 +12,7 @@ failing detector never stops the others.
   (default 4) and returns `{ registry, files, detectorsRun, durations, errors }`.
 - **`selectDetectors(task, detectors)`**: keeps detectors that are `always` or whose
   `keywords` match the task.
-- **`buildFileIndex(repo, { maxFiles?, maxDepth? })`** (`file-index.ts`): deterministic
+- **`buildFileIndex(repo, { maxFiles?, maxDepth?, signal? })`** (`file-index.ts`): deterministic
   breadth-first listing, skipping dependency/build directories and secret paths.
 - **`resolveRepoPath(repo, rel)`** and **`createRepoReader(repo)`** (`safe-read.ts`): sandboxed
   reads. Rejects secret paths, `SKIPPED_DIRS` segments and anything outside the repository,
@@ -45,8 +45,8 @@ failing detector never stops the others.
 Evidence keys: `runtime.node`, `runtime.node.engines`, `runtime.python`, `package-manager`,
 `framework.<name>`, `database.<name>`, `monorepo.{nx,turborepo,workspaces,pnpm-workspace}` (`workspaces` from package.json, `pnpm-workspace` from pnpm-workspace.yaml),
 `testing.<name>`, `build.script.<name>`, `build.make.<target>`, `language.<name>` (top 5, `"<n> files"`),
-`ci.github-actions`, `ci.gitlab`, `architecture.top-level-dirs`, `architecture.entrypoints`,
-`conventions.readme` (first 10 README headings, untrusted), `conventions.contributing`,
+`ci.github-actions`, `ci.gitlab`, `architecture.top-level-dirs`, `architecture.entrypoints` (at most `MAX_ENTRYPOINTS` = 20, sorted by path),
+`conventions.readme` (first 10 headings of `readme.md`, matched case-insensitively; untrusted), `conventions.contributing`,
 `conventions.adr`, `conventions.agents-md`, `conventions.claude-md` (the last two are path only).
 
 ## Example
