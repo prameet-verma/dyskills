@@ -1,0 +1,6 @@
+# User Codex configuration (fixture); Dynamic Skills never edits this file.
+model = "gpt-5.5"
+approval_policy = "on-request"
+
+[features]
+apps = true
