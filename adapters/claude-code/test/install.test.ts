@@ -1,4 +1,5 @@
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -290,5 +291,18 @@ describe("claude-code installer", () => {
     expect(notes).not.toContain("Read(./.env)");
     const clean = await setup();
     expect((await plan(clean, "personal")).notes.join("\n")).not.toMatch(/deny beats allow/);
+  });
+
+  it("does not read a FIFO or symlinked project settings file for the deny note", async () => {
+    const w = await setup();
+    const dir = join(w.project, ".claude");
+    await mkdir(dir, { recursive: true });
+    execFileSync("mkfifo", [join(dir, "settings.json")]);
+    const outside = join(w.home, "denies.json");
+    await writeFile(outside, JSON.stringify({ permissions: { deny: ["Bash(dynamic-skills *)"] } }));
+    await symlink(outside, join(dir, "settings.local.json"));
+    // A FIFO read would block forever; the plan must still resolve, without the deny note.
+    const notes = (await plan(w, "project")).notes.join("\n");
+    expect(notes).not.toMatch(/deny beats allow/);
   });
 });

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
   ANALYST_AGENT_NAME,
@@ -43,9 +43,18 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-/** Rules in `file`'s `permissions.deny` that block `dynamic-skills`; unreadable or invalid files yield none. */
+/** Largest settings file the deny check reads; anything bigger is left to the merge's own checks. */
+const MAX_SETTINGS_BYTES = 1024 * 1024;
+
+/**
+ * Rules in `file`'s `permissions.deny` that block `dynamic-skills`. Only a regular file (not a
+ * symlink, FIFO or device; a project may be untrusted) of at most 1 MiB is read; unreadable or
+ * invalid files yield none.
+ */
 async function blockingDenies(file: string): Promise<string[]> {
   try {
+    const st = await lstat(file);
+    if (!st.isFile() || st.size > MAX_SETTINGS_BYTES) return [];
     const doc: unknown = JSON.parse(await readFile(file, "utf8"));
     const deny = (doc as { permissions?: { deny?: unknown } } | null)?.permissions?.deny;
     if (!Array.isArray(deny)) return [];
