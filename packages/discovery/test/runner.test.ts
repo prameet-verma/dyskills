@@ -103,15 +103,19 @@ describe("runDiscovery", () => {
       expect(inflight.max).toBeLessThanOrEqual(DISCOVERY_CONCURRENCY);
     });
 
-    it("merges evidence in detector order and records errors as detectors fail", async () => {
+    it("merges evidence in detector order and reports errors sorted by id", async () => {
       const n = 6;
+      const failed: string[] = [];
       const detectors: Detector[] = Array.from({ length: n }, (_, i) => ({
         id: `d${i}`,
         categories: ["runtime"],
         always: true,
         async run(ctx) {
           await new Promise((r) => setTimeout(r, (n - i) * 15));
-          if (i % 2 === 1) throw new Error(`boom${i}`);
+          if (i % 2 === 1) {
+            failed.push(`d${i}`);
+            throw new Error(`boom${i}`);
+          }
           return [
             {
               key: "runtime.order",
@@ -135,8 +139,29 @@ describe("runDiscovery", () => {
       expect(e?.conflicts[1]).toBe("v2 (d2)");
       expect(e?.conflicts[2]).toBe("v4 (d4)");
       expect(r.detectorsRun).toEqual(detectors.map((d) => d.id));
-      // Errors are recorded as detectors fail (reverse completion), which proves the delays bite.
-      expect(r.errors.map((x) => x.detector)).toEqual(["d5", "d3", "d1"]);
+      // Detectors fail in reverse order (d5 first), yet errors are reported sorted by id.
+      expect(failed).toEqual(["d5", "d3", "d1"]);
+      expect(r.errors.map((x) => x.detector)).toEqual(["d1", "d3", "d5"]);
+    });
+
+    it("sorts errors by id even when input order is not alphabetical", async () => {
+      const failing = (id: string, ms: number): Detector => ({
+        id,
+        categories: ["runtime"],
+        always: true,
+        async run() {
+          await new Promise((r) => setTimeout(r, ms));
+          throw new Error(id);
+        },
+      });
+      const r = await runDiscovery({
+        repo: fixture("ts-monorepo"),
+        task: "x",
+        detectors: [failing("zeta", 40), failing("alpha", 1)],
+        concurrency: 2,
+      });
+      expect(r.detectorsRun).toEqual(["zeta", "alpha"]);
+      expect(r.errors.map((x) => x.detector)).toEqual(["alpha", "zeta"]);
     });
 
     it("honours an explicit concurrency of 1", async () => {

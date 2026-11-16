@@ -56,3 +56,11 @@ describe("depthLimited", () => {
     });
   });
 });
+
+describe("abort", () => {
+  it("rejects immediately when already aborted", async () => {
+    await expect(buildFileIndex(tmp(), { signal: AbortSignal.abort() })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+});

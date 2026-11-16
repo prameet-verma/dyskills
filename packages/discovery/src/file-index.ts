@@ -35,12 +35,14 @@ export const SKIPPED_DIRS: readonly string[] = [
  * omitted. Unreadable directories are ignored.
  *
  * @param repo - Absolute repository root.
- * @param opts - `maxFiles` (default 5000) and `maxDepth` (default 6; root files are depth 0).
+ * @param opts - `maxFiles` (default 5000), `maxDepth` (default 6; root files are depth 0) and an
+ * optional abort `signal`, checked before each directory is read.
  * @returns The index; `truncated` is true if more files existed than `maxFiles`.
+ * @throws An error named `AbortError` if the signal aborts during the walk.
  */
 export async function buildFileIndex(
   repo: string,
-  opts: { maxFiles?: number; maxDepth?: number } = {},
+  opts: { maxFiles?: number; maxDepth?: number; signal?: AbortSignal } = {},
 ): Promise<RepoFileIndex> {
   const maxFiles = opts.maxFiles ?? 5000;
   const maxDepth = opts.maxDepth ?? 6;
@@ -50,6 +52,7 @@ export async function buildFileIndex(
   for (let depth = 0; queue.length > 0 && depth <= maxDepth; depth++) {
     const next: string[] = [];
     for (const dir of queue) {
+      if (opts.signal?.aborted) throw new DOMException("The walk was aborted", "AbortError");
       let entries;
       try {
         entries = await readdir(join(repo, dir), { withFileTypes: true });
