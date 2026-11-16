@@ -18,7 +18,66 @@ session home (`init` and `save`). It names no harness; it only uses core's `Harn
   reported (the existing value is kept), opt-in scalar-to-object promotion. No force option.
 - `previewPlan(plan, { force })`, `applyPlan(plan, { dryRun, force })`, `PlanApplyError`.
 - `verifyInstall(plan, probe)`.
-- `./testkit` (shared adapter conformance cases) is added by a later task.
+- Bundles: `bundleManifest(dir)`, `placeBundle({ srcDir, destRoot, name, mode, within, dryRun })`,
+  `removePlacedBundle(path, manifestSha256)`, `findSaveConflicts({ name, manifestSha256, roots })`,
+  `BundleLayoutError`, and `planSaveTargets({ harnesses, primary, readRoots })`.
+- Analyst text: `ANALYST_AGENT_NAME`, `ANALYST_DESCRIPTION`, `ANALYST_INSTRUCTIONS`.
+- `@dynamic-skills/adapter-sdk/testkit`: `defineAdapterCompatSuite(target)` (see below).
+
+## Bundle placement
+
+`placeBundle` copies a skill bundle to `<destRoot>/<name>` byte-identically and atomically: the copy
+goes into `<destRoot>/.<name>.tmp-<8 hex>` (files 0644 / dirs 0755 for `save`, 0600 / 0700 for
+`native`) and is `rename`d into place. It never overwrites and never throws for an environment
+problem; it returns `action: "conflict"` with a `reason`:
+
+- `outside project`: with `within` set, the realpath of `destRoot` is not inside it.
+- `symlink`: the target is a symlink. `differs`: the target exists with another manifest (or is not
+  a directory). `race`: the target appeared before `rename`; the temp copy is removed.
+- `parent is a dangling symlink` / `parent is a symlink loop` / `parent is not a directory`: the
+  `realpathOfPlanned` failures of the parent chain.
+
+`name` must pass `SkillNameSchema`, else `BundleLayoutError` is thrown (as it is for a symlink or a
+non-regular entry in the source bundle). A missing `destRoot` is created; `dryRun` creates nothing.
+An equal existing bundle is `unchanged`. The manifest ignores modes and timestamps. `testHooks` on
+`placeBundle` is an internal test seam. `removePlacedBundle` removes a bundle only when it is a plain
+directory whose current manifest equals the given sha256. `findSaveConflicts` lists `<root>/<name>`
+entries that differ or are not plain directories. `planSaveTargets` greedily picks the fewest primary
+skill roots that every selected harness reads (a harness reads a root when some `ReadRoot` for that
+directory lists it in `readBy`).
+
+## Using the testkit
+
+An adapter package adds one test file:
+
+```ts
+import { defineAdapterCompatSuite } from "@dynamic-skills/adapter-sdk/testkit";
+
+defineAdapterCompatSuite({
+  name: "<id>",
+  adapter,
+  fixtureHome, // absolute; copied to <tmp>/home per case
+  versionOutput, // fake `<binary> --version` stdout
+  scan, // lists the skills the harness would find: ({ repo, home, vars, etcDir }) => { skills }
+  expect: {
+    version,
+    variant,
+    questionTool,
+    maxPerCall,
+    maxOptions,
+    multiSelect,
+    nativeActivation,
+    writesSessionHome,
+  },
+});
+```
+
+It registers 13 cases under `adapter compat: <name>` (version detection, byte-identical bootstrap,
+idempotent init, dry run, preserved user config, committable project files, conflict on a different
+bootstrap, real paths, byte-identical save, same-name conflict, structured questions, native root,
+read-only analyst). Cases run in a tmp world with a fake probe and a session home reached through a
+symlink alias. Native question calls are inspected generically: a call's size is
+`call.questions.length` when present, and option labels are arrays of strings or `{ label }` objects.
 
 ## Write discipline
 
