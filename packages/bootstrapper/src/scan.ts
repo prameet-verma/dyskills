@@ -1,11 +1,10 @@
-import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { MAX_BASE_FILE_BYTES } from "@dynamic-skills/core";
-import type { ExistingSkill } from "@dynamic-skills/core";
-import { readRegularFile } from "@dynamic-skills/discovery";
-import type { FileReadRejection } from "@dynamic-skills/discovery";
+import { MAX_BASE_FILE_BYTES, readSafeFile } from "@dynamic-skills/core";
+import type { ExistingSkill, SafeReadRejection } from "@dynamic-skills/core";
 import { parse } from "yaml";
+import { resolveSkillRoots } from "./roots";
+import type { RootOptions } from "./roots";
 
 /** Result of {@link scanExistingSkills}. */
 export interface ScanResult {
@@ -17,33 +16,20 @@ export interface ScanResult {
   warnings: string[];
 }
 
-interface SkillRoot {
-  scope: ExistingSkill["scope"];
-  harness: ExistingSkill["harness"];
-  base: "repo" | "home";
-  dir: string;
-}
-
-// PRD §11.3: the one place in the core packages that names harness storage locations. The order
-// is the dedupe priority: project before personal, then the order listed in the PRD table.
-const ROOTS: SkillRoot[] = [
-  { scope: "project", harness: "claude-code", base: "repo", dir: ".claude/skills" },
-  { scope: "project", harness: "codex", base: "repo", dir: ".agents/skills" },
-  { scope: "project", harness: "opencode", base: "repo", dir: ".opencode/skills" },
-  { scope: "personal", harness: "claude-code", base: "home", dir: ".claude/skills" },
-  { scope: "personal", harness: "codex", base: "home", dir: ".agents/skills" },
-  { scope: "personal", harness: "opencode", base: "home", dir: ".config/opencode/skills" },
-];
-
-const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
+const INSTRUCTION_FILES = ["AGENTS.md", "AGENTS.override.md", "CLAUDE.md"];
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
 
 /**
- * Parses a SKILL.md into name, description and trimmed body.
+ * Parses a SKILL.md into name, description and trimmed body. A leading BOM is ignored; `name` is
+ * optional and defaults to `dirName`; an empty `name` or a missing or empty `description` fails.
  * @returns the parsed fields, or a reason string when the file is not a valid skill.
  */
-function parseSkill(text: string): { name: string; description: string; body: string } | string {
+function parseSkill(
+  rawText: string,
+  dirName: string,
+): { name: string; description: string; body: string } | string {
+  const text = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
   const match = FRONTMATTER.exec(text);
   if (!match) return "missing frontmatter";
   let data: unknown;
@@ -57,15 +43,20 @@ function parseSkill(text: string): { name: string; description: string; body: st
     return "frontmatter is not a mapping";
   }
   const { name, description } = data as Record<string, unknown>;
-  if (typeof name !== "string" || typeof description !== "string") {
-    return "frontmatter needs string name and description";
+  if (name !== undefined && name !== null && typeof name !== "string") {
+    return "frontmatter name must be a string";
   }
-  return { name, description, body: (match[2] ?? "").trim() };
+  if (typeof name === "string" && name.trim() === "") return "frontmatter name is empty";
+  if (typeof description !== "string" || description.trim() === "") {
+    return "frontmatter needs a non-empty description";
+  }
+  return { name: name ?? dirName, description, body: (match[2] ?? "").trim() };
 }
 
-/** Warning text per refusal of {@link readRegularFile}; `missing` is silent and never shown. */
-const REJECTIONS: Record<Exclude<FileReadRejection, "missing">, string> = {
+/** Warning text per refusal of {@link readSafeFile}; `missing` is silent and never shown. */
+const REJECTIONS: Record<Exclude<SafeReadRejection, "missing">, string> = {
   "not-a-file": "not a regular file",
+  "wrong-name": "not a regular file",
   "too-large": `larger than ${MAX_BASE_FILE_BYTES} bytes`,
   unreadable: "unreadable",
 };
@@ -89,40 +80,45 @@ async function instructionFileState(path: string): Promise<boolean | string> {
 /**
  * Finds skills already installed for the project and the user (PRD §11.3, §12.2) so the pipeline
  * can reuse or avoid duplicating them. Read-only; never throws for missing directories or bad
- * files, which become warnings instead. Every `SKILL.md` is read through one non-blocking handle
- * that accepts only a regular file of at most {@link MAX_BASE_FILE_BYTES}; instruction files are
- * only `stat`-ed, never opened. A missing `SKILL.md` or instruction file is silent.
- * @param opts.repo repository root; project skills and instruction files are read from here.
- * @param opts.home user home directory; defaults to `os.homedir()`.
- * @returns skills (same name and body found twice keeps the first), instruction files, warnings.
+ * files, which become warnings instead. Roots come from {@link resolveSkillRoots}; only direct
+ * children `<root>/<entry>/SKILL.md` are read (nested `SKILL.md` files are not found). Every
+ * `SKILL.md` is read through one non-blocking handle that accepts only a regular file of at most
+ * {@link MAX_BASE_FILE_BYTES} whose resolved name is `SKILL.md`; instruction files are only
+ * `stat`-ed, never opened. A missing `SKILL.md` or instruction file is silent.
+ * @param opts - Repository, home, environment values and optional `etcDir` (see {@link RootOptions}).
+ * @returns skills (one file reached twice, or the same name and body, is kept once), instruction
+ *   files, warnings.
  */
-export async function scanExistingSkills(opts: {
-  repo: string;
-  home?: string;
-}): Promise<ScanResult> {
-  const home = opts.home ?? homedir();
+export async function scanExistingSkills(opts: RootOptions): Promise<ScanResult> {
   const skills: ExistingSkill[] = [];
   const warnings: string[] = [];
   const seen = new Set<string>();
+  const seenFiles = new Set<string>();
 
-  for (const root of ROOTS) {
-    const base = join(root.base === "repo" ? opts.repo : home, root.dir);
+  for (const root of await resolveSkillRoots(opts)) {
     let entries: string[];
     try {
-      entries = (await readdir(base)).sort();
+      entries = (await readdir(root.dir)).sort();
     } catch {
       continue; // A missing skills directory is normal, not a warning.
     }
     for (const entry of entries) {
-      const path = join(base, entry, "SKILL.md");
+      const path = join(root.dir, entry, "SKILL.md");
+      // One file reached through two roots (a symlinked root) is read and reported only once.
+      const real = await realpath(path).catch(() => path);
+      if (seenFiles.has(real)) continue;
+      seenFiles.add(real);
       // The repository is untrusted: one non-blocking, regular-file-only, size-capped read, so a
-      // FIFO, a device symlink or a huge file is skipped instead of hanging or exhausting memory.
-      const read = await readRegularFile(path, MAX_BASE_FILE_BYTES);
+      // FIFO, a device symlink, a link to another file or a huge file is skipped with a warning.
+      const read = await readSafeFile(path, {
+        maxBytes: MAX_BASE_FILE_BYTES,
+        realBasename: "SKILL.md",
+      });
       if (!read.ok) {
         if (read.reason !== "missing") warnings.push(`Skipped ${path}: ${REJECTIONS[read.reason]}`);
         continue;
       }
-      const parsed = parseSkill(read.text);
+      const parsed = parseSkill(read.text, entry);
       if (typeof parsed === "string") {
         warnings.push(`Skipped ${path}: ${parsed}`);
         continue;

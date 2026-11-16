@@ -1,4 +1,4 @@
-import { dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { SkillSufficiencyAssessment, SkillsScan } from "@dynamic-skills/core";
 import { describe, expect, it } from "vitest";
 import {
@@ -20,7 +20,7 @@ async function fixture(): Promise<{ skills: SkillsScan["skills"]; instructionFil
     skillMd("dynamic-skill-bootstrap", "Bootstrap"),
   );
   await put(repo, "AGENTS.md", "# Agents\n");
-  const scan = await scanExistingSkills({ repo, home });
+  const scan = await scanExistingSkills({ repo, home, etcDir: join(home, "etc") });
   return {
     skills: scan.skills,
     instructionFiles: scan.instructionFiles.map((p) => relative(repo, p)),
