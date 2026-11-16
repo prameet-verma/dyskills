@@ -29,13 +29,14 @@ behavioural smoke recorder; it implements PRD §5.5
   an exclamation mark), an arguments placeholder, a host environment placeholder, and a
   positional placeholder (`$1`) in prose, where an inline code span counts as prose. A positional
   placeholder inside a fenced code block only warns. Layout failures: a nested `SKILL.md`, any
-  dot-prefixed entry, any other entry beside the bundle in its skills directory, and a bundle too
+  dot-prefixed entry, any other entry beside the bundle in its skills directory (operating-system junk files such as
+  `.DS_Store` are ignored there, never inside the bundle), and a bundle too
   large to scan. The exact patterns live next to the code in `src/evals/structural.ts`.
 - `securityEval` (mandatory): fails on piping downloads into a shell, destructive deletes, unsafe
   flags, prompt-injection phrases, reading secrets, weakening the sandbox, global installs and
   MCP server installation; warns on force pushes. Every file inside the skill directory (linked
-  or not)
-  is scanned too (up to 50,000 bytes each; lines over 2,000 characters fail). Cautionary or
+  or not) is scanned too: up to 50,000 bytes each, and a larger file, a binary included, fails
+  closed; lines over 2,000 characters fail. Cautionary or
   negated mentions fail on purpose, because negation is easy to evade: restrictions must be
   phrased without quoting the command.
 - `groundingEval` (mandatory): every `[evidence:]`/`[inferred:]` key exists and is not conflicting,
@@ -51,8 +52,9 @@ behavioural smoke recorder; it implements PRD §5.5
 - `completenessEval`: each answerable gap category is cited (warning); user evidence must be
   cited (fail).
 - `scopeEval`: the description shares a content word with the task.
-- `roleEval` (headings count in both `## X` and underlined setext form): five role sections for a new skill; task contract, project context and optional
-  additions only, for an augmentation.
+- `roleEval`: headings count in both `## X` and underlined setext form (a multi-line setext
+  heading is one heading); five role sections for a new skill; task contract, project context
+  and optional additions only, for an augmentation.
 - `duplicationEval`: 8-word shingle containment against existing skills and instruction text;
   an augmentation is also checked base-side (0.3 fails, 0.15 warns).
 - `behaviouralDefinitionEval` (mandatory): a smoke eval with prohibited behaviour and an

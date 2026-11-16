@@ -183,6 +183,9 @@ interface ScanUnit {
   text: string;
 }
 
+/** Names an operating system drops beside a bundle; siblings never ship, so they are ignored. */
+const OS_JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+
 /** What the bundle walk found. */
 interface BundleWalk {
   /** Regular files other than the root SKILL.md, with their bundle-relative `/` path. */
@@ -253,13 +256,20 @@ async function collectScanUnits(
     return { units, failures, layout };
   }
   const seen = new Set<string>();
+  const linked = new Set<string>();
+  for (const ref of ctx.skill.references) {
+    const r = await resolveReference(ctx.skill.dir, root, ref);
+    if (!("problem" in r)) linked.add(r.real);
+  }
   const add = async (label: string, real: string): Promise<void> => {
     // SKILL.md is already scanned; two links (or a symlink alias) to one file are scanned once.
     if (real === skillMd || seen.has(real)) return;
     seen.add(real);
     try {
       if ((await stat(real)).size > MAX_REFERENCED_BYTES) {
-        failures.push(`${label}: referenced file too large to scan`);
+        failures.push(
+          `${label}: ${linked.has(real) ? "referenced" : "bundle"} file too large to scan`,
+        );
         return;
       }
       units.push({ label, text: await readFile(real, "utf8") });
@@ -277,7 +287,8 @@ async function collectScanUnits(
   try {
     const own = basename(ctx.skill.dir);
     for (const name of (await readdir(dirname(ctx.skill.dir))).sort()) {
-      if (name !== own) layout.push(`stray entry ${name} in the skills directory`);
+      if (name !== own && !OS_JUNK.has(name))
+        layout.push(`stray entry ${name} in the skills directory`);
     }
   } catch {
     // An unreadable parent is not a finding; the bundle itself was already read.
@@ -318,19 +329,22 @@ function after(line: string, anchor: RegExp, tail: RegExp): boolean {
 
 /**
  * Which lines of `lines` sit inside a fenced code block (opener and closer included). A fence
- * opens with three or more backticks or tildes and closes on the same character with at least
- * the same length and no info string (CommonMark); a fence still open at the end is treated as
- * not fenced, so an unterminated fence cannot turn prose into code.
+ * opens with three or more backticks or tildes after at most three spaces of indentation (four
+ * or more is indented code); a backtick opener whose info string contains a backtick is not a
+ * fence. It closes on the same character with at least the same length and no info string
+ * (CommonMark). A fence still open at the end is treated as not fenced, so an unterminated fence
+ * cannot turn prose into code.
  */
 function fencedLines(lines: readonly string[]): boolean[] {
   const fenced = new Array<boolean>(lines.length).fill(false);
   let open: { run: string; at: number } | null = null;
   lines.forEach((line, i) => {
-    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     const run = m?.[1] ?? "";
-    const bare = m !== null && line.slice(m[0].length).trim() === "";
+    const rest = m === null ? "" : line.slice(m[0].length);
+    const bare = m !== null && rest.trim() === "";
     if (open === null) {
-      if (run !== "") open = { run, at: i };
+      if (run !== "" && !(run.startsWith("`") && rest.includes("`"))) open = { run, at: i };
     } else if (bare && run[0] === open.run[0] && run.length >= open.run.length) {
       for (let j = open.at; j <= i; j++) fenced[j] = true;
       open = null;
@@ -432,12 +446,16 @@ const RENDERED_SYNTAX: { re: RegExp; label: string }[] = [
   // Inline shell execution: !` at line start or after whitespace, or a fence opened with !.
   { re: /(^|\s)!`/, label: "inline shell execution" },
   { re: /^\s*(`{3,}|~{3,})\s*!/, label: "inline shell execution" },
-  { re: /\$ARGUMENTS\b/, label: "argument placeholder" },
+  { re: /```!/, label: "inline shell execution" },
+  { re: /\$ARGUMENTS/, label: "argument placeholder" },
   { re: /\$\{CLAUDE_[A-Z_]+\}/, label: "host environment placeholder" },
 ];
 
-/** `$0`-`$9` not preceded by a word character, `$` or backslash and not followed by a word character. */
-const POSITIONAL = /(?<![\w$\\])\$[0-9](?!\w)/;
+/**
+ * `$` and digits not followed by a word character, as hosts substitute them wherever they sit
+ * (`file$1`, `$$1`, `$10`). The one exemption is a `$` escaped by a single backslash (`\$1`).
+ */
+const POSITIONAL = /(?<!(?:^|[^\\])\\)\$\d+(?!\w)/;
 
 /**
  * Fails on any harness-specific reference or host-rendered syntax in the bundle (SKILL.md and

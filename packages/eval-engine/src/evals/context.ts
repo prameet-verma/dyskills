@@ -111,35 +111,61 @@ function sectionsOf(body: string): Section[] {
   const fenced: boolean[] = new Array<boolean>(lines.length).fill(false);
   let open: { run: string; at: number } | null = null;
   lines.forEach((line, i) => {
-    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    // CommonMark: at most three spaces of indent; only an opening fence may carry an info
+    // string, and a backtick fence's info string may not contain a backtick.
+    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     const run = m?.[1] ?? "";
-    // CommonMark: only an opening fence may carry an info string.
-    const bare = m !== null && line.slice(m[0].length).trim() === "";
+    const rest = m === null ? "" : line.slice(m[0].length);
+    const bare = m !== null && rest.trim() === "";
     if (open === null) {
-      if (run !== "") open = { run, at: i };
+      if (run !== "" && !(run.startsWith("`") && rest.includes("`"))) open = { run, at: i };
     } else if (bare && run[0] === open.run[0] && run.length >= open.run.length) {
       for (let j = open.at; j <= i; j++) fenced[j] = true;
       open = null;
     }
   });
-  // A setext heading is a text line underlined by `===` or `---`. Both underline kinds count, so
-  // a setext heading cannot slip a section past the augmentation allow-list. The text line must
-  // not be a list item, quote, ATX heading or indented code (there the underline is a rule).
-  const setext = new Set<number>();
-  for (let i = 1; i < lines.length; i++) {
-    const prev = lines[i - 1] ?? "";
-    if (fenced[i] === true || fenced[i - 1] === true || setext.has(i - 1)) continue;
-    if (!/^ {0,3}(?:=+|-+)[ \t]*$/.test(lines[i] ?? "")) continue;
-    if (!/^ {0,3}[^\s>#]/.test(prev) || /^ {0,3}(?:[-*+]|\d+[.)])(?:\s|$)/.test(prev)) continue;
-    if (/^ {0,3}(?:[-*_][ \t]*){3,}$/.test(prev) || /^ {0,3}(?:=+|-+)[ \t]*$/.test(prev)) continue;
-    setext.add(i);
+  // A setext heading is a run of contiguous paragraph lines underlined by `===` or `---`; its
+  // text is the run joined with spaces. Both underline kinds count, so a setext heading cannot
+  // slip a section past the augmentation allow-list. One forward pass: `start` is the first line
+  // of the current paragraph run, so each line is looked at a constant number of times.
+  const setextText = new Map<number, string>(); // first line of a heading -> its text
+  const consumed = new Set<number>(); // every line of a setext heading, underline included
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    const underline = /^ {0,3}(?:=+|-+)[ \t]*$/.test(line);
+    if (fenced[i] === true) {
+      start = -1;
+    } else if (underline && start >= 0) {
+      setextText.set(
+        start,
+        lines
+          .slice(start, i)
+          .map((l) => l.trim())
+          .join(" "),
+      );
+      for (let j = start; j <= i; j++) consumed.add(j);
+      start = -1;
+    } else if (
+      line.trim() === "" ||
+      underline ||
+      /^ {0,3}(?:>|#{1,6}(?:[ \t]|$)|(?:[-*+]|\d+[.)])(?:\s|$)|(?:[-*_][ \t]*){3,}$)/.test(line)
+    ) {
+      start = -1;
+    } else if (start < 0 && /^ {0,3}\S/.test(line)) {
+      start = i;
+    }
   }
   const sections: Section[] = [];
   lines.forEach((text, i) => {
-    if (setext.has(i)) return;
+    const setext = setextText.get(i);
+    if (setext !== undefined) {
+      sections.push({ heading: normaliseHeading(setext), lines: [] });
+      return;
+    }
+    if (consumed.has(i)) return;
     const isFenced = fenced[i] === true;
-    const atx = isFenced ? null : /^##[ \t]+(.*)$/.exec(text)?.[1]?.trim();
-    const heading = atx ?? (setext.has(i + 1) ? text.trim() : null);
+    const heading = isFenced ? null : /^##[ \t]+(.*)$/.exec(text)?.[1]?.trim();
     if (heading) sections.push({ heading: normaliseHeading(heading), lines: [] });
     else sections.at(-1)?.lines.push({ text, fenced: isFenced });
   });

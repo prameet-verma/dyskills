@@ -686,3 +686,68 @@ describe("bundle layout (portability, security)", () => {
     expect((await portabilityEval.run(ctx)).outcome).toBe("pass");
   });
 });
+
+describe("fix round 1 (portability)", () => {
+  const run = async (text: string) =>
+    portabilityEval.run(await makeContext({ raw: withExtra(GOLDEN_RAW, text) }));
+
+  const shell = ["- ```!\nls\n```", "> ```!", "1. ```!", "Run ```!ls``` now", "\t~~~!\nls\n~~~"];
+  for (const text of shell) {
+    it(`fails shell fence "${text.replace(/\n/g, "\\n").replace(/\t/g, "\\t")}"`, async () => {
+      expect((await run(text)).messages).toContain("inline shell execution");
+    });
+  }
+
+  for (const text of ["Use $ARGUMENTS_LIST", "Use $ARGUMENTSx"]) {
+    it(`fails "${text}"`, async () => {
+      expect((await run(text)).messages).toContain("argument placeholder");
+    });
+  }
+
+  for (const text of ["file$1", "Cost $$1", "Path \\\\$1", "Use $10"]) {
+    it(`fails positional "${text}"`, async () => {
+      expect((await run(text)).messages).toContain("positional placeholder in prose");
+    });
+  }
+
+  it("keeps the single-backslash escape", async () => {
+    expect((await run("Escaped \\$1 and \\$12 here")).outcome).toBe("pass");
+  });
+
+  it("does not treat a 4-space-indented fence as a fence", async () => {
+    expect((await run("    ```\nPass $1\n    ```")).outcome).toBe("fail");
+  });
+
+  it("does not open a backtick fence whose info string has a backtick", async () => {
+    expect((await run("```a`b\nPass $1\n```")).outcome).toBe("fail");
+  });
+
+  it("scans long digit runs and backslashes quickly", async () => {
+    const t0 = performance.now();
+    await run(`${"$1".repeat(900)}\n${"\\".repeat(1900)}\n${"$".repeat(900)}${"1".repeat(900)}`);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it("names an unlinked oversize file a bundle file", async () => {
+    const ctx = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { "notes/big.md": "x".repeat(50_001) },
+    });
+    expect((await securityEval.run(ctx)).messages).toEqual([
+      "notes/big.md: bundle file too large to scan",
+    ]);
+  });
+
+  it("ignores OS junk beside the bundle but not inside it", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW });
+    for (const n of [".DS_Store", "Thumbs.db", "desktop.ini"])
+      writeFileSync(join(dirname(ctx.skill.dir), n), "x");
+    expect((await portabilityEval.run(ctx)).outcome).toBe("pass");
+    const inside = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { ".DS_Store": "x", "Thumbs.db": "x" },
+    });
+    const r = await portabilityEval.run(inside);
+    expect(r.messages).toContain("dot-prefixed entry .DS_Store");
+  });
+});

@@ -408,6 +408,34 @@ describe("role", () => {
     expect(r).toEqual({ outcome: "pass", messages: [] });
   });
 
+  it("reads a multi-line setext heading as one section", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nOwnership and\nTask contract\n---\n- x\n`;
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages.join("\n")).toContain("ownership and task contract");
+  });
+
+  it("reads #Ownership over a rule as a setext heading", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n#Ownership\n---\n- x\n`;
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r.outcome).toBe("fail");
+  });
+
+  it("does not let an indented backtick line open a fence", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n    \`\`\`\n\nOwnership\n---\n`;
+    expect((await roleEval.run(await makeContext({ raw, augmentation: true }))).outcome).toBe(
+      "fail",
+    );
+  });
+
+  it("scans 9k stacked setext pairs quickly", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n${"a\n---\n".repeat(9000)}${"b\n".repeat(9000)}`;
+    const ctx = await makeContext({ raw, augmentation: true });
+    const t0 = performance.now();
+    await roleEval.run(ctx);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
   it("scans hostile setext underlines quickly", async () => {
     const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nx\n${"=".repeat(20_000)}x\n${" ".repeat(20_000)}\ny\n${"-".repeat(20_000)} z\n`;
     const ctx = await makeContext({ raw, augmentation: true });
