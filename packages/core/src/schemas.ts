@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONTRACT_VERSION } from "./constants";
+import { CONTRACT_VERSION, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS } from "./constants";
 
 /**
  * Zod schema. The contract version every persisted or exchanged document carries as
@@ -104,6 +104,23 @@ export const SkillNameSchema = z
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 
 /**
+ * Zod schema. One selectable answer of a {@link QuestionSchema}. `;` is reserved as the
+ * multi-select separator, so a label never contains it.
+ */
+export const QuestionOptionSchema = z.strictObject({
+  // Single line, no separator, not blank (a linear check, no overlapping quantifiers).
+  label: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[^;\r\n]+$/)
+    .refine((label) => label.trim() !== "", "label must not be blank"),
+  description: z.string().max(200),
+});
+/** Type inferred from {@link QuestionOptionSchema}. */
+export type QuestionOption = z.infer<typeof QuestionOptionSchema>;
+
+/**
  * Zod schema. A clarification question for the user, tied to the requirement it resolves;
  * `blocking` questions pause the pipeline (PRD §10.3, §10.4).
  */
@@ -115,6 +132,17 @@ export const QuestionSchema = z.object({
   evidenceKey: z.string().optional(),
   material: z.boolean(),
   blocking: z.boolean(),
+  /** Two to four choices; absent means the question is always asked as free text (D4). */
+  options: z
+    .array(QuestionOptionSchema)
+    .min(MIN_QUESTION_OPTIONS)
+    .max(MAX_QUESTION_OPTIONS)
+    .optional(),
+  /**
+   * Whether several options may be chosen. A multi-select answer's `value` lists the chosen
+   * labels separated by `"; "`; free text is always accepted.
+   */
+  multiSelect: z.boolean().optional(),
 });
 /** Type inferred from {@link QuestionSchema}. */
 export type Question = z.infer<typeof QuestionSchema>;
@@ -323,6 +351,24 @@ export const ApprovalStateSchema = z.enum(["not-required", "pending", "approved"
 /** Type inferred from {@link ApprovalStateSchema}. */
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
 
+/** Zod schema. Agent harness that a skill can target or be discovered from (PRD §11.3, §13.2). */
+export const HarnessSchema = z.enum(["claude-code", "codex", "opencode"]);
+/** Type inferred from {@link HarnessSchema}. */
+export type Harness = z.infer<typeof HarnessSchema>;
+
+/**
+ * Zod schema. Record of a native skill placement made for a session: the harness it targets, the
+ * full `<root>/<name>` directory, the sha256 of its manifest and when it was placed.
+ */
+export const NativePlacementSchema = z.object({
+  harness: HarnessSchema,
+  dir: z.string(),
+  manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  placedAt: z.iso.datetime(),
+});
+/** Type inferred from {@link NativePlacementSchema}. */
+export type NativePlacement = z.infer<typeof NativePlacementSchema>;
+
 /**
  * Zod schema. Complete persisted state of one session, sufficient to resume after a clarification
  * pause (PRD §10.5, §10.8).
@@ -371,14 +417,11 @@ export const SessionStateSchema = z.object({
     .nullable()
     .default(null),
   metrics: SessionMetricsSchema,
+  /** Native placement of the session skill; absent means none was made. */
+  native: NativePlacementSchema.optional(),
 });
 /** Type inferred from {@link SessionStateSchema}. */
 export type SessionState = z.infer<typeof SessionStateSchema>;
-
-/** Zod schema. Agent harness that a skill can target or be discovered from (PRD §11.3, §13.2). */
-export const HarnessSchema = z.enum(["claude-code", "codex", "opencode"]);
-/** Type inferred from {@link HarnessSchema}. */
-export type Harness = z.infer<typeof HarnessSchema>;
 
 /**
  * Zod schema. A skill already present in a project or personal skill directory, considered for

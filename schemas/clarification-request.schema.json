@@ -35,6 +35,34 @@
           },
           "blocking": {
             "type": "boolean"
+          },
+          "options": {
+            "minItems": 2,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[^;\\r\\n]+$"
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "label",
+                "description"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "multiSelect": {
+            "type": "boolean"
           }
         },
         "required": [

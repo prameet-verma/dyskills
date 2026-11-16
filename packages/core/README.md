@@ -83,6 +83,26 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   exactly the bytes decoded, or `{ ok: false, reason }` (`missing`, `not-a-file`, `too-large`,
   `wrong-name`, `unreadable`). Never rejects for file problems; a `maxBytes` that is not a finite non-negative integer throws a
   `TypeError`. `checkSafeFile` validates without reading.
+- **Question options** (`schemas.ts`, `contracts.ts`): `QuestionOptionSchema`
+  (`{ label, description }`, label 1-60 chars without `;`), and optional `Question.options` (2-4)
+  and `Question.multiSelect`. A multi-select answer's `value` lists the chosen labels separated by
+  `"; "`; free text is always accepted. `ClarificationRequestSchema` rejects, at
+  `questions.<i>.options`, labels equal after trim and lowercase, a label `other` (hosts add their
+  own free-text choice) and `multiSelect` without `options`. `MIN_QUESTION_OPTIONS = 2`,
+  `MAX_QUESTION_OPTIONS = 4` (`constants.ts`).
+- **`NativePlacementSchema`** (`schemas.ts`): `{ harness, dir, manifestSha256, placedAt }`, the
+  optional `SessionState.native` record of a native skill placement (`dir` is the full
+  `<root>/<name>` path; absent means none). `NATIVE_PLACEMENT_TTL_MS` (86,400,000): a crashed
+  session must not leave a skill listed natively for more than a day.
+- **`readNativeReferences(home, { exclude? })`** (`native.ts`): reads every
+  `<home>/sessions/<id>/session.json` (1 MB cap) and returns `{ byDir, unparsable }`, the
+  `NativeReference`s (`sessionId`, `placedAt`, `outcome`) per placement `dir` and the count of
+  session files that could not be read or parsed.
+- **`SESSION_ID_PATTERN`** (`session.ts`): the `/^ds-\d{14}-[0-9a-f]{6}$/` shape of every session id; `readNativeReferences` skips directory names that do not match it.
+- **`selectExpiredPlacements({ placements, refs, unparsable, now, ttlMs? })`** (`native.ts`): pure
+  sweep policy. Age starts at the newest `placedAt` among references, else `mtimeMs`; older than
+  the TTL expires. Otherwise, with `unparsable === 0`, a placement with no reference, or whose
+  references all ended with an outcome other than `activated` or `augmented`, expires.
 - **`BOOTSTRAP_SKILL_NAME`, `FALLBACK_MESSAGE`, `REUSE_NOTICE`, `NOTICE_GENERATED`,
   `NOTICE_AUGMENTED`** (`constants.ts`): the bootstrap skill's name and the fixed texts shown to
   the agent, defined once.
