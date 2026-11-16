@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsup";
+
+const { version } = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
+) as { version: string };
 
 /**
  * Bundles the CLI into a single ESM file with a node shebang. The workspace packages ship as
@@ -11,6 +17,8 @@ export default defineConfig({
   platform: "node",
   target: "node24",
   clean: true,
+  // The version is inlined; package.json itself never ends up in the bundle.
+  define: { __CLI_VERSION__: JSON.stringify(version) },
   noExternal: [/^@dynamic-skills\//],
   banner: { js: "#!/usr/bin/env node" },
 });

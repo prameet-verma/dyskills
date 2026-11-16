@@ -83,24 +83,18 @@ describe("assess", () => {
     expect(repo.out.error).toBe("USAGE");
     const mode = await h.run(["assess", "--task", "x", "--mode", "weird"]);
     expect(mode.out.error).toBe("USAGE");
-    process.env.DYNAMIC_SKILLS_BUDGET_MS = "abc";
-    try {
-      const budget = await h.run(["assess", "--task", "x"]);
-      expect(budget.out.error).toBe("USAGE");
-    } finally {
-      delete process.env.DYNAMIC_SKILLS_BUDGET_MS;
-    }
+    const budget = await h.runWith(["assess", "--task", "x"], {
+      vars: { DYNAMIC_SKILLS_BUDGET_MS: "abc" },
+    });
+    expect(budget.out.error).toBe("USAGE");
     expect(await hashTree(h.home + "/sessions")).toEqual({});
   });
 
   it("honours DYNAMIC_SKILLS_BUDGET_MS", async () => {
-    process.env.DYNAMIC_SKILLS_BUDGET_MS = "5000";
-    try {
-      const id = await assess(h);
-      expect((await h.readJson(id, "session.json")).sla.budgetMs).toBe(5000);
-    } finally {
-      delete process.env.DYNAMIC_SKILLS_BUDGET_MS;
-    }
+    const r = await h.runWith(["assess", "--task", "x"], {
+      vars: { DYNAMIC_SKILLS_BUDGET_MS: "5000" },
+    });
+    expect((await h.readJson(r.out.sessionId, "session.json")).sla.budgetMs).toBe(5000);
   });
 });
 

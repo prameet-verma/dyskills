@@ -1,4 +1,5 @@
 import type { SessionState, SessionStore, StageName } from "@dynamic-skills/core";
+import type { HostProbe } from "@dynamic-skills/adapter-sdk";
 import type { CliErrorCode } from "../io";
 import type { CliCommand, CompletedStep } from "../state-machine";
 
@@ -17,6 +18,12 @@ export interface CommandContext {
   cwd: string;
   /** User home searched for personal skills. */
   userHome: string;
+  /** Environment variables of the invocation (`process.env` by default; command code reads it only through here). */
+  vars: Readonly<Record<string, string | undefined>>;
+  /** Host probe for binary lookup and command execution. */
+  probe: HostProbe;
+  /** System configuration directory holding the admin skill root (`/etc` in production). */
+  etcDir: string;
   /** Reads the injected clock (epoch ms). Call it afresh for every timestamp that matters. */
   now: () => number;
 }
@@ -25,6 +32,8 @@ export interface CommandContext {
 export interface CommandResult {
   /** Fields merged into the stdout JSON after `ok` and `schemaVersion`. */
   data: Record<string, unknown>;
+  /** Human text for stderr from a global command (it has no status block). */
+  summary?: string;
   /**
    * Set when the command ended the session (status `completed`, outcome set): the wrapper then
    * writes `reports/performance.json` and `reports/discovery.json`.
@@ -111,7 +120,15 @@ export interface CreateCommandDef extends CommandBase {
 export interface GlobalCommandDef extends CommandBase {
   kind: "global";
   /** Runs the command; the wrapper uses only `data` and `exitCode` of the result. */
-  run(ctx: { home: string; opts: CommandContext["opts"] }): Promise<CommandResult>;
+  run(ctx: {
+    home: string;
+    opts: CommandContext["opts"];
+    cwd: string;
+    userHome: string;
+    vars: CommandContext["vars"];
+    probe: HostProbe;
+    etcDir: string;
+  }): Promise<CommandResult>;
 }
 
 /** Any registered command. */

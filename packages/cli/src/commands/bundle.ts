@@ -31,16 +31,24 @@ export function sessionPaths(sessionDir: string): {
  * because the augmentation is judged against the base separately (PRD §5.5).
  * @param state - The session (repository and sufficiency verdict).
  * @param userHome - Personal skill root.
+ * @param vars - Environment variables that relocate harness skill roots (never read from
+ * `process.env` here).
+ * @param etcDir - Directory holding the admin skill root.
  */
 export async function existingSkillsFor(
   state: SessionState,
   userHome: string,
+  vars: Readonly<Record<string, string | undefined>>,
+  etcDir: string,
 ): Promise<ExistingSkill[]> {
-  const scanned = await scanExistingSkills({ repo: state.repo, home: userHome });
+  const scanned = await scanExistingSkills({ repo: state.repo, home: userHome, vars, etcDir });
   const basePath =
     state.sufficiency?.outcome === "partial" ? (state.sufficiency.baseSkill?.path ?? null) : null;
   return scanned.skills.filter((s) => s.name !== BOOTSTRAP_SKILL_NAME && s.path !== basePath);
 }
+
+/** File names the OS drops into a folder; ignored at the top level of `skills/` only. */
+const OS_JUNK: ReadonlySet<string> = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
 /** Most entries (files and directories) a skill bundle may contain; the agent controls the tree. */
 const MAX_BUNDLE_ENTRIES = 500;
@@ -102,6 +110,8 @@ export async function bundleDigest(sessionDir: string): Promise<string> {
       throw bad(rel);
     }
     for (const e of entries) {
+      // Ruling R27: OS junk dropped beside the bundle (top level of skills/) is not part of it.
+      if (rel === "skills" && e.isFile() && OS_JUNK.has(e.name)) continue;
       const childAbs = join(abs, e.name);
       const childRel = `${rel}/${e.name}`;
       if (e.isDirectory()) {

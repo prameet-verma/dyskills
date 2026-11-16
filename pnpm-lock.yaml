@@ -269,6 +269,9 @@ importers:
       '@dynamic-skills/activation':
         specifier: workspace:*
         version: link:../activation
+      '@dynamic-skills/adapter-sdk':
+        specifier: workspace:*
+        version: link:../adapter-sdk
       '@dynamic-skills/bootstrapper':
         specifier: workspace:*
         version: link:../bootstrapper

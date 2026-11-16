@@ -56,7 +56,7 @@ export const compileCommand: SessionCommandDef = {
   options: [],
   step: "compile",
   stage: "compilation",
-  async run({ store, state, userHome, now }) {
+  async run({ store, state, userHome, vars, etcDir, now }) {
     const sufficiency = state.sufficiency;
     if (sufficiency === null) throw new CliError("INTERNAL", "No sufficiency verdict is recorded.");
     const sessionDir = store.dir(state.id);
@@ -122,7 +122,7 @@ export const compileCommand: SessionCommandDef = {
       gaps: state.gaps,
       assumptions: state.assumptions,
       analysis,
-      existingSkills: await existingSkillsFor(state, userHome),
+      existingSkills: await existingSkillsFor(state, userHome, vars, etcDir),
       augmentation,
       sessionDir,
       remainingMs: SlaClock.from(state.sla).remainingMs(now()),

@@ -17,11 +17,16 @@ newline) removed, because session ids and option values are agent-controlled.
 
 - **`runCli(argv, env?)`** (`src/run.ts`): in-process entry returning
   `{ exitCode, stdout, stderr }`. `env` may set `home` (session root), `cwd`, `userHome` (where
-  personal skills are scanned) and `now` (clock), which keeps tests hermetic. `src/index.ts` is the
+  personal skills are scanned), `now` (clock), `vars` (environment, default `process.env`),
+  `probe` (host binary lookup, default `createHostProbe(vars)`) and `etcDir` (default `/etc`),
+  which keeps tests hermetic. `dynamic-skills --version` prints
+  `{ "ok": true, "schemaVersion": "1", "version" }`. `src/index.ts` is the
   bin: it calls `runCli(process.argv.slice(2))` and writes the streams.
   The package exports only `runCli`, `CliOutcome` and `CliEnv`. The items below are **internal
   extension points** for adding commands inside this package; they are not part of the public API.
 
+- **`buildHostEnv(input)`** (internal, `src/host.ts`): builds the adapter `HostEnv` with realpaths;
+  `dryRun` resolves the session home without creating it and maps path errors to `HOME_UNSAFE`.
 - **`assertCanRun(state, command)`** (internal, `src/state-machine.ts`): the session state machine.
   Throws a `CliError` with code `INVALID_STATE` and `expected: string[]` unless the last completed
   step is an allowed predecessor of `command`. Also enforces one verdict per session, a pending
