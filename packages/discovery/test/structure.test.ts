@@ -125,4 +125,16 @@ describe("structure detectors", () => {
     const { registry } = await runDiscovery({ repo, task: "x" });
     expect(registry.get("conventions.readme")?.value).toBe("Linked docs");
   });
+
+  it("skips a single over-long entrypoint without blocking the others", async () => {
+    const long = `${["a".repeat(110), "b".repeat(110), "c".repeat(110), "d".repeat(110), "e".repeat(110)].join("/")}/main.js`;
+    expect(long.length).toBeGreaterThan(550);
+    const repo = makeRepo({
+      "package.json": JSON.stringify({ main: long }),
+      [long]: "",
+      "src/index.ts": "",
+    });
+    const { registry } = await runDiscovery({ repo, task: "x" });
+    expect(registry.get("architecture.entrypoints")?.value).toBe("src/index.ts (+1 more)");
+  });
 });

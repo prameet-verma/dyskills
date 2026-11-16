@@ -45,7 +45,7 @@ failing detector never stops the others.
 Evidence keys: `runtime.node`, `runtime.node.engines`, `runtime.python`, `package-manager`,
 `framework.<name>`, `database.<name>`, `monorepo.{nx,turborepo,workspaces,pnpm-workspace}` (`workspaces` from package.json, `pnpm-workspace` from pnpm-workspace.yaml),
 `testing.<name>`, `build.script.<name>`, `build.make.<target>`, `language.<name>` (top 5, `"<n> files"`),
-`ci.github-actions`, `ci.gitlab`, `architecture.top-level-dirs`, `architecture.entrypoints` (at most `MAX_ENTRYPOINTS` = 20, sorted by path),
+`ci.github-actions`, `ci.gitlab`, `architecture.top-level-dirs`, `architecture.entrypoints` (`main`/`bin` first, then root `src/index.*`, then by path; at most `MAX_ENTRYPOINTS` = 20 within a ~470-char budget; the rest shown as "(+N more)"),
 `conventions.readme` (first 10 headings of `readme.md`, matched case-insensitively; untrusted), `conventions.contributing`,
 `conventions.adr`, `conventions.agents-md`, `conventions.claude-md` (the last two are path only).
 

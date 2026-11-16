@@ -146,12 +146,15 @@ const architectureDetector: Detector = {
       let length = 0;
       for (const p of ordered) {
         const next = length + p.length + 2;
-        if (kept.length >= MAX_ENTRYPOINTS || next > ENTRYPOINT_VALUE_BUDGET) break;
+        if (kept.length >= MAX_ENTRYPOINTS) break;
+        // A path too long for the remaining budget is skipped (and counted in "more").
+        if (next > ENTRYPOINT_VALUE_BUDGET) continue;
         kept.push(p);
         length = next;
       }
       const more = ordered.length - kept.length;
-      const value = kept.join(", ") + (more > 0 ? ` (+${more} more)` : "");
+      const suffix = more > 0 ? `(+${more} more)` : "";
+      const value = kept.length > 0 ? [kept.join(", "), suffix].filter(Boolean).join(" ") : suffix;
       out.push(observe(ctx, "architecture.entrypoints", value, "file index"));
     }
     return out;
