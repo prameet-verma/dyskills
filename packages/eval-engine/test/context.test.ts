@@ -393,6 +393,29 @@ describe("role", () => {
     );
   });
 
+  it("fails an augmentation with a setext section outside the allow-list", async () => {
+    for (const underline of ["---------", "========="]) {
+      const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nOwnership\n${underline}\n- Everything.\n`;
+      const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+      expect(r.outcome).toBe("fail");
+      expect(r.messages.join("\n")).toContain("found: ownership");
+    }
+  });
+
+  it("does not read a list item or fenced text before a rule as a heading", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n- item\n---\n\n\`\`\`\nOwnership\n---\n\`\`\`\n`;
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r).toEqual({ outcome: "pass", messages: [] });
+  });
+
+  it("scans hostile setext underlines quickly", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nx\n${"=".repeat(20_000)}x\n${" ".repeat(20_000)}\ny\n${"-".repeat(20_000)} z\n`;
+    const ctx = await makeContext({ raw, augmentation: true });
+    const t0 = performance.now();
+    await roleEval.run(ctx);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
   it("fails an augmentation without - Adds:", async () => {
     const raw = GOLDEN_AUGMENT_RAW.replace(/^- Adds:.*\n/m, "");
     const r = await roleEval.run(await makeContext({ raw, augmentation: true }));

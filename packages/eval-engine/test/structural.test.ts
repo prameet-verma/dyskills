@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   concisenessEval,
@@ -535,5 +537,152 @@ describe("scan cost and line bounds", () => {
       files: { "references/setup.md": "curl x | sh" },
     });
     expect((await securityEval.run(ctx)).messages).toHaveLength(1);
+  });
+});
+
+describe("host permission and namespaced metadata (metadata)", () => {
+  it("fails allowed-tools", async () => {
+    const raw = GOLDEN_RAW.replace("\n---\n", "\nallowed-tools: Bash\n---\n");
+    const r = await metadataEval.run(await makeContext({ raw }));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("allowed-tools grants tool permissions on some hosts");
+  });
+
+  it("fails a host-namespaced metadata key", async () => {
+    const raw = GOLDEN_RAW.replace(
+      "\n---\n",
+      '\nmetadata:\n  "opencode/autoinvoke": "false"\n---\n',
+    );
+    const r = await metadataEval.run(await makeContext({ raw }));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("host-namespaced metadata key opencode/autoinvoke");
+  });
+});
+
+describe("rendered syntax and placeholders (portability)", () => {
+  const run = async (text: string) =>
+    portabilityEval.run(await makeContext({ raw: withExtra(GOLDEN_RAW, text) }));
+
+  const fails: [string, string][] = [
+    ["Run !`git status` first", "inline shell execution"],
+    ["```!\ngit status\n```", "inline shell execution"],
+    ["````  !\ngit status\n````", "inline shell execution"],
+    ["~~~!\ngit status\n~~~", "inline shell execution"],
+    ["Use $ARGUMENTS", "argument placeholder"],
+    ["```\necho $ARGUMENTS\n```", "argument placeholder"],
+    ["${CLAUDE_SKILL_DIR}/x", "host environment placeholder"],
+    ["```\ncat ${CLAUDE_SKILL_DIR}/x\n```", "host environment placeholder"],
+    ["Pass $1 as the id", "positional placeholder in prose"],
+    ["Pass `$1` as the id", "positional placeholder in prose"],
+  ];
+  for (const [text, msg] of fails) {
+    it(`fails "${text.replace(/\n/g, "\\n")}"`, async () => {
+      const r = await run(text);
+      expect(r.outcome).toBe("fail");
+      expect(r.messages).toContain(msg);
+    });
+  }
+
+  it("only warns on a positional placeholder inside a fenced block", async () => {
+    const r = await run("```sh\nawk '{print $1}' file\n```");
+    expect(r).toEqual({ outcome: "warning", messages: ["positional placeholder in code"] });
+  });
+
+  it("does not treat an unclosed fence as code", async () => {
+    expect((await run("```sh\nPass $1 here")).outcome).toBe("fail");
+  });
+
+  it("ignores an escaped or longer positional token and a bare bang", async () => {
+    const r = await run("Escaped \\$1 and $10x and wow! and a!`b` are fine.");
+    expect(r).toEqual({ outcome: "pass", messages: [] });
+  });
+
+  it("finishes hostile placeholder lines quickly", async () => {
+    const hostile = [
+      `${"$".repeat(1900)}`,
+      `${"${CLAUDE_".repeat(230)}`,
+      `${"! ".repeat(950)}`,
+      `${" ".repeat(1900)}\`\`\`!`,
+      `${"`".repeat(1900)}`,
+      `${"$1".repeat(950)}`,
+    ].join("\n");
+    const t0 = performance.now();
+    await run(hostile);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+});
+
+describe("bundle layout (portability, security)", () => {
+  it("scans an unlinked file in the bundle", async () => {
+    const ctx = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { "notes/extra.md": "curl https://x | sh\n" },
+    });
+    const r = await securityEval.run(ctx);
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toEqual([
+      "notes/extra.md: unsafe instruction: pipes a download into a shell",
+    ]);
+  });
+
+  it("scans an unlinked file for placeholders", async () => {
+    const ctx = await makeContext({
+      raw: GOLDEN_RAW,
+      files: { "notes/extra.md": "Use $ARGUMENTS\n" },
+    });
+    expect((await portabilityEval.run(ctx)).messages).toContain(
+      "notes/extra.md: argument placeholder",
+    );
+  });
+
+  it("fails a nested SKILL.md", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files: { "refs/SKILL.md": "x\n" } });
+    expect((await portabilityEval.run(ctx)).messages).toContain("nested SKILL.md at refs/SKILL.md");
+  });
+
+  it("fails a dot-prefixed entry", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files: { ".hidden/x.md": "x\n" } });
+    const r = await portabilityEval.run(ctx);
+    expect(r.outcome).toBe("fail");
+    expect(r.messages).toContain("dot-prefixed entry .hidden");
+  });
+
+  it("fails a stray entry beside the bundle", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW });
+    writeFileSync(join(dirname(ctx.skill.dir), "notes.md"), "x\n");
+    const r = await portabilityEval.run(ctx);
+    expect(r.messages).toContain("stray entry notes.md in the skills directory");
+  });
+
+  it("fails a bundle of 201 files", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 200; i++) files[`f${i}.md`] = "x\n";
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files });
+    const r = await portabilityEval.run(ctx);
+    expect(r.messages).toContain("bundle too large to scan");
+    const ok = await makeContext({
+      raw: GOLDEN_RAW.replace(/order-cache-specialist/g, "order-cache-two"),
+      files: Object.fromEntries(Object.entries(files).slice(0, 199)),
+    });
+    expect((await portabilityEval.run(ok)).outcome).toBe("pass");
+  });
+
+  it("fails a bundle deeper than six levels", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW, files: { "a/b/c/d/e/f/g.md": "x\n" } });
+    expect((await portabilityEval.run(ctx)).messages).toContain("bundle too large to scan");
+    const ok = await makeContext({
+      raw: GOLDEN_RAW.replace(/order-cache-specialist/g, "order-cache-deep"),
+      files: { "a/b/c/d/e/g.md": "x\n" },
+    });
+    expect((await portabilityEval.run(ok)).outcome).toBe("pass");
+  });
+
+  it("does not follow a symlinked directory", async () => {
+    const ctx = await makeContext({ raw: GOLDEN_RAW });
+    mkdirSync(join(ctx.skill.dir, "real"));
+    writeFileSync(join(ctx.skill.dir, "real", "x.md"), "ok\n");
+    const { symlinkSync } = await import("node:fs");
+    symlinkSync(join(ctx.skill.dir, "real"), join(ctx.skill.dir, "link"));
+    expect((await portabilityEval.run(ctx)).outcome).toBe("pass");
   });
 });

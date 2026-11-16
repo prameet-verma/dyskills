@@ -1,5 +1,5 @@
-import { lstat, readFile, realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   SKILL_TOKEN_HARD_LIMIT,
   SKILL_TOKEN_SOFT_LIMIT,
@@ -75,6 +75,8 @@ export const metadataEval: GenerationEval = {
     for (const key of Object.keys(fm)) {
       if (!ALLOWED_KEYS.has(key)) failures.push(`unknown frontmatter key "${key}"`);
     }
+    // A tool grant is honoured by some hosts and ignored by others, so a portable skill has none.
+    if ("allowed-tools" in fm) failures.push("allowed-tools grants tool permissions on some hosts");
     const compat = fm.compatibility;
     if (compat !== undefined && (typeof compat !== "string" || compat.length > MAX_COMPATIBILITY)) {
       failures.push(`compatibility must be a string of at most ${MAX_COMPATIBILITY} characters`);
@@ -86,6 +88,7 @@ export const metadataEval: GenerationEval = {
     }
     if (meta) {
       for (const [k, v] of Object.entries(meta)) {
+        if (k.includes("/")) failures.push(`host-namespaced metadata key ${k}`);
         if (typeof v !== "string") failures.push(`metadata.${k} must be a string`);
       }
     }
@@ -168,8 +171,11 @@ export const referencesEval: GenerationEval = {
   },
 };
 
-/** Per-file read cap for referenced files; the bundle is agent-written (untrusted). */
+/** Per-file read cap for bundle files; the bundle is agent-written (untrusted). */
 const MAX_REFERENCED_BYTES = 50_000;
+/** Bundle walk limits: entries (files, directories and links) and directory depth. */
+const MAX_BUNDLE_ENTRIES = 200;
+const MAX_BUNDLE_DEPTH = 6;
 
 /** A piece of skill text to scan: `label` prefixes its messages ("" for SKILL.md itself). */
 interface ScanUnit {
@@ -177,44 +183,111 @@ interface ScanUnit {
   text: string;
 }
 
+/** What the bundle walk found. */
+interface BundleWalk {
+  /** Regular files other than the root SKILL.md, with their bundle-relative `/` path. */
+  files: { rel: string; abs: string }[];
+  /** Every entry's bundle-relative path. */
+  entries: string[];
+  /** True when the entry or depth limit stopped the walk. */
+  tooLarge: boolean;
+}
+
 /**
- * Collects SKILL.md plus every referenced regular file inside the skill directory, because
- * referenced files are loaded into the agent's context just like SKILL.md (so portability and
- * security rules apply to them). Missing, escaping and non-file references are skipped here;
- * {@link referencesEval} reports them. A file over the cap yields a failure instead of a unit.
+ * Walks the bundle with `lstat` (symlinks are recorded, never followed), visiting at most
+ * {@link MAX_BUNDLE_ENTRIES} entries down to depth {@link MAX_BUNDLE_DEPTH}. Names are sorted so
+ * the result is deterministic. An unreadable directory is skipped.
+ */
+async function walkBundle(root: string): Promise<BundleWalk> {
+  const out: BundleWalk = { files: [], entries: [], tooLarge: false };
+  async function visit(dir: string, prefix: string, depth: number): Promise<void> {
+    let names: string[];
+    try {
+      names = (await readdir(dir)).sort();
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (out.tooLarge) return;
+      if (depth > MAX_BUNDLE_DEPTH || out.entries.length >= MAX_BUNDLE_ENTRIES) {
+        out.tooLarge = true;
+        return;
+      }
+      const rel = prefix === "" ? name : `${prefix}/${name}`;
+      const abs = join(dir, name);
+      out.entries.push(rel);
+      let info;
+      try {
+        info = await lstat(abs);
+      } catch {
+        continue;
+      }
+      if (info.isDirectory()) await visit(abs, rel, depth + 1);
+      else if (info.isFile() && rel !== "SKILL.md") out.files.push({ rel, abs });
+    }
+  }
+  await visit(root, "", 1);
+  return out;
+}
+
+/**
+ * Collects SKILL.md plus every regular file in the skill directory (found by {@link walkBundle})
+ * and every referenced file, because anything in the bundle can be loaded into the agent's
+ * context just like SKILL.md (so portability and security rules apply to it). Missing, escaping
+ * and non-file references are skipped here; {@link referencesEval} reports them. A file over the
+ * cap yields a failure instead of a unit. `layout` holds the portability-only findings about
+ * where entries sit (nested SKILL.md, dot-prefixed names, strays beside the bundle).
  */
 async function collectScanUnits(
   ctx: EvalContext,
-): Promise<{ units: ScanUnit[]; failures: string[] }> {
+): Promise<{ units: ScanUnit[]; failures: string[]; layout: string[] }> {
   const units: ScanUnit[] = [{ label: "", text: ctx.skill.raw }];
   const failures: string[] = [];
+  const layout: string[] = [];
   let root: string;
   let skillMd: string | null;
   try {
     root = await realpath(ctx.skill.dir);
     skillMd = await realpath(ctx.skill.skillMdPath).catch(() => null);
   } catch {
-    return { units, failures };
+    return { units, failures, layout };
   }
   const seen = new Set<string>();
-  for (const ref of ctx.skill.references) {
-    const r = await resolveReference(ctx.skill.dir, root, ref);
-    // SKILL.md is already scanned; skip a self-link rather than report it twice.
-    if ("problem" in r || r.real === skillMd) continue;
-    // Two links (or a symlink alias) to one file are scanned once.
-    if (seen.has(r.real)) continue;
-    seen.add(r.real);
+  const add = async (label: string, real: string): Promise<void> => {
+    // SKILL.md is already scanned; two links (or a symlink alias) to one file are scanned once.
+    if (real === skillMd || seen.has(real)) return;
+    seen.add(real);
     try {
-      if ((await stat(r.real)).size > MAX_REFERENCED_BYTES) {
-        failures.push(`${ref}: referenced file too large to scan`);
-        continue;
+      if ((await stat(real)).size > MAX_REFERENCED_BYTES) {
+        failures.push(`${label}: referenced file too large to scan`);
+        return;
       }
-      units.push({ label: ref, text: await readFile(r.real, "utf8") });
+      units.push({ label, text: await readFile(real, "utf8") });
     } catch {
       // Vanished between resolve and read: treat like a missing reference (reported elsewhere).
     }
+  };
+  const walk = await walkBundle(ctx.skill.dir);
+  if (walk.tooLarge) failures.push("bundle too large to scan");
+  for (const rel of walk.entries) {
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
+    if (name === "SKILL.md" && rel !== "SKILL.md") layout.push(`nested SKILL.md at ${rel}`);
+    if (name.startsWith(".")) layout.push(`dot-prefixed entry ${rel}`);
   }
-  return { units, failures };
+  try {
+    const own = basename(ctx.skill.dir);
+    for (const name of (await readdir(dirname(ctx.skill.dir))).sort()) {
+      if (name !== own) layout.push(`stray entry ${name} in the skills directory`);
+    }
+  } catch {
+    // An unreadable parent is not a finding; the bundle itself was already read.
+  }
+  for (const f of walk.files) await add(f.rel, await realpath(f.abs).catch(() => f.abs));
+  for (const ref of ctx.skill.references) {
+    const r = await resolveReference(ctx.skill.dir, root, ref);
+    if (!("problem" in r)) await add(ref, r.real);
+  }
+  return { units, failures, layout };
 }
 
 /**
@@ -244,23 +317,49 @@ function after(line: string, anchor: RegExp, tail: RegExp): boolean {
 }
 
 /**
- * Runs `check` on every line of every unit. A unit with a line over {@link MAX_LINE_CHARS}
- * gets one "line too long to scan" failure and that line is skipped.
+ * Which lines of `lines` sit inside a fenced code block (opener and closer included). A fence
+ * opens with three or more backticks or tildes and closes on the same character with at least
+ * the same length and no info string (CommonMark); a fence still open at the end is treated as
+ * not fenced, so an unterminated fence cannot turn prose into code.
+ */
+function fencedLines(lines: readonly string[]): boolean[] {
+  const fenced = new Array<boolean>(lines.length).fill(false);
+  let open: { run: string; at: number } | null = null;
+  lines.forEach((line, i) => {
+    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    const run = m?.[1] ?? "";
+    const bare = m !== null && line.slice(m[0].length).trim() === "";
+    if (open === null) {
+      if (run !== "") open = { run, at: i };
+    } else if (bare && run[0] === open.run[0] && run.length >= open.run.length) {
+      for (let j = open.at; j <= i; j++) fenced[j] = true;
+      open = null;
+    }
+  });
+  return fenced;
+}
+
+/**
+ * Runs `check` on every line of every unit, with whether the line sits in a fenced code block. A
+ * unit with a line over {@link MAX_LINE_CHARS} gets one "line too long to scan" failure and that
+ * line is skipped (it still counts for fence state).
  */
 function scanLines(
   units: ScanUnit[],
   failures: string[],
-  check: (label: string, line: string) => void,
+  check: (label: string, line: string, fenced: boolean) => void,
 ): void {
   for (const { label, text } of units) {
     let tooLong = false;
-    for (const line of text.split("\n")) {
+    const lines = text.split("\n");
+    const fenced = fencedLines(lines);
+    lines.forEach((line, i) => {
       if (line.length > MAX_LINE_CHARS) {
         tooLong = true;
-        continue;
+        return;
       }
-      check(label, line);
-    }
+      check(label, line, fenced[i] === true);
+    });
     if (tooLong) failures.push(tag(label, "line too long to scan"));
   }
 }
@@ -326,22 +425,48 @@ const PORTABILITY_PATTERNS: { re: RegExp; label: string }[] = [
 ];
 
 /**
- * Fails on any harness-specific reference in SKILL.md or a referenced file; generated skills
+ * Syntax some hosts render or execute before the agent reads it, so it is non-portable. Each
+ * pattern is linear (anchored or a fixed token, no nested quantifiers).
+ */
+const RENDERED_SYNTAX: { re: RegExp; label: string }[] = [
+  // Inline shell execution: !` at line start or after whitespace, or a fence opened with !.
+  { re: /(^|\s)!`/, label: "inline shell execution" },
+  { re: /^\s*(`{3,}|~{3,})\s*!/, label: "inline shell execution" },
+  { re: /\$ARGUMENTS\b/, label: "argument placeholder" },
+  { re: /\$\{CLAUDE_[A-Z_]+\}/, label: "host environment placeholder" },
+];
+
+/** `$0`-`$9` not preceded by a word character, `$` or backslash and not followed by a word character. */
+const POSITIONAL = /(?<![\w$\\])\$[0-9](?!\w)/;
+
+/**
+ * Fails on any harness-specific reference or host-rendered syntax in the bundle (SKILL.md and
+ * every other file in it), on argument and host-environment placeholders, on positional
+ * placeholders in prose (a warning inside fenced code), and on a bundle layout that is not
+ * portable (nested SKILL.md, dot-prefixed entries, strays beside the bundle). Generated skills
  * must run on every harness. Mandatory.
  */
 export const portabilityEval: GenerationEval = {
   id: "portability",
   mandatory: true,
   async run(ctx) {
-    const { units, failures } = await collectScanUnits(ctx);
+    const { units, failures, layout } = await collectScanUnits(ctx);
     const found = new Set<string>();
-    scanLines(units, failures, (label, line) => {
+    const warned = new Set<string>();
+    scanLines(units, failures, (label, line, fenced) => {
       for (const { re, label: what } of PORTABILITY_PATTERNS) {
         const msg = tag(label, `non-portable ${what}: ${re.source}`);
         if (!found.has(msg) && re.test(line)) found.add(msg);
       }
+      for (const { re, label: what } of RENDERED_SYNTAX) {
+        if (re.test(line)) found.add(tag(label, what));
+      }
+      if (POSITIONAL.test(line)) {
+        if (fenced) warned.add(tag(label, "positional placeholder in code"));
+        else found.add(tag(label, "positional placeholder in prose"));
+      }
     });
-    return result([...failures, ...found]);
+    return result([...failures, ...layout, ...found], [...warned]);
   },
 };
 

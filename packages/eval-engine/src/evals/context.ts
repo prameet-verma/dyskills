@@ -122,10 +122,24 @@ function sectionsOf(body: string): Section[] {
       open = null;
     }
   });
+  // A setext heading is a text line underlined by `===` or `---`. Both underline kinds count, so
+  // a setext heading cannot slip a section past the augmentation allow-list. The text line must
+  // not be a list item, quote, ATX heading or indented code (there the underline is a rule).
+  const setext = new Set<number>();
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1] ?? "";
+    if (fenced[i] === true || fenced[i - 1] === true || setext.has(i - 1)) continue;
+    if (!/^ {0,3}(?:=+|-+)[ \t]*$/.test(lines[i] ?? "")) continue;
+    if (!/^ {0,3}[^\s>#]/.test(prev) || /^ {0,3}(?:[-*+]|\d+[.)])(?:\s|$)/.test(prev)) continue;
+    if (/^ {0,3}(?:[-*_][ \t]*){3,}$/.test(prev) || /^ {0,3}(?:=+|-+)[ \t]*$/.test(prev)) continue;
+    setext.add(i);
+  }
   const sections: Section[] = [];
   lines.forEach((text, i) => {
+    if (setext.has(i)) return;
     const isFenced = fenced[i] === true;
-    const heading = isFenced ? null : /^##[ \t]+(.*)$/.exec(text)?.[1]?.trim();
+    const atx = isFenced ? null : /^##[ \t]+(.*)$/.exec(text)?.[1]?.trim();
+    const heading = atx ?? (setext.has(i + 1) ? text.trim() : null);
     if (heading) sections.push({ heading: normaliseHeading(heading), lines: [] });
     else sections.at(-1)?.lines.push({ text, fenced: isFenced });
   });
