@@ -202,10 +202,37 @@ export const ContextRequestSchema = z.strictObject({
 export type ContextRequest = z.infer<typeof ContextRequestSchema>;
 
 /** Zod schema. Accepted `--file` input listing clarification questions for the user (PRD §10.4). */
-export const ClarificationRequestSchema = z.strictObject({
-  schemaVersion: SchemaVersionSchema,
-  questions: z.array(z.strictObject(QuestionSchema.shape)).min(1).max(10),
-});
+export const ClarificationRequestSchema = z
+  .strictObject({
+    schemaVersion: SchemaVersionSchema,
+    questions: z.array(z.strictObject(QuestionSchema.shape)).min(1).max(10),
+  })
+  .superRefine((req, ctx) => {
+    req.questions.forEach((question, i) => {
+      const path = ["questions", i, "options"];
+      if (question.multiSelect === true && question.options === undefined) {
+        ctx.addIssue({ code: "custom", path, message: "multiSelect requires options" });
+      }
+      const seen = new Set<string>();
+      for (const option of question.options ?? []) {
+        const key = option.label.trim().toLowerCase();
+        if (key === "other") {
+          ctx.addIssue({
+            code: "custom",
+            path,
+            message: 'the label "Other" is reserved: every host adds its own free-text choice',
+          });
+        } else if (seen.has(key)) {
+          ctx.addIssue({
+            code: "custom",
+            path,
+            message: `duplicate option label "${option.label}"`,
+          });
+        }
+        seen.add(key);
+      }
+    });
+  });
 /** Type inferred from {@link ClarificationRequestSchema}. */
 export type ClarificationRequest = z.infer<typeof ClarificationRequestSchema>;
 

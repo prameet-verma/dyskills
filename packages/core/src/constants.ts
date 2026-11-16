@@ -81,3 +81,15 @@ export const NOTICE_GENERATED =
 /** Activation notice for an augmentation that loads on top of its unchanged base skill. */
 export const NOTICE_AUGMENTED =
   "Load the unchanged base skill first, then this augmentation, and apply both to the current task. The augmentation is ephemeral and lives only in this session.";
+
+/** Fewest options a structured question carries (PRD §10.4). */
+export const MIN_QUESTION_OPTIONS = 2;
+
+/** Most options a structured question carries: 4 is the largest native limit (PRD §10.4). */
+export const MAX_QUESTION_OPTIONS = 4;
+
+/**
+ * How long a native skill placement may live, in milliseconds (24 hours). A crashed or abandoned
+ * session must not leave a skill listed natively for more than a day.
+ */
+export const NATIVE_PLACEMENT_TTL_MS = 86_400_000;
