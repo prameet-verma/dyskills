@@ -26,8 +26,11 @@ const LANGUAGES: Record<string, string> = {
 
 const MAX_LANGUAGES = 5;
 const MAX_HEADINGS = 10;
-/** Most entrypoint candidates reported; the rest are dropped after sorting by path. */
+/** Most entrypoint candidates reported (also bounded by a character budget); the rest are
+ * summarised as "(+N more)". Priority order: package.json main/bin, root src/index.*, then by path. */
 export const MAX_ENTRYPOINTS = 20;
+/** Characters of entrypoint paths allowed, leaving room for "(+N more)" under the 500-char evidence limit. */
+const ENTRYPOINT_VALUE_BUDGET = 470;
 
 /** Builds an observation that is read directly from the repository (hence `verified`). */
 function observe(ctx: DetectorContext, key: string, value: string, source: string): EvidenceInput {
@@ -121,15 +124,35 @@ const architectureDetector: Detector = {
     }
 
     const present = new Set(ctx.files.files);
-    const candidates = new Set<string>();
-    for (const p of await packageEntrypoints(ctx)) if (present.has(p)) candidates.add(p);
+    // Most relevant first: package.json main/bin targets, root src/index.*, then the rest by path.
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    const add = (p: string): void => {
+      if (!seen.has(p)) {
+        seen.add(p);
+        ordered.push(p);
+      }
+    };
+    for (const p of await packageEntrypoints(ctx)) if (present.has(p)) add(p);
+    const rest = new Set<string>();
     for (const f of ctx.files.files) {
-      if (/(?:^|\/)src\/index\.[^/]+$/.test(f)) candidates.add(f);
+      if (/^src\/index\.[^/]+$/.test(f)) add(f);
+      else if (/(?:^|\/)src\/index\.[^/]+$/.test(f)) rest.add(f);
     }
-    for (const f of ["main.py", "app/main.py"]) if (present.has(f)) candidates.add(f);
-    if (candidates.size > 0) {
-      const sorted = [...candidates].sort().slice(0, MAX_ENTRYPOINTS);
-      out.push(observe(ctx, "architecture.entrypoints", sorted.join(", "), "file index"));
+    for (const f of ["main.py", "app/main.py"]) if (present.has(f)) rest.add(f);
+    for (const f of [...rest].sort()) add(f);
+    if (ordered.length > 0) {
+      const kept: string[] = [];
+      let length = 0;
+      for (const p of ordered) {
+        const next = length + p.length + 2;
+        if (kept.length >= MAX_ENTRYPOINTS || next > ENTRYPOINT_VALUE_BUDGET) break;
+        kept.push(p);
+        length = next;
+      }
+      const more = ordered.length - kept.length;
+      const value = kept.join(", ") + (more > 0 ? ` (+${more} more)` : "");
+      out.push(observe(ctx, "architecture.entrypoints", value, "file index"));
     }
     return out;
   },
@@ -168,10 +191,13 @@ const conventionsDetector: Detector = {
 
     // README headings are untrusted repo text: the registry sanitises the value and Task 10
     // fences it, so it is deliberately reported rather than filtered here (PRD §7).
-    const readmePath = ctx.files.files.filter((f) => f.toLowerCase() === "readme.md").sort()[0];
-    const readme = readmePath === undefined ? null : await ctx.readText(readmePath);
+    // The index omits symlinks and may be truncated, so fall back to the canonical name; the
+    // safe reader still applies its secret, containment and size checks.
+    const readmePath =
+      ctx.files.files.filter((f) => f.toLowerCase() === "readme.md").sort()[0] ?? "README.md";
+    const readme = await ctx.readText(readmePath);
     const hs = readme === null ? [] : headings(readme, MAX_HEADINGS);
-    if (hs.length > 0 && readmePath !== undefined) {
+    if (hs.length > 0) {
       out.push(observe(ctx, "conventions.readme", hs.join(" | "), readmePath));
     }
 

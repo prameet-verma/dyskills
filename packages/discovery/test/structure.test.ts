@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -68,17 +68,19 @@ describe("structure detectors", () => {
     expect(v("conventions.contributing")).toBe("CONTRIBUTING.md");
     expect(v("conventions.agents-md")).toBe("AGENTS.md");
     expect(v("conventions.claude-md")).toBe("CLAUDE.md");
-    expect(v("architecture.entrypoints")).toBe("bin/x.js, lib/a.js, src/index.js");
+    expect(v("architecture.entrypoints")).toBe("lib/a.js, bin/x.js, src/index.js");
     expect(v("conventions.readme")).toBe("One | Two");
     expect(JSON.stringify(registry.toJSON())).not.toContain("SECRET-BODY");
   });
 
-  it("caps entrypoints at MAX_ENTRYPOINTS, sorted by path", async () => {
+  it("caps entrypoints at MAX_ENTRYPOINTS, sorted by path, reporting the remainder", async () => {
     const files: Record<string, string> = {};
     for (let i = 0; i < 30; i++) files[`pkg${String(i).padStart(2, "0")}/src/index.ts`] = "";
     const repo = makeRepo(files);
     const { registry } = await runDiscovery({ repo, task: "x" });
-    const list = (registry.get("architecture.entrypoints")?.value ?? "").split(", ");
+    const value = registry.get("architecture.entrypoints")?.value ?? "";
+    const list = value.replace(/ \(\+\d+ more\)$/, "").split(", ");
+    expect(value).toMatch(/ \(\+10 more\)$/);
     expect(MAX_ENTRYPOINTS).toBe(20);
     expect(list).toHaveLength(20);
     expect(list[0]).toBe("pkg00/src/index.ts");
@@ -90,5 +92,37 @@ describe("structure detectors", () => {
     const { registry } = await runDiscovery({ repo, task: "x" });
     expect(registry.get("conventions.readme")?.value).toBe("Hello there");
     expect(registry.get("conventions.readme")?.source).toBe("Readme.MD");
+  });
+
+  it("keeps main and root src/index first and marks the cap with (+N more)", async () => {
+    const files: Record<string, string> = {
+      "package.json": JSON.stringify({ main: "zz/main.js" }),
+      "zz/main.js": "",
+      "src/index.ts": "",
+    };
+    for (let i = 0; i < 25; i++) files[`packages/p${String(i).padStart(2, "0")}/src/index.ts`] = "";
+    const { registry } = await runDiscovery({ repo: makeRepo(files), task: "x" });
+    const value = registry.get("architecture.entrypoints")?.value ?? "";
+    expect(value.length).toBeLessThan(500);
+    expect(value).not.toContain("…");
+    expect(value.startsWith("zz/main.js, src/index.ts, packages/p00/src/index.ts")).toBe(true);
+    expect(value).toMatch(/\(\+\d+ more\)$/);
+  });
+
+  it("keeps the value under the evidence length limit with long paths", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 20; i++) files[`${"d".repeat(40)}${i}/src/index.ts`] = "";
+    const { registry } = await runDiscovery({ repo: makeRepo(files), task: "x" });
+    const value = registry.get("architecture.entrypoints")?.value ?? "";
+    expect(value.length).toBeLessThan(500);
+    expect(value).not.toContain("…");
+    expect(value).toMatch(/\(\+\d+ more\)$/);
+  });
+
+  it("detects a symlinked README.md", async () => {
+    const repo = makeRepo({ "docs/README.md": "# Linked docs\n" });
+    symlinkSync(join(repo, "docs/README.md"), join(repo, "README.md"));
+    const { registry } = await runDiscovery({ repo, task: "x" });
+    expect(registry.get("conventions.readme")?.value).toBe("Linked docs");
   });
 });

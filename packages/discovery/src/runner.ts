@@ -27,7 +27,10 @@ export interface DiscoveryResult {
   detectorsRun: string[];
   /** Wall-clock milliseconds per detector id. */
   durations: Record<string, number>;
-  /** Detectors that threw, sorted by detector id; their evidence is absent but others are unaffected. */
+  /**
+   * Detectors that threw, sorted by detector id; their evidence is absent but others are
+   * unaffected.
+   */
   errors: { detector: string; message: string }[];
 }
 

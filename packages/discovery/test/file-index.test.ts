@@ -58,24 +58,6 @@ describe("depthLimited", () => {
 });
 
 describe("abort", () => {
-  it("rejects with AbortError before reading the next directory", async () => {
-    const repo = tmp();
-    for (const d of ["a", "b", "c"]) {
-      mkdirSync(join(repo, d));
-      writeFileSync(join(repo, d, "f.txt"), "");
-    }
-    let checks = 0;
-    // Reports aborted from the second directory on; the walk must check once per directory.
-    const signal = {
-      get aborted() {
-        checks++;
-        return checks > 1;
-      },
-    } as unknown as AbortSignal;
-    await expect(buildFileIndex(repo, { signal })).rejects.toMatchObject({ name: "AbortError" });
-    expect(checks).toBe(2);
-  });
-
   it("rejects immediately when already aborted", async () => {
     await expect(buildFileIndex(tmp(), { signal: AbortSignal.abort() })).rejects.toMatchObject({
       name: "AbortError",

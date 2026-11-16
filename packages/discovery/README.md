@@ -9,7 +9,7 @@ failing detector never stops the others.
 
 - **`runDiscovery({ repo, task, detectors?, concurrency?, signal? })`** (`runner.ts`): builds
   the file index, selects detectors for the task, runs them with bounded concurrency
-  (default 4) and returns `{ registry, files, detectorsRun, durations, errors }`.
+  (default 4) and returns `{ registry, files, detectorsRun, durations, errors }`; `errors` is sorted by detector id.
 - **`selectDetectors(task, detectors)`**: keeps detectors that are `always` or whose
   `keywords` match the task.
 - **`buildFileIndex(repo, { maxFiles?, maxDepth?, signal? })`** (`file-index.ts`): deterministic
