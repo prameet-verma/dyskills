@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   open,
+  realpath,
   readFile,
   rename,
   rm,
@@ -12,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { CONTRACT_VERSION, DEFAULT_BUDGET_MS } from "./constants";
 import { SessionStateSchema } from "./schemas";
 import type { InvocationMode, SessionState, StageName } from "./schemas";
@@ -52,10 +53,13 @@ export class UnsafeHomeError extends Error {
    * Creates the error.
    * @param path - The refused directory.
    * @param reason - Why it was refused.
+   * @param subPath - True for a path inside a session directory (no `DYNAMIC_SKILLS_HOME` hint).
    */
-  constructor(path: string, reason: string) {
+  constructor(path: string, reason: string, subPath = false) {
     super(
-      `Unsafe session home ${path}: ${reason}. Remove it or set DYNAMIC_SKILLS_HOME to a private directory.`,
+      subPath
+        ? `Unsafe session path ${path}: ${reason}. Remove it.`
+        : `Unsafe session home ${path}: ${reason}. Remove it or set DYNAMIC_SKILLS_HOME to a private directory.`,
     );
     this.name = "UnsafeHomeError";
   }
@@ -121,6 +125,71 @@ export async function ensurePrivateDir(
   if (tighten && (info.mode & 0o077) !== 0) await probe.chmod(dir, PRIVATE_DIR_MODE);
 }
 
+/**
+ * Writes `content` to `rel` inside `sessionDir` atomically and without following a symlink: the
+ * path must stay inside `sessionDir`, no existing component of it may be a symbolic link (a
+ * planted `reports -> elsewhere` would otherwise redirect the write), missing directories are
+ * created with mode 0700, and the file is written to a temp file in the same directory (mode
+ * 0600) and renamed into place, so a reader never sees a partial file and no temp file remains.
+ * The parent's real path is re-checked just before the rename; a small window remains between
+ * that check and the rename, exploitable only by the same user (the session dir is 0700).
+ *
+ * A relative path whose case differs from the on-disk directory (case-insensitive APFS) is
+ * refused as `HOME_UNSAFE` by the parent re-check; callers pass fixed lowercase names.
+ *
+ * @param sessionDir - The session directory; the only tree this function writes into.
+ * @param rel - Relative path of the file inside `sessionDir`.
+ * @param content - UTF-8 text to write.
+ * @returns The absolute path written.
+ * @throws {UnsafeHomeError} (`HOME_UNSAFE`) when an existing component of `rel` is a symlink or a
+ *   non-directory parent.
+ * @throws {Error} when `rel` would escape `sessionDir`.
+ */
+export async function writeSessionFile(
+  sessionDir: string,
+  rel: string,
+  content: string,
+): Promise<string> {
+  const base = resolve(sessionDir);
+  const abs = resolve(base, rel);
+  const r = relative(base, abs);
+  if (r === "" || r.startsWith("..") || r.split(sep).includes("..")) {
+    throw new Error(`Artifact path escapes the session directory: ${rel}`);
+  }
+  const parts = r.split(sep);
+  let current = base;
+  for (const [i, part] of parts.entries()) {
+    current = join(current, part);
+    let info;
+    try {
+      info = await lstat(current);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") break;
+      throw e;
+    }
+    if (info.isSymbolicLink()) throw new UnsafeHomeError(current, "it is a symbolic link", true);
+    if (i < parts.length - 1 && !info.isDirectory()) {
+      throw new UnsafeHomeError(current, "it is not a directory", true);
+    }
+  }
+  await mkdir(dirname(abs), { recursive: true, mode: PRIVATE_DIR_MODE });
+  const temp = join(dirname(abs), `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
+  try {
+    await writeFile(temp, content, { mode: PRIVATE_FILE_MODE, flag: "wx" });
+    // Re-check the parent just before the rename: a component swapped for a symlink since the
+    // walk above would redirect the rename.
+    const parent = await realpath(dirname(abs));
+    if (parent !== join(await realpath(base), dirname(r))) {
+      throw new UnsafeHomeError(dirname(abs), "it changed while writing", true);
+    }
+    await rename(temp, abs);
+  } catch (e) {
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw e;
+  }
+  return abs;
+}
+
 /** Thrown by {@link SessionStore.load} when no session exists for an id. Code `SESSION_NOT_FOUND`. */
 export class SessionNotFoundError extends Error {
   /** Stable machine-readable error code. */
@@ -183,6 +252,8 @@ export class SessionStore {
    * ids come from agent-controlled CLI arguments, so anything not shaped like a generated id
    * (which also rules out `..` and separators) is reported as an unknown session.
    *
+   * @param id - Session id.
+   * @returns The session directory path.
    * @throws {SessionNotFoundError} if `id` is malformed.
    */
   dir(id: string): string {
@@ -211,10 +282,11 @@ export class SessionStore {
    * Creates a session directory (mode 0700, inside a checked private home) and persists its
    * initial state (status `assessing`, running SLA clock started at `now`, zeroed metrics).
    *
-   * @throws {UnsafeHomeError} if the home is unsafe.
-   *
+   * @param init - Task, mode, repo and revision of the new session.
    * @param init.budgetMs - Active budget; defaults to {@link DEFAULT_BUDGET_MS}.
    * @param init.now - Epoch ms used for the id, clock and metrics; defaults to `Date.now()`.
+   * @returns The new session state.
+   * @throws {UnsafeHomeError} if the home is unsafe.
    */
   async create(init: {
     task: string;
@@ -272,7 +344,9 @@ export class SessionStore {
   /**
    * Loads and validates a session.
    *
-   * @throws {SessionNotFoundError} if `session.json` does not exist.
+   * @param id - Session id.
+   * @returns The validated state.
+   * @throws {SessionNotFoundError} if `id` is malformed or `session.json` does not exist.
    * @throws ZodError / SyntaxError if the file is corrupt; corrupt state must never be trusted.
    */
   async load(id: string): Promise<SessionState> {
@@ -286,7 +360,13 @@ export class SessionStore {
     return SessionStateSchema.parse(JSON.parse(raw));
   }
 
-  /** Persists state atomically: write `session.json.tmp`, then rename over `session.json`. */
+  /**
+   * Persists state atomically: write `session.json.tmp`, then rename over `session.json`.
+   *
+   * @param s - The session state to persist.
+   * @throws {SessionNotFoundError} if `s.id` is malformed.
+   * @throws {Error} if the directory cannot be created or the file cannot be written.
+   */
   async save(s: SessionState): Promise<void> {
     const file = join(this.dir(s.id), "session.json");
     await mkdir(dirname(file), { recursive: true, mode: PRIVATE_DIR_MODE });
@@ -299,6 +379,10 @@ export class SessionStore {
    * than 30 s is treated as abandoned and reclaimed. The lock is always released. The home is
    * checked ({@link SessionStore.prepare}) before the lock is written.
    *
+   * @param id - Session id.
+   * @param fn - Work to run under the lock.
+   * @returns What `fn` returns.
+   * @throws {SessionNotFoundError} if `id` is malformed.
    * @throws {SessionLockedError} if a fresh lock is held by someone else.
    * @throws {UnsafeHomeError} if the home is unsafe.
    */
@@ -332,6 +416,22 @@ export class SessionStore {
     throw new SessionLockedError(id);
   }
 
+  /**
+   * Writes a UTF-8 artifact at `rel` inside the session directory through
+   * {@link writeSessionFile}: atomic, mode 0600, parents 0700, refusing any symlinked component.
+   *
+   * @param id - Session id.
+   * @param rel - Relative artifact path inside the session directory.
+   * @param content - UTF-8 text to write.
+   * @returns The absolute path written.
+   * @throws {SessionNotFoundError} if `id` is malformed.
+   * @throws {UnsafeHomeError} if a component of `rel` is a symbolic link.
+   * @throws {Error} if `rel` would escape the session directory.
+   */
+  async writeArtifact(id: string, rel: string, content: string): Promise<string> {
+    return writeSessionFile(this.dir(id), rel, content);
+  }
+
   /** Resolves `rel` inside the session dir, rejecting paths that escape it. */
   private resolveInside(id: string, rel: string): string {
     const base = resolve(this.dir(id));
@@ -344,20 +444,15 @@ export class SessionStore {
   }
 
   /**
-   * Writes a UTF-8 artifact at `rel` inside the session directory (file mode 0600), creating
-   * parents (mode 0700).
+   * Reads an artifact, or returns `null` if it does not exist.
    *
-   * @returns The absolute path written.
-   * @throws if `rel` would escape the session directory.
+   * @param id - Session id.
+   * @param rel - Relative artifact path inside the session directory.
+   * @returns The file text, or `null` when missing.
+   * @throws {SessionNotFoundError} if `id` is malformed.
+   * @throws {Error} if `rel` would escape the session directory, or the read fails for a reason
+   *   other than a missing file.
    */
-  async writeArtifact(id: string, rel: string, content: string): Promise<string> {
-    const abs = this.resolveInside(id, rel);
-    await mkdir(dirname(abs), { recursive: true, mode: PRIVATE_DIR_MODE });
-    await writeFile(abs, content, { mode: PRIVATE_FILE_MODE });
-    return abs;
-  }
-
-  /** Reads an artifact, or returns `null` if it does not exist. */
   async readArtifact(id: string, rel: string): Promise<string | null> {
     try {
       return await readFile(this.resolveInside(id, rel), "utf8");
@@ -367,7 +462,12 @@ export class SessionStore {
     }
   }
 
-  /** Deletes the whole session directory; a missing session is not an error. */
+  /**
+   * Deletes the whole session directory; a missing session is not an error.
+   *
+   * @param id - Session id.
+   * @throws {SessionNotFoundError} if `id` is malformed.
+   */
   async remove(id: string): Promise<void> {
     await rm(this.dir(id), { recursive: true, force: true });
   }

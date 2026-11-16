@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   AssumptionsReportSchema,
@@ -7,13 +7,12 @@ import {
   MAX_BASE_FILE_BYTES,
   NOTICE_AUGMENTED,
   NOTICE_GENERATED,
-  PRIVATE_DIR_MODE,
-  PRIVATE_FILE_MODE,
   buildDiscoveryReport,
   buildPerformanceReport,
   enforceDeadline,
   readSafeFile,
   stopClock,
+  writeSessionFile,
   type ContextPacket,
   type EvalResult,
   type EvaluationReport,
@@ -96,15 +95,11 @@ async function readUnchangedBase(
 /** Writes `reports/*.json`, all carrying `schemaVersion` (PRD §10.8, §13.2). */
 async function writeReports(input: ActivationInput): Promise<void> {
   const { state, sessionDir, report, behavioural, packet, evidence, now } = input;
-  const reports = join(sessionDir, "reports");
-  // Session data is private: owner-only directory and files, like every SessionStore write.
-  await mkdir(reports, { recursive: true, mode: PRIVATE_DIR_MODE });
-  const put = (name: string, doc: unknown): Promise<void> =>
-    writeFile(join(reports, name), `${JSON.stringify(doc, null, 2)}\n`, {
-      mode: PRIVATE_FILE_MODE,
-    });
+  // Session data is private and the write must not follow a symlink: every file goes through
+  // writeSessionFile (atomic, 0600, parents 0700, HOME_UNSAFE on a symlinked component).
+  const put = (name: string, doc: unknown): Promise<string> =>
+    writeSessionFile(sessionDir, `reports/${name}`, `${JSON.stringify(doc, null, 2)}\n`);
   await Promise.all([
-    put("performance.json", buildPerformanceReport(state, now)),
     put("discovery.json", buildDiscoveryReport(state, packet, evidence)),
     put(
       "assumptions.json",
@@ -113,6 +108,9 @@ async function writeReports(input: ActivationInput): Promise<void> {
     // Keep the recorded behavioural result inside the evaluation report.
     ...(report ? [put("evaluation.json", { ...report, behavioural })] : []),
   ]);
+  // `performance.json` goes last: it is the only file `report perf` reads, so a failed write
+  // above never leaves a counted report behind for a session whose state is discarded.
+  await put("performance.json", buildPerformanceReport(state, now));
 }
 
 /**
@@ -128,35 +126,27 @@ async function writeReports(input: ActivationInput): Promise<void> {
  *
  * @param input - See {@link ActivationInput}.
  * @returns The activation payload, or a refusal with a fallback message.
+ * @throws {UnsafeHomeError} (`HOME_UNSAFE`) when `reports` or its path is a symbolic link.
  * @throws If a report file cannot be written.
  */
 export async function activate(input: ActivationInput): Promise<ActivationResult> {
   const started = Date.now();
-  const { state, sessionDir, skill, report, behavioural, now } = input;
-  const sufficiency = state.sufficiency;
-  const augmenting = sufficiency?.outcome === "partial";
-  let result: ActivationResult | undefined;
-  let base: { name: string; path: string; content: string } | null = null;
+  const { state, now } = input;
+  const gate = await checkGates(input);
+  let result: ActivationResult;
 
-  if (enforceDeadline(state, now)) {
-    await rm(join(sessionDir, "skills"), { recursive: true, force: true });
-    result = refuse("timeout");
-  } else if (state.blockedBy.length > 0) {
-    result = refuse("blocked-by-clarification");
-  } else if (augmenting && !(base = await readUnchangedBase(sufficiency.baseSkill))) {
-    result = refuse("base-changed");
-  } else if (report === null || skill === null || !report.activatable) {
-    result = refuse("evaluation-failed");
-  } else if (behavioural === undefined) {
-    result = refuse("behavioural-missing");
-  } else if (!isActivatable(report, behavioural)) {
-    result = refuse("evaluation-failed");
-  }
-
-  if (result === undefined && report && skill) {
+  if ("refusal" in gate) {
+    result = refuse(gate.refusal);
+    // enforceDeadline already marked a timeout; every other refusal is a failure.
+    if (gate.refusal !== "timeout") {
+      state.status = "failed";
+      state.metrics.outcome = "failed";
+    }
+  } else {
+    const { skill, report, behavioural, base } = gate;
     const limitations = [
       ...report.limitations,
-      ...(behavioural?.outcome === "warning" ? behavioural.messages : []),
+      ...(behavioural.outcome === "warning" ? behavioural.messages : []),
     ];
     state.status = limitations.length > 0 ? "warning" : "completed";
     state.metrics.outcome = base ? "augmented" : "activated";
@@ -170,15 +160,47 @@ export async function activate(input: ActivationInput): Promise<ActivationResult
       limitations,
       notice: base ? NOTICE_AUGMENTED : NOTICE_GENERATED,
     };
-  } else if (state.status !== "timeout") {
-    // enforceDeadline already marked a timeout; every other refusal is a failure.
-    state.status = "failed";
-    state.metrics.outcome = "failed";
   }
 
   state.metrics.activationMs = Date.now() - started;
   // Every outcome ends the session: freeze the clock so the report's active time is final.
   stopClock(state, now);
   await writeReports(input);
-  return result ?? refuse("evaluation-failed");
+  return result;
+}
+
+/** Result of {@link checkGates}: the first refusal, or everything the success branch needs. */
+type GateOutcome =
+  | { refusal: RefusalReason }
+  | {
+      skill: GeneratedSkill;
+      report: EvaluationReport;
+      behavioural: EvalResult;
+      base: { name: string; path: string; content: string } | null;
+    };
+
+/**
+ * Runs the activation gates in order (deadline, pending clarifications, base integrity, evaluation
+ * report, behavioural result) and returns the first refusal, or the validated inputs. A timeout
+ * also deletes `<sessionDir>/skills/`.
+ */
+async function checkGates(input: ActivationInput): Promise<GateOutcome> {
+  const { state, sessionDir, skill, report, behavioural, now } = input;
+  const sufficiency = state.sufficiency;
+  if (enforceDeadline(state, now)) {
+    await rm(join(sessionDir, "skills"), { recursive: true, force: true });
+    return { refusal: "timeout" };
+  }
+  if (state.blockedBy.length > 0) return { refusal: "blocked-by-clarification" };
+  let base: { name: string; path: string; content: string } | null = null;
+  if (sufficiency?.outcome === "partial") {
+    base = await readUnchangedBase(sufficiency.baseSkill);
+    if (base === null) return { refusal: "base-changed" };
+  }
+  if (report === null || skill === null || !report.activatable) {
+    return { refusal: "evaluation-failed" };
+  }
+  if (behavioural === undefined) return { refusal: "behavioural-missing" };
+  if (!isActivatable(report, behavioural)) return { refusal: "evaluation-failed" };
+  return { skill, report, behavioural, base };
 }

@@ -28,6 +28,16 @@ const STRENGTH: Record<Confidence, number> = {
 };
 
 /**
+ * Conflicts of a fresh entry: none unless it arrives `conflicting`, then the supplied (sanitised)
+ * list, or the observation itself (`"<value> (<source>)"`) when none was supplied.
+ */
+function freshConflicts(e: EvidenceInput, value: string): string[] {
+  if (e.confidence !== "conflicting") return [];
+  const given = (e.conflicts ?? []).map(sanitizeEvidenceValue);
+  return given.length > 0 ? given : [`${value} (${e.source})`];
+}
+
+/**
  * In-memory store of discovered facts with provenance (PRD §7). One entry per key;
  * disagreement between sources is recorded rather than resolved, so the gap analysis and the
  * user can see it.
@@ -42,7 +52,8 @@ export class EvidenceRegistry {
    * A different value turns the entry `conflicting`; `conflicts` then lists
    * `"<value> (<source>)"` for every distinct observation and `value` stays the first one seen.
    * A conflicting entry stays conflicting. Merges keep the first entry's `origin`. A fresh
-   * `conflicting` entry takes `e.conflicts` (sanitised) as supplied.
+   * `conflicting` entry takes `e.conflicts` (sanitised) as supplied, or `["<value> (<source>)"]`
+   * when none is supplied.
    *
    * @param e - The observation.
    * @returns The resulting (merged) entry.
@@ -59,8 +70,7 @@ export class EvidenceRegistry {
         confidence: e.confidence,
         timestamp: e.timestamp ?? new Date().toISOString(),
         revision: e.revision,
-        conflicts:
-          e.confidence === "conflicting" ? (e.conflicts ?? []).map(sanitizeEvidenceValue) : [],
+        conflicts: freshConflicts(e, value),
         origin: e.origin ?? "programmatic",
       };
       this.entries.set(e.key, created);
