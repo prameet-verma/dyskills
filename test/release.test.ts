@@ -71,6 +71,14 @@ describe("checkRelease", () => {
     expect(checkRelease(input).join("\n")).toContain("LICENSE");
   });
 
+  it("rejects a repository object without a url", () => {
+    for (const repository of [{ type: "git" }, { url: "" }, {}]) {
+      const input = valid();
+      input.pkg.repository = repository;
+      expect(checkRelease(input).join("\n")).toContain("repository");
+    }
+  });
+
   it("rejects a missing repository field", () => {
     const input = valid();
     delete input.pkg.repository;
@@ -110,7 +118,7 @@ describe("workflows", () => {
     expect(wf.on).toHaveProperty("workflow_dispatch");
     expect(wf.on.workflow_dispatch?.inputs?.["dry-run"]).toBeUndefined();
     expect(wf.permissions).toEqual({});
-    expect(wf.concurrency).toBeDefined();
+    expect(wf.concurrency.group).toBe("release-${{ github.ref }}");
     expect(text).not.toContain("cache: pnpm");
     for (const job of Object.values<any>(wf.jobs)) {
       for (const step of job.steps) {
@@ -124,7 +132,7 @@ describe("workflows", () => {
   it("the dispatch job always dry-runs, with no token, environment or write permission", () => {
     const { wf } = release();
     const job = wf.jobs["dry-run"];
-    expect(job.if).toContain("workflow_dispatch");
+    expect(job.if).toBe("github.event_name == 'workflow_dispatch'");
     expect(job.environment).toBeUndefined();
     expect(job.permissions).toEqual({ contents: "read" });
     const text = JSON.stringify(job);
@@ -133,13 +141,17 @@ describe("workflows", () => {
     const publishes = job.steps.filter((s: any) => String(s.run ?? "").includes("publish"));
     expect(publishes).toHaveLength(1);
     expect(publishes[0].run).toContain("--dry-run");
-    expect(job.steps.some((s: any) => String(s.run ?? "").includes("check-release"))).toBe(true);
+    const runs: string[] = job.steps.map((s: any) => String(s.run ?? ""));
+    const check = runs.findIndex((r) => r.includes("check-release"));
+    expect(check).toBeGreaterThanOrEqual(0);
+    // The rehearsal must show the publish output even when the release check fails.
+    expect(runs.findIndex((r) => r.includes("publish"))).toBeLessThan(check);
   });
 
   it("the publish job runs only on tags, checks the release first and uses provenance", () => {
     const { wf } = release();
     const job = wf.jobs.publish;
-    expect(job.if).toContain("refs/tags/v");
+    expect(job.if).toBe("github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')");
     expect(job.environment).toBe("npm");
     expect(job.permissions).toEqual({ contents: "read", "id-token": "write" });
     const runs: string[] = job.steps.map((s: any) => String(s.run ?? ""));

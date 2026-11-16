@@ -52,10 +52,14 @@ export function checkRelease(input: {
     problems.push("package.json has no license field (choose a license and add LICENSE)");
   }
   if (typeof pkg.license === "string" && pkg.license !== "" && !packFiles.includes("LICENSE")) {
-    problems.push("tarball is missing LICENSE (add it at the repository root and to packages/cli)");
+    problems.push(
+      "tarball is missing LICENSE (add it at the repository root; pnpm includes it in the tarball)",
+    );
   }
-  if (pkg.repository === undefined || pkg.repository === "") {
-    problems.push("package.json has no repository field");
+  const repo = pkg.repository;
+  const repoUrl = typeof repo === "string" ? repo : (repo as { url?: unknown } | undefined)?.url;
+  if (typeof repoUrl !== "string" || repoUrl === "") {
+    problems.push("package.json has no repository field with a url");
   }
   for (const required of REQUIRED) {
     if (!packFiles.includes(required)) problems.push(`tarball is missing ${required}`);

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,9 +21,13 @@ describe("resolveBootstrapSkill", () => {
     writeFileSync(resolve(dir, "other.md"), "x");
     const link = resolve(dir, "s/SKILL.md");
     symlinkSync(resolve(dir, "other.md"), link);
-    await expect(resolveBootstrapSkill([link])).rejects.toThrow(
-      `bootstrap skill not readable: wrong-name at ${link}`,
-    );
+    try {
+      await expect(resolveBootstrapSkill([link])).rejects.toThrow(
+        `bootstrap skill not readable: wrong-name at ${link}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("says not found when every candidate is missing", async () => {

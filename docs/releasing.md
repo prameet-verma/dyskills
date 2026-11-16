@@ -16,10 +16,9 @@ bump the minor version; fixes bump the patch version. A `CONTRACT_VERSION` bump 
 
 ## Checklist
 
-1. Choose a license, then add `LICENSE` at the repository root (copied or linked into
-   `packages/cli`, so it lands in the tarball) and the `"license"` field to
-   `packages/cli/package.json`. The release check fails until the field exists, and again if the
-   tarball lacks `LICENSE`.
+1. Choose a license, then add `LICENSE` at the repository root (pnpm includes it in the tarball)
+   and the `"license"` field to `packages/cli/package.json`. The release check fails until the
+   field exists, and again if the tarball lacks `LICENSE`.
 1. Set the `repository` field in `packages/cli/package.json` before the first publish; the release
    check fails without it.
 1. Claim the npm name `dynamic-skills`.
