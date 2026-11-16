@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, constants, openSync } from "node:fs";
-import { mkdir, symlink } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MAX_BASE_FILE_BYTES } from "@dynamic-skills/core";
 import { describe, expect, it, vi } from "vitest";
@@ -174,5 +174,109 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     await mkdir(join(repo, ".claude/skills/empty"), { recursive: true });
     const r = await scanExistingSkills({ repo, home });
     expect(r).toEqual({ skills: [], instructionFiles: [], warnings: [] });
+  });
+});
+
+describe("scanExistingSkills registry additions", () => {
+  const etcDir = async () => join(await tmp(), "etc");
+
+  it("lists a skill without name under its directory name", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, ".agents/skills/foo/SKILL.md", "---\ndescription: Foo skill\n---\nBody");
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.warnings).toEqual([]);
+    expect(r.skills.map((s) => [s.name, s.harness])).toEqual([["foo", "codex"]]);
+  });
+
+  it("strips a leading BOM", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, ".claude/skills/b/SKILL.md", "\uFEFF" + skillMd("b", "Bom skill"));
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.skills.map((s) => s.name)).toEqual(["b"]);
+  });
+
+  it("skips an empty description or an explicitly empty name with a warning naming the path", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, ".claude/skills/a/SKILL.md", '---\nname: a\ndescription: ""\n---\nx');
+    await put(repo, ".claude/skills/c/SKILL.md", '---\nname: ""\ndescription: d\n---\nx');
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.skills).toEqual([]);
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings[0]).toContain(join(repo, ".claude/skills/a/SKILL.md"));
+    expect(r.warnings[1]).toContain(join(repo, ".claude/skills/c/SKILL.md"));
+  });
+
+  it("finds a skill at an ancestor level up to the project root", async () => {
+    const t = await tmp();
+    const mono = join(t, "mono");
+    const repo = join(mono, "packages/api");
+    await mkdir(join(mono, ".git"), { recursive: true });
+    await mkdir(repo, { recursive: true });
+    await put(mono, ".agents/skills/up/SKILL.md", skillMd("up", "Up skill"));
+    await put(t, ".agents/skills/above/SKILL.md", skillMd("above", "Above the root"));
+    const r = await scanExistingSkills({ repo, home: join(t, "h"), etcDir: await etcDir() });
+    expect(r.skills.map((s) => [s.name, s.scope])).toEqual([["up", "project"]]);
+  });
+
+  it("lists each skill once when one root is a symlink to another", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(home, ".claude/skills/s/SKILL.md", skillMd("s", "Shared"));
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await symlink(join(home, ".claude/skills"), join(home, ".agents/skills"));
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.skills).toHaveLength(1);
+    expect(r.skills[0]?.harness).toBe("claude-code");
+  });
+
+  it("skips a SKILL.md symlinked to .env", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, "secrets/.env", skillMd("env", "Leak"));
+    await mkdir(join(repo, ".claude/skills/e"), { recursive: true });
+    await symlink(join(repo, "secrets/.env"), join(repo, ".claude/skills/e/SKILL.md"));
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.skills).toEqual([]);
+    expect(r.warnings).toHaveLength(1);
+  });
+
+  it("lists two different files with the same name and body once", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await put(repo, ".claude/skills/a/SKILL.md", skillMd("a", "d"));
+    await put(repo, ".agents/skills/a/SKILL.md", skillMd("a", "d"));
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.skills).toHaveLength(1);
+  });
+
+  it("reads the admin root as personal and honours env roots", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    const etc = await tmp();
+    const cx = await tmp();
+    await put(etc, "codex/skills/adm/SKILL.md", skillMd("adm", "Admin"));
+    await put(cx, "skills/cx/SKILL.md", skillMd("cx", "Codex home"));
+    const r = await scanExistingSkills({
+      repo,
+      home,
+      etcDir: etc,
+      vars: { CODEX_HOME: cx },
+    });
+    expect(r.skills.map((s) => [s.name, s.scope, s.harness])).toEqual([
+      ["cx", "personal", "codex"],
+      ["adm", "personal", "codex"],
+    ]);
+  });
+
+  it("lists AGENTS.override.md", async () => {
+    const repo = await tmp();
+    const home = await tmp();
+    await writeFile(join(repo, "AGENTS.override.md"), "x");
+    await writeFile(join(repo, "AGENTS.md"), "x");
+    const r = await scanExistingSkills({ repo, home, etcDir: await etcDir() });
+    expect(r.instructionFiles).toEqual([join(repo, "AGENTS.md"), join(repo, "AGENTS.override.md")]);
   });
 });
