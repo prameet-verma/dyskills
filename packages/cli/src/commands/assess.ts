@@ -51,7 +51,12 @@ export const assessCommand: CreateCommandDef = {
     if (!info?.isDirectory()) throw new CliError("USAGE", "--repo is not a directory.");
     const budgetMs = budgetFromEnv();
 
-    const scanned = await scanExistingSkills({ repo, home: ctx.userHome });
+    const scanned = await scanExistingSkills({
+      repo,
+      home: ctx.userHome,
+      vars: ctx.vars,
+      etcDir: ctx.etcDir,
+    });
     const skills = scanned.skills
       .filter((s) => s.name !== BOOTSTRAP_SKILL_NAME)
       .map((s) => ({ name: s.name, description: s.description, scope: s.scope, path: s.path }));

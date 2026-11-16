@@ -70,7 +70,7 @@ export const evaluateCommand: SessionCommandDef = {
   options: [],
   step: "evaluate",
   stage: "evaluation",
-  async run({ store, state, userHome }) {
+  async run({ store, state, userHome, vars, etcDir }) {
     const sufficiency = state.sufficiency;
     state.evalAttempts += 1;
     // Ruling R14: no pin survives into an attempt, so a failed attempt cannot leave a stale one.
@@ -127,7 +127,7 @@ export const evaluateCommand: SessionCommandDef = {
       evidence: await readEvidence(store, state.id),
       assumptions: state.assumptions,
       gaps: state.gaps,
-      existingSkills: await existingSkillsFor(state, userHome),
+      existingSkills: await existingSkillsFor(state, userHome, vars, etcDir),
       instructionTexts,
       smokeEval,
       augmentation: sufficiency ? await augmentationContext(sufficiency) : null,

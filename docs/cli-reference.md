@@ -38,6 +38,17 @@ command is missing, the agent stops and asks the user to install it. The archite
 | 2    | Evaluation gate failed: `BUNDLE_INVALID`, `EVAL_ATTEMPTS_EXHAUSTED` or `ACTIVATION_REFUSED`      |
 | 3    | Timeout: the active budget was exceeded, or `activate` refused with reason `timeout`             |
 
+## Version
+
+`dynamic-skills --version` (or `-V`) prints `{"ok":true,"schemaVersion":"1","version":"<x.y.z>"}` on
+stdout, nothing on stderr, and exits 0. The version is the published package version.
+
+## Environment
+
+The skill scan honours the variables that relocate harness skill roots (`CLAUDE_CONFIG_DIR`,
+`CODEX_HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG_DIR`; only absolute values are used) and the
+admin skill root `/etc/codex/skills`. This applies to `assess`, `compile` and `evaluate`.
+
 ## Commands
 
 Every command except `assess` and `report perf` takes `--session <id>`. A command may run only when

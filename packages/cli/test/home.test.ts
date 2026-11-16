@@ -47,6 +47,8 @@ describe("private session home (I3)", () => {
       home: link,
       cwd: h.repo,
       userHome: h.userHome,
+      etcDir: h.etcDir,
+      vars: {},
     });
     expect(r.exitCode).toBe(1);
     expect(JSON.parse(r.stdout)).toMatchObject({ ok: false, error: "HOME_UNSAFE" });

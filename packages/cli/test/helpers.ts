@@ -1,9 +1,90 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHash } from "node:crypto";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import type { CliEnv } from "../src/io";
 import { runCli } from "../src/run";
+
+/** Prefixes of the real system Codex directory that no test may touch (macOS aliases `/etc`). */
+const REAL_ETC_CODEX = ["/etc/codex", "/private/etc/codex"];
+
+/** Real-`/etc/codex` accesses seen since the last {@link takeEtcViolations}. */
+const etcViolations: string[] = [];
+
+/** Records the access when `target` lies under the real system Codex directory. */
+function noteAccess(op: string, target: unknown): void {
+  const raw =
+    typeof target === "string"
+      ? target
+      : target instanceof URL
+        ? target.pathname
+        : Buffer.isBuffer(target)
+          ? target.toString()
+          : null;
+  if (raw === null) return;
+  const abs = resolve(raw);
+  if (REAL_ETC_CODEX.some((p) => abs === p || abs.startsWith(`${p}/`))) {
+    etcViolations.push(`${op} ${abs}`);
+  }
+}
+
+/** Methods of `node:fs` and `node:fs/promises` whose first argument is a path that is read. */
+const GUARDED = [
+  "readdir",
+  "readFile",
+  "stat",
+  "lstat",
+  "realpath",
+  "access",
+  "open",
+  "opendir",
+  "readlink",
+  "readdirSync",
+  "readFileSync",
+  "statSync",
+  "lstatSync",
+  "realpathSync",
+  "accessSync",
+  "openSync",
+  "opendirSync",
+  "readlinkSync",
+] as const;
+
+/**
+ * Behavioural guard: wraps the filesystem functions so that any access under the real
+ * `/etc/codex` (or `/private/etc/codex`) is recorded, however the call was spelled or aliased.
+ * A test must never reach the machine's real admin skill root; every CLI call gets a tmp `etcDir`.
+ * Installed once when this helper is imported; the wrappers still call through.
+ */
+function installEtcGuard(): void {
+  for (const target of [fs, fsp] as Array<Record<string, unknown>>) {
+    for (const name of GUARDED) {
+      const original = target[name];
+      if (typeof original !== "function") continue;
+      target[name] = function (this: unknown, ...args: unknown[]) {
+        noteAccess(name, args[0]);
+        return (original as (...a: unknown[]) => unknown).apply(this, args);
+      };
+    }
+  }
+  syncBuiltinESMExports();
+}
+installEtcGuard();
+
+/** Returns and clears the recorded real-`/etc/codex` accesses. */
+export function takeEtcViolations(): string[] {
+  return etcViolations.splice(0);
+}
+
+/** Fails the current test when anything touched the real `/etc/codex` since the last check. */
+function assertNoEtcAccess(): void {
+  const seen = takeEtcViolations();
+  if (seen.length > 0) throw new Error(`test touched the real /etc/codex: ${seen.join(", ")}`);
+}
 
 /** Repository root of the monorepo under test. */
 export const ROOT = resolve(import.meta.dirname, "../../..");
@@ -22,9 +103,13 @@ export interface Harness {
   repo: string;
   home: string;
   userHome: string;
+  /** Temporary stand-in for `/etc`, passed to every CLI call. */
+  etcDir: string;
   tmp: string;
   clock: { t: number };
   run(argv: string[]): Promise<Call>;
+  /** Like `run`, with extra environment (`vars`, `etcDir`, ...) merged over the defaults. */
+  runWith(argv: string[], env: CliEnv): Promise<Call>;
   /** Writes a JSON document into the tmp dir and returns its path. */
   doc(name: string, value: unknown): Promise<string>;
   /** Reads a file inside a session directory. */
@@ -45,18 +130,33 @@ export async function harness(fixture = "ts-monorepo"): Promise<Harness> {
   await cp(join(ROOT, "fixtures/repos", fixture), repo, { recursive: true });
   await mkdir(home, { recursive: true });
   await mkdir(userHome, { recursive: true });
+  const etcDir = join(tmp, "etc");
+  await mkdir(etcDir, { recursive: true });
   const clock = { t: 1_700_000_000_000 };
   const sessionDir = (id: string, rel: string) => join(home, "sessions", id, rel);
+  const runWith = async (argv: string[], env: CliEnv): Promise<Call> => {
+    const r = await runCli(argv, {
+      home,
+      cwd: repo,
+      userHome,
+      etcDir,
+      // Hermetic by default: the developer's own CODEX_HOME and friends must not leak in.
+      vars: {},
+      now: () => clock.t,
+      ...env,
+    });
+    assertNoEtcAccess();
+    return { exitCode: r.exitCode, out: JSON.parse(r.stdout), stderr: r.stderr };
+  };
   return {
     repo,
     home,
     userHome,
+    etcDir,
     tmp,
     clock,
-    async run(argv) {
-      const r = await runCli(argv, { home, cwd: repo, userHome, now: () => clock.t });
-      return { exitCode: r.exitCode, out: JSON.parse(r.stdout), stderr: r.stderr };
-    },
+    runWith,
+    run: (argv) => runWith(argv, {}),
     async doc(name, value) {
       const p = join(tmp, name);
       await writeFile(p, typeof value === "string" ? value : JSON.stringify(value));
@@ -78,7 +178,10 @@ export async function harness(fixture = "ts-monorepo"): Promise<Harness> {
       });
       return join(dest, "SKILL.md");
     },
-    cleanup: () => rm(tmp, { recursive: true, force: true }),
+    async cleanup() {
+      await rm(tmp, { recursive: true, force: true });
+      assertNoEtcAccess();
+    },
   };
 }
 

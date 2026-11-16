@@ -13,11 +13,13 @@ import {
   stopClock,
 } from "@dynamic-skills/core";
 import type { SessionState } from "@dynamic-skills/core";
+import { createHostProbe } from "@dynamic-skills/adapter-sdk";
 import { Command, CommanderError, Option } from "commander";
 import { COMMANDS } from "./commands/index";
 import type { CommandDef, CommandResult } from "./commands/types";
 import { CliError, FALLBACK, stripControlChars, writeTerminalReports } from "./io";
 import type { CliEnv } from "./io";
+import { CLI_VERSION } from "./version";
 import { assertCanRun, isTerminal } from "./state-machine";
 
 /** What {@link runCli} returns: the process exit code and the two output streams as text. */
@@ -169,6 +171,9 @@ async function runSessionCommand(
       opts,
       cwd: env.cwd,
       userHome: env.userHome,
+      vars: env.vars,
+      probe: env.probe,
+      etcDir: env.etcDir,
       now: env.now,
     });
     return finish(def, store, state, result, startedAt, env.now);
@@ -188,6 +193,9 @@ async function runCreateCommand(
     opts,
     cwd: env.cwd,
     userHome: env.userHome,
+    vars: env.vars,
+    probe: env.probe,
+    etcDir: env.etcDir,
     now: env.now,
   });
   try {
@@ -204,10 +212,18 @@ async function runGlobalCommand(
   env: Required<CliEnv>,
   opts: Record<string, string | boolean | undefined>,
 ): Promise<RunOutput> {
-  const result = await def.run({ home: env.home, opts });
+  const result = await def.run({
+    home: env.home,
+    opts,
+    cwd: env.cwd,
+    userHome: env.userHome,
+    vars: env.vars,
+    probe: env.probe,
+    etcDir: env.etcDir,
+  });
   return {
     doc: { ok: true, schemaVersion: CONTRACT_VERSION, ...result.data },
-    status: "",
+    status: result.summary ?? "",
     exitCode: result.exitCode ?? 0,
   };
 }
@@ -282,12 +298,24 @@ export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutco
 }
 
 async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
+  const vars = env.vars ?? process.env;
   const resolved: Required<CliEnv> = {
     home: env.home ?? resolveHome(),
     cwd: env.cwd ?? process.cwd(),
     userHome: env.userHome ?? homedir(),
     now: env.now ?? Date.now,
+    vars,
+    probe: env.probe ?? createHostProbe(vars),
+    etcDir: env.etcDir ?? "/etc",
   };
+  // `--version` prints one JSON object like every other command, not commander's bare text.
+  if (argv.length === 1 && (argv[0] === "--version" || argv[0] === "-V")) {
+    return {
+      exitCode: 0,
+      stdout: jsonLine({ ok: true, schemaVersion: CONTRACT_VERSION, version: CLI_VERSION }),
+      stderr: "",
+    };
+  }
   let usageText = "";
   let chosen: { def: CommandDef; opts: Record<string, string | boolean | undefined> } | null = null;
   const program = buildProgram(

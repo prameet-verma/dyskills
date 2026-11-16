@@ -18,6 +18,7 @@ import type {
   SessionState,
   SessionStore,
 } from "@dynamic-skills/core";
+import type { HostProbe } from "@dynamic-skills/adapter-sdk";
 import { readRegularFile, resolveRepoPath } from "@dynamic-skills/discovery";
 import type { ZodType, z } from "zod";
 
@@ -78,6 +79,12 @@ export interface CliEnv {
   userHome?: string;
   /** Clock in epoch milliseconds; defaults to `Date.now`. */
   now?: () => number;
+  /** Environment variables the invocation sees; defaults to `process.env`. */
+  vars?: Readonly<Record<string, string | undefined>>;
+  /** Host probe (binary lookup, command execution); defaults to `createHostProbe(vars)`. */
+  probe?: HostProbe;
+  /** System configuration directory holding `codex/skills`; defaults to `/etc`. */
+  etcDir?: string;
 }
 
 /** Largest `--file` document accepted; agent documents are small and bounded by their schemas. */

@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@dynamic-skills/activation": "workspace:*",
+    "@dynamic-skills/adapter-sdk": "workspace:*",
     "@dynamic-skills/bootstrapper": "workspace:*",
     "@dynamic-skills/clarification-manager": "workspace:*",
     "@dynamic-skills/context-analyzer": "workspace:*",
