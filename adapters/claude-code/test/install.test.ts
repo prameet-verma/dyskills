@@ -266,4 +266,29 @@ describe("claude-code installer", () => {
     expect(claudeCodeAdapter.skillRoot(w.env, "project")).toBe(join(w.project, ".claude/skills"));
     expect(await realpath(w.project)).toBe(w.project);
   });
+
+  it("verify boundary: none at 2.1.232, present at 2.1.233", async () => {
+    expect((await plan(await setup("2.1.232 (Claude Code)"), "personal")).verify).toEqual([]);
+    expect((await plan(await setup("2.1.233 (Claude Code)"), "personal")).verify).toHaveLength(1);
+  });
+
+  it("warns that an untested version is untested", async () => {
+    const d = await claudeCodeAdapter.detect((await setup("2.1.300 (Claude Code)")).env);
+    expect(d.tested).toBe(false);
+    expect(d.warnings.some((x) => /not tested/.test(x))).toBe(true);
+  });
+
+  it("notes an existing user deny on dynamic-skills", async () => {
+    const w = await setup();
+    await writeFile(
+      join(w.home, ".claude/settings.json"),
+      JSON.stringify({ permissions: { deny: ["Bash(dynamic-skills init *)", "Read(./.env)"] } }),
+    );
+    const notes = (await plan(w, "personal")).notes.join("\n");
+    expect(notes).toMatch(/deny beats allow/);
+    expect(notes).toContain("Bash(dynamic-skills init *)");
+    expect(notes).not.toContain("Read(./.env)");
+    const clean = await setup();
+    expect((await plan(clean, "personal")).notes.join("\n")).not.toMatch(/deny beats allow/);
+  });
 });

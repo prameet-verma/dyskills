@@ -8,7 +8,9 @@
   },
   "dependencies": {
     "@dynamic-skills/adapter-sdk": "workspace:*",
-    "@dynamic-skills/bootstrapper": "workspace:*",
-    "@dynamic-skills/core": "workspace:*"
+    "@dynamic-skills/bootstrapper": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
   }
 }

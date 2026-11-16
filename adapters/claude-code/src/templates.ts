@@ -1,7 +1,8 @@
-import { ANALYST_DESCRIPTION, ANALYST_INSTRUCTIONS } from "@dynamic-skills/adapter-sdk";
-
-/** Name of the read-only context analyst agent Claude Code loads from `agents/`. */
-export const CLAUDE_ANALYST_NAME = "dynamic-skills-context-analyst";
+import {
+  ANALYST_AGENT_NAME,
+  ANALYST_DESCRIPTION,
+  ANALYST_INSTRUCTIONS,
+} from "@dynamic-skills/adapter-sdk";
 
 /**
  * Renders the context analyst agent file: frontmatter limiting it to read-only tools (enforced by
@@ -13,7 +14,7 @@ export function analystAgentFile(): Buffer {
   return Buffer.from(
     [
       "---",
-      `name: ${CLAUDE_ANALYST_NAME}`,
+      `name: ${ANALYST_AGENT_NAME}`,
       `description: ${ANALYST_DESCRIPTION}`,
       "tools: Read, Grep, Glob",
       "model: inherit",

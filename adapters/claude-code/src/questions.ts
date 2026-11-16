@@ -20,7 +20,8 @@ const HEADER_MAX = 12;
  */
 export function mapQuestions(questions: readonly NativeQuestionInput[]): NativeQuestionPlan {
   const textOnly: string[] = [];
-  const idMap: Record<string, string> = {};
+  // Null prototype: a question text such as "__proto__" must be an ordinary key.
+  const idMap: Record<string, string> = Object.create(null) as Record<string, string>;
   const native: JsonObject[] = [];
   for (const q of questions) {
     const n = q.options?.length ?? 0;

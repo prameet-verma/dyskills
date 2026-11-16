@@ -40,6 +40,13 @@ Project scope:
 `Bash(dynamic-skills *)` allow never silences them. A non-interactive save means running
 `dynamic-skills save` in a terminal, or removing the ask rules.
 
+The ask rules match `dynamic-skills save` or `init` only as the first argument after the binary;
+the CLI rejects options placed before the subcommand (Ruling R31), so they cannot be used to slip
+past the rules.
+
+A user-level `deny` on `Bash(dynamic-skills ...)` blocks Dynamic Skills entirely, because deny beats
+allow. `init` adds a plan note when it finds such a rule in the target settings file.
+
 ## Native mode
 
 `--native` adds `env.DYNAMIC_SKILLS_NATIVE = "1"` (to whichever file holds `env`) and creates

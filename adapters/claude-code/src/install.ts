@@ -1,6 +1,7 @@
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
+  ANALYST_AGENT_NAME,
   compareVersions,
   type HostEnv,
   type InstallOptions,
@@ -13,7 +14,6 @@ import {
   analystAgentFile,
   ASK_RULES,
   BASH_RULE,
-  CLAUDE_ANALYST_NAME,
   CONSENT_NOTE,
   homeRules,
   UNTRUSTED_NOTE,
@@ -40,6 +40,20 @@ async function exists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Rules in `file`'s `permissions.deny` that block `dynamic-skills`; unreadable or invalid files yield none. */
+async function blockingDenies(file: string): Promise<string[]> {
+  try {
+    const doc: unknown = JSON.parse(await readFile(file, "utf8"));
+    const deny = (doc as { permissions?: { deny?: unknown } } | null)?.permissions?.deny;
+    if (!Array.isArray(deny)) return [];
+    return deny.filter(
+      (r): r is string => typeof r === "string" && /^Bash\(\s*dynamic-skills\b/.test(r),
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -83,7 +97,7 @@ export async function planClaudeInstall(
     },
     {
       kind: "file",
-      path: join(base, "agents", `${CLAUDE_ANALYST_NAME}.md`),
+      path: join(base, "agents", `${ANALYST_AGENT_NAME}.md`),
       content: analystAgentFile(),
       committable: project,
       within,
@@ -143,6 +157,14 @@ export async function planClaudeInstall(
     notes.push(
       `Launch sessions with \`claude --add-dir ${H}/native/claude-code\` to let them list activated skills natively.`,
     );
+  }
+  for (const f of project ? ["settings.json", "settings.local.json"] : ["settings.json"]) {
+    const denies = await blockingDenies(join(base, f));
+    if (denies.length > 0) {
+      notes.push(
+        `${join(base, f)} denies ${denies.join(", ")}; deny beats allow, so this blocks Dynamic Skills until removed.`,
+      );
+    }
   }
   if (!(await exists(join(base, "agents")))) {
     notes.push("Restart running sessions to load the analyst agent.");

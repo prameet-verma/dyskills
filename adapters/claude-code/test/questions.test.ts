@@ -70,4 +70,16 @@ describe("claude-code questions", () => {
     const plan = claudeCodeAdapter.questions([q("a")]);
     expect(plan.notes.join(" ")).toMatch(/subagents or non-interactive/);
   });
+
+  it("maps prototype-named question texts back to their ids", () => {
+    const plan = claudeCodeAdapter.questions([
+      q("a", { text: "__proto__" }),
+      q("b", { text: "constructor" }),
+    ]);
+    expect(plan.textOnly).toEqual([]);
+    expect(Object.getPrototypeOf(plan.idMap)).toBeNull();
+    expect(plan.idMap["__proto__"]).toBe("a");
+    expect(plan.idMap["constructor"]).toBe("b");
+    expect(Object.keys(plan.idMap)).toEqual(["__proto__", "constructor"]);
+  });
 });
