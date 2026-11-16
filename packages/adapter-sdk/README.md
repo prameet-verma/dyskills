@@ -34,3 +34,15 @@ session home (`init` and `save`). It names no harness; it only uses core's `Harn
   kept (new files 0644, new directories 0755, `dir` writes 0700).
 - Partial failure: an I/O error throws `PlanApplyError` whose `applied` lists writes already made.
 - `dryRun` creates nothing, not even parent directories.
+- Reading results: `applyPlan` compares against its own internal preview, so treat ANY `conflict`
+  entry in its result as a failed apply. The result and `PlanApplyError.applied` include `unchanged`
+  entries; only `create`/`update` entries mean a write happened.
+- Parent chains are resolved for every write, `within: null` included: a dangling symlink or a
+  non-directory in the chain is a conflict ("parent is a dangling symlink", "parent is not a
+  directory"). Configs nested deeper than 256 levels are a conflict ("too deeply nested").
+- Hard links: `rename` replaces the directory entry, so an updated file that had other hard links is
+  detached from them (they keep the old content).
+- Before `rename` the target's inode, size and timestamps are compared with the preview (re-hashing
+  only when they differ). The residual window is a concurrent edit landing between that check and
+  `rename`, which is lost; it is never merged into.
+- JSONC array appends are inserted item by item, so comments inside the array survive.

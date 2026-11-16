@@ -36,6 +36,10 @@ export interface ApplyOptions {
   force: boolean;
   /** Test seam: runs just before each create/update is written. */
   beforeWrite?: (write: PlannedWrite) => void | Promise<void>;
+  /** Test seam: runs after the staleness recheck, just before parents are created. */
+  afterCheck?: (write: PlannedWrite) => void | Promise<void>;
+  /** Test seam: runs after the temp file is written, just before the final target recheck. */
+  beforeRename?: (write: PlannedWrite) => void | Promise<void>;
 }
 
 interface Entry {
@@ -46,7 +50,32 @@ interface Entry {
   hash: string | null;
   /** New bytes for file and merge writes. */
   next?: Buffer;
+  /** lstat identity of the target at preview time (existing files only). */
+  stat?: FileId;
 }
+
+interface FileId {
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+}
+
+const MAX_DEPTH = 256;
+
+/** True when `v` nests deeper than `max` levels; iterative, so it cannot overflow the stack. */
+function tooDeep(v: unknown, max: number): boolean {
+  const stack: [unknown, number][] = [[v, 1]];
+  while (stack.length > 0) {
+    const [x, d] = stack.pop() as [unknown, number];
+    if (typeof x !== "object" || x === null) continue;
+    if (d > max) return true;
+    for (const c of Array.isArray(x) ? x : Object.values(x)) stack.push([c, d + 1]);
+  }
+  return false;
+}
+
+class StaleError extends Error {}
 
 const sha = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 
@@ -58,12 +87,18 @@ function conflict(write: PlannedWrite, reason: string, hash: string | null = nul
   return { write, action: "conflict", reason, hash };
 }
 
+interface Edit {
+  path: (string | number)[];
+  value: JsonValue;
+  append?: boolean;
+}
+
 /** Paths whose value differs between `cur` and `merged`, outermost-first, for text edits. */
 function diffPaths(
   cur: JsonValue,
   merged: JsonValue,
   path: (string | number)[],
-  out: { path: (string | number)[]; value: JsonValue }[],
+  out: Edit[],
 ): void {
   if (jsonEqual(cur, merged)) return;
   const isObj = (v: JsonValue): v is JsonObject =>
@@ -75,6 +110,17 @@ function diffPaths(
     }
     return;
   }
+  if (
+    Array.isArray(cur) &&
+    Array.isArray(merged) &&
+    merged.length >= cur.length &&
+    cur.every((x, i) => jsonEqual(x, merged[i]))
+  ) {
+    // Union only appends: insert each new item so comments inside the array survive.
+    for (const item of merged.slice(cur.length))
+      out.push({ path: [...path, -1], value: item, append: true });
+    return;
+  }
   out.push({ path, value: merged });
 }
 
@@ -82,6 +128,19 @@ function planMerge(
   write: PlannedWrite & { kind: "json-merge" | "jsonc-merge" },
   existing: Buffer | null,
 ): Entry {
+  try {
+    return planMergeInner(write, existing);
+  } catch (e) {
+    if (e instanceof RangeError) return conflict(write, "too deeply nested");
+    throw e;
+  }
+}
+
+function planMergeInner(
+  write: PlannedWrite & { kind: "json-merge" | "jsonc-merge" },
+  existing: Buffer | null,
+): Entry {
+  if (tooDeep(write.patch, MAX_DEPTH)) return conflict(write, "too deeply nested");
   const strict = write.kind === "json-merge";
   const hash = existing === null ? null : sha(existing);
   if (existing === null) return { write, action: "create", hash, next: jsonBytes(write.patch) };
@@ -98,6 +157,7 @@ function planMerge(
     current = parse(text, errors, { allowTrailingComma: true }) as JsonValue | undefined;
     if (errors.length > 0 || current === undefined) return conflict(write, "invalid JSONC", hash);
   }
+  if (tooDeep(current, MAX_DEPTH)) return conflict(write, "too deeply nested", hash);
   const { value, conflicts } = mergeJson(
     current,
     write.patch,
@@ -112,13 +172,14 @@ function planMerge(
   }
   if (jsonEqual(current, value)) return { write, action: "unchanged", hash };
   if (strict) return { write, action: "update", hash, next: jsonBytes(value) };
-  const edits: { path: (string | number)[]; value: JsonValue }[] = [];
+  const edits: Edit[] = [];
   diffPaths(current as JsonValue, value, [], edits);
   let out = text;
   for (const e of edits) {
     out = applyEdits(
       out,
       modify(out, e.path, e.value, {
+        ...(e.append ? { isArrayInsertion: true } : {}),
         formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
       }),
     );
@@ -126,10 +187,12 @@ function planMerge(
   return { write, action: "update", hash, next: Buffer.from(out, "utf8") };
 }
 
-async function readExisting(path: string): Promise<{ bytes: Buffer | null; problem?: string }> {
+async function readExisting(
+  path: string,
+): Promise<{ bytes: Buffer | null; problem?: string; id?: FileId }> {
   let st;
   try {
-    st = await lstat(path);
+    st = await lstat(path, { bigint: true });
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return { bytes: null };
     if ((e as NodeJS.ErrnoException).code === "ENOTDIR")
@@ -138,8 +201,25 @@ async function readExisting(path: string): Promise<{ bytes: Buffer | null; probl
   }
   if (st.isSymbolicLink()) return { bytes: null, problem: "symlink" };
   if (!st.isFile()) return { bytes: null, problem: "not a regular file" };
-  if (st.size > MAX_TARGET_BYTES) return { bytes: null, problem: "too large" };
-  return { bytes: await readFile(path) };
+  if (st.size > BigInt(MAX_TARGET_BYTES)) return { bytes: null, problem: "too large" };
+  const bytes = await readFile(path);
+  return {
+    bytes,
+    id: { ino: st.ino, size: st.size, mtimeNs: st.mtimeNs, ctimeNs: st.ctimeNs },
+  };
+}
+
+/** Resolves the parent chain of every write (including `within: null`) and names why it fails. */
+async function parentCheck(write: PlannedWrite): Promise<string | null> {
+  try {
+    await realpathOfPlanned(dirname(write.path));
+    return null;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOTDIR") return "parent is not a directory";
+    if (code === "ENOENT" || code === "ELOOP") return "parent is a dangling symlink";
+    return "parent is not resolvable";
+  }
 }
 
 async function containment(write: PlannedWrite, plan: InstallPlan): Promise<string | null> {
@@ -164,6 +244,8 @@ async function evaluate(
     return conflict(write, "path is not absolute and normalised");
   if (seen.has(write.path)) return conflict(write, "path planned twice");
   seen.add(write.path);
+  const parentProblem = await parentCheck(write);
+  if (parentProblem !== null) return conflict(write, parentProblem);
   const outside = await containment(write, plan);
   if (outside !== null) return conflict(write, outside);
 
@@ -181,7 +263,7 @@ async function evaluate(
     }
   }
 
-  let existing: { bytes: Buffer | null; problem?: string };
+  let existing: Awaited<ReturnType<typeof readExisting>>;
   try {
     existing = await readExisting(write.path);
   } catch {
@@ -189,16 +271,22 @@ async function evaluate(
   }
   if (existing.problem !== undefined) return conflict(write, existing.problem);
 
+  const entry = planFileOrMerge(write, existing.bytes, force);
+  if (existing.id !== undefined) entry.stat = existing.id;
+  return entry;
+}
+
+function planFileOrMerge(write: PlannedWrite, bytes: Buffer | null, force: boolean): Entry {
   if (write.kind === "file") {
-    if (existing.bytes === null)
-      return { write, action: "create", hash: null, next: write.content };
-    const hash = sha(existing.bytes);
-    if (existing.bytes.equals(write.content)) return { write, action: "unchanged", hash };
+    if (bytes === null) return { write, action: "create", hash: null, next: write.content };
+    const hash = sha(bytes);
+    if (bytes.equals(write.content)) return { write, action: "unchanged", hash };
     return force
       ? { write, action: "update", hash, next: write.content }
       : conflict(write, "differs", hash);
   }
-  return planMerge(write, existing.bytes);
+  if (write.kind === "dir") throw new Error("unreachable");
+  return planMerge(write, bytes);
 }
 
 function toApplied(e: Entry): AppliedWrite {
@@ -232,10 +320,16 @@ export async function previewPlan(
   return (await evaluateAll(plan, opts.force)).map(toApplied);
 }
 
-async function writeAtomic(path: string, bytes: Buffer, mode: number): Promise<void> {
+async function writeAtomic(
+  path: string,
+  bytes: Buffer,
+  mode: number,
+  beforeRename: () => Promise<void>,
+): Promise<void> {
   const tmp = join(dirname(path), `.${basename(path)}.tmp-${randomBytes(6).toString("hex")}`);
+  // Exclusive create: an existing name is never opened, written or removed by us.
+  const fh = await open(tmp, "wx", mode);
   try {
-    const fh = await open(tmp, "wx", mode);
     try {
       await fh.writeFile(bytes);
       await fh.chmod(mode);
@@ -243,6 +337,7 @@ async function writeAtomic(path: string, bytes: Buffer, mode: number): Promise<v
     } finally {
       await fh.close();
     }
+    await beforeRename();
     await rename(tmp, path);
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined);
@@ -256,6 +351,13 @@ async function writeAtomic(path: string, bytes: Buffer, mode: number): Promise<v
  * since the preview as a conflict ("changed since preview"), stopping there. Files are written via a
  * temp file and `rename`, keeping an existing file's mode (new files 0644, new directories 0755,
  * `dir` writes 0700). An I/O error throws {@link PlanApplyError} listing what was already written.
+ *
+ * The result is the executor's own account: it compares against its own internal preview, so a
+ * caller must treat ANY `conflict` entry as a failed apply (nothing after it was written). Both the
+ * result and `PlanApplyError.applied` list `unchanged` entries too; only `create` and `update`
+ * entries mean something was written. Replacing a file by `rename` breaks a hard link (the other
+ * names keep the old content). Residual race: a concurrent edit landing between the final target
+ * check and `rename` is lost, never merged into.
  */
 export async function applyPlan(plan: InstallPlan, opts: ApplyOptions): Promise<AppliedWrite[]> {
   const entries = await evaluateAll(plan, opts.force);
@@ -268,38 +370,81 @@ export async function applyPlan(plan: InstallPlan, opts: ApplyOptions): Promise<
       done.push(toApplied(entry));
       continue;
     }
-    const write = entry.write;
+    let stale: string | null;
     try {
-      await opts.beforeWrite?.(write);
-      const stale = await recheck(entry, plan);
-      if (stale !== null) {
-        done.push({ ...toApplied(entry), action: "conflict", reason: stale });
-        for (const rest of entries.slice(i + 1)) {
-          done.push(
-            rest.action === "unchanged"
-              ? toApplied(rest)
-              : { ...toApplied(rest), action: "conflict", reason: "not applied" },
-          );
-        }
-        return done;
-      }
-      await mkdir(dirname(write.path), { recursive: true, mode: DIR_MODE });
-      const again = await containment(write, plan);
-      if (again !== null) throw new Error(`${again}: ${write.path}`);
-      if (write.kind === "dir") {
-        await mkdir(write.path, { mode: PRIVATE_DIR_MODE });
-        await chmod(write.path, PRIVATE_DIR_MODE);
-      } else {
-        const mode =
-          entry.action === "update" ? (await lstat(write.path)).mode & 0o7777 : FILE_MODE;
-        await writeAtomic(write.path, entry.next as Buffer, mode);
-      }
-      done.push(toApplied(entry));
+      stale = await commit(entry, plan, opts);
     } catch (e) {
       throw new PlanApplyError(done, e);
     }
+    if (stale !== null) {
+      done.push({ ...toApplied(entry), action: "conflict", reason: stale });
+      for (const rest of entries.slice(i + 1)) {
+        done.push(
+          rest.action === "unchanged"
+            ? toApplied(rest)
+            : { ...toApplied(rest), action: "conflict", reason: "not applied" },
+        );
+      }
+      return done;
+    }
+    done.push(toApplied(entry));
   }
   return done;
+}
+
+/** Writes one create/update; returns a conflict reason when the target went stale. */
+async function commit(entry: Entry, plan: InstallPlan, opts: ApplyOptions): Promise<string | null> {
+  const write = entry.write;
+  await opts.beforeWrite?.(write);
+  const stale = await recheck(entry, plan);
+  if (stale !== null) return stale;
+  await opts.afterCheck?.(write);
+  await mkdir(dirname(write.path), { recursive: true, mode: DIR_MODE });
+  const again = await containment(write, plan);
+  if (again !== null) return again;
+  if (write.kind === "dir") {
+    await mkdir(write.path, { mode: PRIVATE_DIR_MODE });
+    await chmod(write.path, PRIVATE_DIR_MODE);
+    return null;
+  }
+  const mode = entry.action === "update" ? (await lstat(write.path)).mode & 0o7777 : FILE_MODE;
+  try {
+    await writeAtomic(write.path, entry.next as Buffer, mode, async () => {
+      await opts.beforeRename?.(write);
+      await guardTarget(entry);
+    });
+  } catch (e) {
+    if (e instanceof StaleError) return "changed since preview";
+    throw e;
+  }
+  return null;
+}
+
+/**
+ * Last look before `rename`: the target must still have the identity (inode, size, mtime, ctime)
+ * recorded at preview, or, when only the timestamps moved, the same bytes. A lost concurrent edit
+ * between this check and `rename` is the residual window.
+ */
+async function guardTarget(entry: Entry): Promise<void> {
+  const path = entry.write.path;
+  let st;
+  try {
+    st = await lstat(path, { bigint: true });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT" && entry.hash === null) return;
+    throw new StaleError();
+  }
+  const id = entry.stat;
+  if (st.isSymbolicLink() || entry.hash === null || id === undefined) throw new StaleError();
+  if (
+    st.ino === id.ino &&
+    st.size === id.size &&
+    st.mtimeNs === id.mtimeNs &&
+    st.ctimeNs === id.ctimeNs
+  )
+    return;
+  const now = await readExisting(path);
+  if (now.bytes === null || sha(now.bytes) !== entry.hash) throw new StaleError();
 }
 
 /** Re-reads the target; returns a conflict reason when it changed since the preview. */

@@ -80,8 +80,11 @@ export interface InstallOptions {
   scope: InstallScope;
   /** Also place skills natively. */
   native: boolean;
-  /** Write the allow rule for the host's command rule system. */
-  codexAllowRule: boolean;
+  /**
+   * Also write an allow rule that lets `dynamic-skills` run outside the host sandbox, where the
+   * host requires one (an opt-in trust decision).
+   */
+  allowRule: boolean;
   /** Bytes of the bootstrap skill. */
   bootstrapSkill: Buffer;
 }

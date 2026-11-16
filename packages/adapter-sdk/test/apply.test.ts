@@ -217,7 +217,7 @@ describe("applyPlan", () => {
     expect(r[0]?.action).toBe("create");
     expect(await readdir(project)).toEqual([]);
   });
-  it("reports already-applied writes when an I/O error interrupts", async () => {
+  it("reports a regular file in the parent chain as a conflict", async () => {
     await writeFile(join(project, "blocker"), "file");
     const p = plan([
       file(join(project, "a.txt"), "1"),
