@@ -1,0 +1,15 @@
+{
+  "name": "@dynamic-skills/adapter-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dynamic-skills/adapter-sdk": "workspace:*",
+    "@dynamic-skills/bootstrapper": "workspace:*",
+    "@dynamic-skills/core": "workspace:*",
+    "jsonc-parser": "^3.3.1"
+  }
+}

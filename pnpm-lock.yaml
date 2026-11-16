@@ -232,6 +232,21 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
 
+  adapters/opencode:
+    dependencies:
+      '@dynamic-skills/adapter-sdk':
+        specifier: workspace:*
+        version: link:../../packages/adapter-sdk
+      '@dynamic-skills/bootstrapper':
+        specifier: workspace:*
+        version: link:../../packages/bootstrapper
+      '@dynamic-skills/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
+
   packages/activation:
     dependencies:
       '@dynamic-skills/core':
