@@ -16,19 +16,26 @@ bump the minor version; fixes bump the patch version. A `CONTRACT_VERSION` bump 
 
 ## Checklist
 
-1. Choose a license, then add `LICENSE` and the `"license"` field to `packages/cli/package.json`.
-   The release check fails until both exist.
-2. Claim the npm name `dynamic-skills`.
-3. Configure the `npm` GitHub environment (required reviewers) and the `NPM_TOKEN` secret, or npm
+1. Choose a license, then add `LICENSE` at the repository root (copied or linked into
+   `packages/cli`, so it lands in the tarball) and the `"license"` field to
+   `packages/cli/package.json`. The release check fails until the field exists, and again if the
+   tarball lacks `LICENSE`.
+1. Set the `repository` field in `packages/cli/package.json` before the first publish; the release
+   check fails without it.
+1. Claim the npm name `dynamic-skills`.
+1. Configure the `npm` GitHub environment (required reviewers) and the `NPM_TOKEN` secret, or npm
    trusted publishing.
-4. Bump the version in `packages/cli/package.json` and update `CHANGELOG.md`.
-5. Run `pnpm --filter dynamic-skills publish --dry-run --no-git-checks` locally.
-6. Run `pnpm exec tsx scripts/check-release.ts --tag v<version>`; it must print no problems.
-7. Tag `v<version>` and push the tag.
-8. Approve the `Release` job. It runs the checks, then publishes with `--provenance`.
+1. Bump the version in `packages/cli/package.json` and update `CHANGELOG.md`.
+1. Run `pnpm --filter dynamic-skills publish --dry-run --no-git-checks` locally.
+1. Run `pnpm exec tsx scripts/check-release.ts --tag v<version>`; it must print no problems.
+1. Tag `v<version>` and push the tag.
+1. Approve the `Release` job. It runs the checks, then publishes with `--provenance`.
 
-To rehearse without publishing, run the `Release` workflow manually (`workflow_dispatch`); its
-`dry-run` input defaults to true.
+To rehearse without publishing, run the `Release` workflow manually (`workflow_dispatch`). A manual
+run only dry-runs: its job has no `npm` environment, no token and only `contents: read`, and runs
+the release check without a tag. Only a pushed `v*.*.*` tag publishes.
+
+Follow-up: pin the third-party actions to commit SHAs (they use major-version tags, like `ci.yml`).
 
 Always pack and publish through pnpm (`pnpm pack`, `pnpm publish`): it applies `publishConfig` and
 rewrites `workspace:` ranges. The workspace packages are bundled into `dist/` by tsup, so they are

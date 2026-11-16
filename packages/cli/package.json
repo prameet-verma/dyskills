@@ -9,11 +9,6 @@
     "cli",
     "skills"
   ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/prameetverma/dyskills.git",
-    "directory": "packages/cli"
-  },
   "type": "module",
   "engines": {
     "node": ">=24"

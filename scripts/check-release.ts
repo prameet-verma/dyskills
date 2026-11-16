@@ -18,17 +18,17 @@ const REQUIRED = [
 
 /**
  * Checks that a packed CLI is releasable.
- * @param input The release tag, the packed `package.json` and the tarball's file list.
+ * @param input The release tag (omit it for a dry run: the tag check is skipped), the packed `package.json` and the tarball's file list.
  * @returns Human-readable problems; an empty array means the package is releasable.
  */
 export function checkRelease(input: {
-  tag: string;
+  tag?: string;
   pkg: Record<string, unknown>;
   packFiles: string[];
 }): string[] {
   const { tag, pkg, packFiles } = input;
   const problems: string[] = [];
-  if (tag !== `v${String(pkg.version)}`) {
+  if (tag !== undefined && tag !== `v${String(pkg.version)}`) {
     problems.push(
       `tag ${tag} does not match package version ${String(pkg.version)} (expected v${String(pkg.version)})`,
     );
@@ -50,6 +50,12 @@ export function checkRelease(input: {
   }
   if (typeof pkg.license !== "string" || pkg.license === "") {
     problems.push("package.json has no license field (choose a license and add LICENSE)");
+  }
+  if (typeof pkg.license === "string" && pkg.license !== "" && !packFiles.includes("LICENSE")) {
+    problems.push("tarball is missing LICENSE (add it at the repository root and to packages/cli)");
+  }
+  if (pkg.repository === undefined || pkg.repository === "") {
+    problems.push("package.json has no repository field");
   }
   for (const required of REQUIRED) {
     if (!packFiles.includes(required)) problems.push(`tarball is missing ${required}`);
@@ -81,8 +87,8 @@ function pack(): { pkg: Record<string, unknown>; packFiles: string[] } {
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const i = process.argv.indexOf("--tag");
   const tag = i >= 0 ? process.argv[i + 1] : undefined;
-  if (tag === undefined) {
-    console.error("usage: tsx scripts/check-release.ts --tag <tag>");
+  if (i >= 0 && tag === undefined) {
+    console.error("usage: tsx scripts/check-release.ts [--tag <tag>]");
     process.exit(2);
   }
   const { pkg, packFiles } = pack();
