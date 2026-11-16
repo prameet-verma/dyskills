@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import fsp from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildHostEnv } from "../src/host";
+import { buildHostEnv, resolveEtcDir } from "../src/host";
+import { runCli } from "../src/run";
+import { UnsafeHomeError } from "@dynamic-skills/core";
 import { CliError } from "../src/io";
 import { bundleDigest } from "../src/commands/bundle";
 import { createHostProbe } from "@dynamic-skills/adapter-sdk";
-import { assess, harness, takeEtcViolations } from "./helpers";
+import { ROOT, assess, harness, ready, installGolden, takeEtcViolations } from "./helpers";
 import type { Harness } from "./helpers";
 
 let t: string;
@@ -81,6 +83,42 @@ describe("buildHostEnv", () => {
     }
   });
 
+  it("resolves a relative home the same way in dry-run and for real", async () => {
+    await layout();
+    const before = process.cwd();
+    process.chdir(join(t, "real"));
+    try {
+      const dry = await buildHostEnv(input({ dryRun: true, home: "rel-home/x" }));
+      const real = await buildHostEnv(input({ home: "rel-home/x" }));
+      expect(dry.sessionHome).toBe(join(t, "real/rel-home/x"));
+      expect(real.sessionHome).toBe(dry.sessionHome);
+    } finally {
+      process.chdir(before);
+    }
+  });
+
+  it("dry-run refuses a home the real run refuses (a file or a symlink)", async () => {
+    await layout();
+    await writeFile(join(t, "homefile"), "x");
+    await symlink(join(t, "real"), join(t, "homelink"));
+    for (const home of [join(t, "homefile"), join(t, "homelink")]) {
+      const dry = await buildHostEnv(input({ dryRun: true, home })).catch((e: unknown) => e);
+      expect(dry).toBeInstanceOf(UnsafeHomeError);
+      expect((dry as UnsafeHomeError).message).toContain("DYNAMIC_SKILLS_HOME");
+      const real = await buildHostEnv(input({ home })).catch((e: unknown) => e);
+      expect(real).toBeInstanceOf(UnsafeHomeError);
+    }
+  });
+
+  it("maps an unresolvable repo to a USAGE error", async () => {
+    await layout();
+    const err = await buildHostEnv(input({ repo: join(t, "no-such-repo") })).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).code).toBe("USAGE");
+  });
+
   it("maps an unresolvable repo or user home to a CliError", async () => {
     await layout();
     const err = await buildHostEnv(input({ userHome: join(t, "missing-user") })).catch(
@@ -134,8 +172,7 @@ describe("environment passthrough to the skill scan", () => {
     expect(names).not.toContain("xdg-skill"); // OPENCODE_CONFIG_DIR wins over XDG_CONFIG_HOME
   });
 
-  it("passes vars to compile as well (existingSkillsFor)", async () => {
-    // compile reads the same scan: a CLAUDE_CONFIG_DIR skill must reach the brief's context.
+  it("existingSkillsFor honours vars directly", async () => {
     const cl = join(h.tmp, "cl");
     await mkdir(join(cl, "skills/cl-skill"), { recursive: true });
     await writeFile(join(cl, "skills/cl-skill/SKILL.md"), skill("cl-skill"));
@@ -147,6 +184,70 @@ describe("environment passthrough to the skill scan", () => {
       await existingSkillsFor(state, h.userHome, { CLAUDE_CONFIG_DIR: cl }, h.etcDir)
     ).map((s) => s.name);
     expect(names).toContain("cl-skill");
+  });
+});
+
+describe("compile and evaluate pass vars and etcDir from their context", () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await harness();
+  });
+  afterEach(() => h.cleanup());
+
+  async function configDirWith(name: string, body?: string): Promise<string> {
+    const cl = join(h.tmp, "cl");
+    await mkdir(join(cl, "skills", name), { recursive: true });
+    await writeFile(
+      join(cl, "skills", name, "SKILL.md"),
+      body ??
+        `---\nname: ${name}\ndescription: Unrelated helper for ${name}.\n---\n\nBody of ${name}.\n`,
+    );
+    return cl;
+  }
+
+  it("compile lists a CLAUDE_CONFIG_DIR skill in the brief only when vars carry it", async () => {
+    const cl = await configDirWith("zz-config-skill");
+    const id = await ready(h);
+    const none = await h.runWith(["compile", "--session", id], {});
+    expect(none.exitCode).toBe(0);
+    expect(await h.read(id, "brief.md")).not.toContain("zz-config-skill");
+    const id2 = await ready(h);
+    const r = await h.runWith(["compile", "--session", id2], { vars: { CLAUDE_CONFIG_DIR: cl } });
+    expect(r.exitCode).toBe(0);
+    expect(await h.read(id2, "brief.md")).toContain("zz-config-skill");
+  });
+
+  it("compile lists an admin-root skill from the injected etcDir", async () => {
+    await mkdir(join(h.etcDir, "codex/skills/zz-admin-skill"), { recursive: true });
+    await writeFile(
+      join(h.etcDir, "codex/skills/zz-admin-skill/SKILL.md"),
+      "---\nname: zz-admin-skill\ndescription: Admin helper.\n---\n\nBody.\n",
+    );
+    const id = await ready(h);
+    await h.run(["compile", "--session", id]);
+    expect(await h.read(id, "brief.md")).toContain("zz-admin-skill");
+  });
+
+  it("evaluate sees a duplicate skill that only the passed vars reveal", async () => {
+    const golden = await import("node:fs/promises").then((m) =>
+      m.readFile(join(ROOT, "fixtures/skills/valid/order-cache-specialist/SKILL.md"), "utf8"),
+    );
+    const cl = await configDirWith("order-cache-specialist", golden);
+    const run = async (vars: Record<string, string>) => {
+      const id = await ready(h);
+      await h.run(["compile", "--session", id]);
+      await installGolden(h, id, "valid/order-cache-specialist");
+      const r = await h.runWith(["evaluate", "--session", id], { vars });
+      const dup = r.out.results.find((x: { id?: string; name?: string }) =>
+        JSON.stringify(x).includes("duplication"),
+      );
+      return JSON.stringify(dup);
+    };
+    const without = await run({});
+    const withVars = await run({ CLAUDE_CONFIG_DIR: cl });
+    expect(without).toContain("not-applicable");
+    expect(withVars).not.toBe(without);
+    expect(withVars).toContain("duplicates");
   });
 });
 
@@ -184,5 +285,55 @@ describe("bundleDigest and OS junk (Ruling R27)", () => {
     const before = await bundleDigest(dir);
     await writeFile(join(dir, "skills/my-skill/.DS_Store"), "junk");
     expect(await bundleDigest(dir)).not.toBe(before);
+  });
+});
+
+describe("environment overrides read from vars", () => {
+  it("resolveEtcDir: explicit wins, then an absolute DYNAMIC_SKILLS_ETC_DIR, else /etc", () => {
+    expect(resolveEtcDir("/given", { DYNAMIC_SKILLS_ETC_DIR: "/v" })).toBe("/given");
+    expect(resolveEtcDir(undefined, { DYNAMIC_SKILLS_ETC_DIR: "/v" })).toBe("/v");
+    expect(resolveEtcDir(undefined, { DYNAMIC_SKILLS_ETC_DIR: "rel/v" })).toBe("/etc");
+    expect(resolveEtcDir(undefined, { DYNAMIC_SKILLS_ETC_DIR: "" })).toBe("/etc");
+    expect(resolveEtcDir(undefined, {})).toBe("/etc");
+  });
+
+  it("DYNAMIC_SKILLS_ETC_DIR relocates the admin skill root for the scan", async () => {
+    const h = await harness();
+    try {
+      await mkdir(join(h.etcDir, "codex/skills/zz-etc-skill"), { recursive: true });
+      await writeFile(
+        join(h.etcDir, "codex/skills/zz-etc-skill/SKILL.md"),
+        "---\nname: zz-etc-skill\ndescription: Admin helper.\n---\n\nBody.\n",
+      );
+      const r = await h.runWith(["assess", "--task", "Add caching to order reads"], {
+        etcDir: undefined,
+        vars: { DYNAMIC_SKILLS_ETC_DIR: h.etcDir },
+      });
+      expect(r.out.skills.map((s: { name: string }) => s.name)).toContain("zz-etc-skill");
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("DYNAMIC_SKILLS_HOME from vars picks the session home", async () => {
+    const h = await harness();
+    try {
+      const home = join(h.tmp, "vars-home");
+      const r = await runCli(["assess", "--task", "x"], {
+        cwd: h.repo,
+        userHome: h.userHome,
+        etcDir: h.etcDir,
+        vars: { DYNAMIC_SKILLS_HOME: home },
+      });
+      expect(r.exitCode).toBe(0);
+      expect((await readdir(join(home, "sessions"))).length).toBe(1);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("--help mentions --version", async () => {
+    const r = await runCli(["--help"]);
+    expect(r.stderr).toContain("--version");
   });
 });

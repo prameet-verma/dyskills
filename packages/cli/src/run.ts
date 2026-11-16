@@ -19,6 +19,7 @@ import { COMMANDS } from "./commands/index";
 import type { CommandDef, CommandResult } from "./commands/types";
 import { CliError, FALLBACK, stripControlChars, writeTerminalReports } from "./io";
 import type { CliEnv } from "./io";
+import { resolveEtcDir } from "./host";
 import { CLI_VERSION } from "./version";
 import { assertCanRun, isTerminal } from "./state-machine";
 
@@ -239,6 +240,8 @@ function buildProgram(
     // Help and usage text are not JSON: keep them off stdout so stdout stays machine-readable.
     // Parse errors are reported by `runCliRaw` as `Error USAGE: <message>`, not as commander text.
     .configureOutput({ writeOut: write, writeErr: write, outputError: () => undefined });
+  // `--version` itself is answered before parsing (one JSON object); declared so help lists it.
+  program.addOption(new Option("-V, --version", "Print the version as JSON."));
   const groups = new Map<string, Command>();
   for (const def of COMMANDS) {
     const words = def.name.split(" ");
@@ -290,7 +293,9 @@ function missingSubcommand(argv: string[]): string | null {
  * ids and option values are agent-controlled and could otherwise drive the terminal.
  *
  * @param argv - Arguments after the program name.
- * @param env - Injectable `home`, `cwd`, `userHome` and `now`; each defaults to the real value.
+ * @param env - Injectable `home`, `cwd`, `userHome`, `now`, `vars`, `probe` and `etcDir`; each
+ * defaults to the real value (`vars` to `process.env`, `probe` to `createHostProbe(vars)`, `etcDir`
+ * to `DYNAMIC_SKILLS_ETC_DIR` or `/etc`).
  */
 export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutcome> {
   const out = await runCliRaw(argv, env);
@@ -300,13 +305,14 @@ export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutco
 async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
   const vars = env.vars ?? process.env;
   const resolved: Required<CliEnv> = {
-    home: env.home ?? resolveHome(),
+    // resolveHome() only reads process.env, so a caller-supplied `vars` is honoured first.
+    home: env.home ?? vars.DYNAMIC_SKILLS_HOME ?? resolveHome(),
     cwd: env.cwd ?? process.cwd(),
     userHome: env.userHome ?? homedir(),
     now: env.now ?? Date.now,
     vars,
     probe: env.probe ?? createHostProbe(vars),
-    etcDir: env.etcDir ?? "/etc",
+    etcDir: resolveEtcDir(env.etcDir, vars),
   };
   // `--version` prints one JSON object like every other command, not commander's bare text.
   if (argv.length === 1 && (argv[0] === "--version" || argv[0] === "-V")) {

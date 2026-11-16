@@ -49,6 +49,12 @@ The skill scan honours the variables that relocate harness skill roots (`CLAUDE_
 `CODEX_HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG_DIR`; only absolute values are used) and the
 admin skill root `/etc/codex/skills`. This applies to `assess`, `compile` and `evaluate`.
 
+- `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`: when set to a non-empty value, OpenCode is no longer
+  counted as a reader of the Claude Code skill directories.
+- `DYNAMIC_SKILLS_ETC_DIR`: overrides the system configuration root (`/etc`) that holds the admin
+  skill root, mainly for tests. Only an absolute path counts; an empty value counts as unset.
+- `DYNAMIC_SKILLS_HOME` and `DYNAMIC_SKILLS_BUDGET_MS` are read from the same environment.
+
 ## Commands
 
 Every command except `assess` and `report perf` takes `--session <id>`. A command may run only when

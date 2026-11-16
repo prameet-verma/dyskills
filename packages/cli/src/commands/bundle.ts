@@ -33,7 +33,7 @@ export function sessionPaths(sessionDir: string): {
  * @param userHome - Personal skill root.
  * @param vars - Environment variables that relocate harness skill roots (never read from
  * `process.env` here).
- * @param etcDir - Directory holding the admin skill root `codex/skills`.
+ * @param etcDir - Directory holding the admin skill root.
  */
 export async function existingSkillsFor(
   state: SessionState,

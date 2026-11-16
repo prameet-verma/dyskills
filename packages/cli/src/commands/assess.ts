@@ -8,8 +8,8 @@ import { CliError, toJson } from "../io";
 import type { CreateCommandDef } from "./types";
 
 /** Reads `DYNAMIC_SKILLS_BUDGET_MS`; unset means the default budget. */
-function budgetFromEnv(): number | undefined {
-  const raw = process.env.DYNAMIC_SKILLS_BUDGET_MS;
+function budgetFromEnv(vars: Readonly<Record<string, string | undefined>>): number | undefined {
+  const raw = vars.DYNAMIC_SKILLS_BUDGET_MS;
   if (raw === undefined || raw === "") return undefined;
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
@@ -49,7 +49,7 @@ export const assessCommand: CreateCommandDef = {
     const repo = resolve(ctx.cwd, typeof ctx.opts.repo === "string" ? ctx.opts.repo : ".");
     const info = await stat(repo).catch(() => null);
     if (!info?.isDirectory()) throw new CliError("USAGE", "--repo is not a directory.");
-    const budgetMs = budgetFromEnv();
+    const budgetMs = budgetFromEnv(ctx.vars);
 
     const scanned = await scanExistingSkills({
       repo,

@@ -18,7 +18,7 @@ export interface CommandContext {
   cwd: string;
   /** User home searched for personal skills. */
   userHome: string;
-  /** Environment variables of the invocation (never read from `process.env` below the CLI). */
+  /** Environment variables of the invocation (`process.env` by default; command code reads it only through here). */
   vars: Readonly<Record<string, string | undefined>>;
   /** Host probe for binary lookup and command execution. */
   probe: HostProbe;

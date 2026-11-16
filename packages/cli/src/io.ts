@@ -83,7 +83,7 @@ export interface CliEnv {
   vars?: Readonly<Record<string, string | undefined>>;
   /** Host probe (binary lookup, command execution); defaults to `createHostProbe(vars)`. */
   probe?: HostProbe;
-  /** System configuration directory holding `codex/skills`; defaults to `/etc`. */
+  /** System configuration directory holding the admin skill root; defaults to `DYNAMIC_SKILLS_ETC_DIR` (absolute) or `/etc`. */
   etcDir?: string;
 }
 
