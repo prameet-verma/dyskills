@@ -134,6 +134,9 @@ export async function ensurePrivateDir(
  * The parent's real path is re-checked just before the rename; a small window remains between
  * that check and the rename, exploitable only by the same user (the session dir is 0700).
  *
+ * A relative path whose case differs from the on-disk directory (case-insensitive APFS) is
+ * refused as `HOME_UNSAFE` by the parent re-check; callers pass fixed lowercase names.
+ *
  * @param sessionDir - The session directory; the only tree this function writes into.
  * @param rel - Relative path of the file inside `sessionDir`.
  * @param content - UTF-8 text to write.

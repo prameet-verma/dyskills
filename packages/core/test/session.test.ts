@@ -335,6 +335,14 @@ describe("writeSessionFile", () => {
     expect((await stat(join(store.dir(s.id), "a/b"))).mode & 0o777).toBe(0o700);
   });
 
+  it("removes its temp file when the write fails", async () => {
+    const s = await store.create(init);
+    await mkdir(join(store.dir(s.id), "reports", "x.json"), { recursive: true });
+    await expect(store.writeArtifact(s.id, "reports/x.json", "1")).rejects.toThrow();
+    const names = await readdir(join(store.dir(s.id), "reports"));
+    expect(names.filter((n) => n.endsWith(".tmp"))).toEqual([]);
+  });
+
   it("says path, not home, for a refused sub-path", async () => {
     const s = await store.create(init);
     await mkdir(join(home, "e"));

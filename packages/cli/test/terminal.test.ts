@@ -273,7 +273,7 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect(await stat(join(h.home, "reports", `${id}.json`)).catch(() => null)).toBeNull();
   });
 
-  it("leaves no performance.json when a later report cannot be renamed into place", async () => {
+  it("leaves no performance.json when a later report cannot be written", async () => {
     const id = await analysed(h);
     await mkdir(join(h.home, "sessions", id, "reports", "discovery.json"), { recursive: true });
     const r = await h.run(["clean", "--session", id]);
@@ -289,14 +289,9 @@ describe("clean archives the metrics (I4c, R21)", () => {
     });
     const r = await h.run(["clean", "--session", id]);
     expect(r.exitCode).not.toBe(0);
-    for (const f of [
-      "performance.json",
-      ".performance.json.tmp",
-      ".discovery.json.tmp",
-      ".assumptions.json.tmp",
-    ]) {
-      expect(await h.exists(id, `reports/${f}`), f).toBe(false);
-    }
+    expect(await h.exists(id, "reports/performance.json")).toBe(false);
+    const names = await readdir(join(h.home, "sessions", id, "reports"));
+    expect(names.filter((n) => n.endsWith(".tmp"))).toEqual([]);
   });
 
   it("archives an ended session's own outcome, not failed", async () => {
