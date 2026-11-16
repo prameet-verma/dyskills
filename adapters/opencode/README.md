@@ -17,7 +17,8 @@ false`, delegation agent `dynamic-skills-context-analyst`, enforced read-only).
 - `personalConfigDir(env)`: the OpenCode config directory — an absolute `OPENCODE_CONFIG_DIR`
   (used as-is), else `<absolute XDG_CONFIG_HOME, or <home>/.config>/opencode`.
 - `mapQuestions(questions)`: maps questions onto the `question` tool.
-- `wildcardMatch(input, pattern)`: OpenCode's own `*`/`?` glob match, hand-written and linear.
+- `wildcardMatch(input, pattern)`: OpenCode's own `*`/`?` glob match, hand-written,
+  `O(n·m)` (a dynamic-programming table) with no backtracking.
 - `consentNotes(merged, variant, path)`: Ruling R34's consent-defeat check (below).
 - `hasTopLevelPermissionsKey(path)`: whether a config file already declares a top-level
   `permissions` key, via `jsonc-parser`.
@@ -82,14 +83,23 @@ V2 line, every entry in the native `permissions` array wins over every V1-derive
 of where `permissions` sits in the document, because OpenCode always evaluates the migrated V1
 rules first and the native array after. `init` simulates the merged document with the same
 last-match evaluation OpenCode itself uses (`consentNotes`, built on a hand-written `wildcardMatch`
-mirroring OpenCode's `Wildcard.match`) and adds a note — never a conflict, and never a blocked
-write — naming the rule that wins whenever `dynamic-skills save` or `dynamic-skills init` would not
-actually ask.
+mirroring OpenCode's `Wildcard.match`) — never a conflict, and never a blocked write — and reports
+what it finds for `dynamic-skills save` and `dynamic-skills init`:
+
+- A documented opt-out (an allow rule specifically scoped to `dynamic-skills save …` or
+  `dynamic-skills init …`, per the advice above) is reported as consent deliberately lifted, not a
+  defeat.
+- A deny is reported as the command being denied outright (stricter than asking), never as
+  something to move or remove.
+- Anything else that wins instead of the ask — a broad or misplaced allow that was not meant to
+  cover this command, such as a top-level `permission["*"]: "allow"` placed after `bash` — is
+  reported as a defeat, naming the winning rule and advising it be moved or removed.
 
 ### Cross-scope override
 
-A project's own `.opencode/opencode.json(c)` is evaluated independently of personal config. A
-project file with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` overrides
+A project's own `.opencode/opencode.json(c)` or a root `opencode.json(c)` is evaluated alongside
+personal config. On OpenCode 1.x, the project and personal config files are deep-merged, so a
+project file with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` can override
 the _personal_ asks for work done in that project. Run `dynamic-skills init --harness opencode
 --scope project` there too if that project should keep the consent entries.
 
@@ -98,10 +108,10 @@ the _personal_ asks for work done in that project. Run `dynamic-skills init --ha
 OpenCode's `question` tool documents no cap on questions or options. Every question that has
 options is sent in one call, with `multiple` set from `multiSelect`; a question without options is
 asked as plain text. The native payload has no id field, so `idMap` keys are the header: the first
-30 characters of the question id, or, if two ids share that 30-character prefix, the first 27
-characters plus a `~2`, `~3`, … suffix, so neither question's header is dropped. In `opencode run`,
-V1 denies the tool and V2 cancels the form — ask in plain text or record a skipped answer with an
-assumption.
+30 characters of the question id, or, if two ids share that 30-character prefix, as many leading
+characters as fit alongside a `~2`, `~3`, … suffix, kept to at most 30 characters in total, so
+neither question's header is dropped or over OpenCode's limit. In `opencode run`, V1 denies the
+tool and V2 cancels the form — ask in plain text or record a skipped answer with an assumption.
 
 ## Verification
 

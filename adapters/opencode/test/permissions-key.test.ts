@@ -48,4 +48,14 @@ describe("hasTopLevelPermissionsKey", () => {
     const path = await fileWith('{ "permission": {}, "permissions": [] }');
     expect(await hasTopLevelPermissionsKey(path)).toBe(true);
   });
+
+  it("handles a trailing comma", async () => {
+    const path = await fileWith('{ "permission": {}, "permissions": [], }');
+    expect(await hasTopLevelPermissionsKey(path)).toBe(true);
+  });
+
+  it("returns false on a genuine parse error", async () => {
+    const path = await fileWith("{ permissions: [} ");
+    expect(await hasTopLevelPermissionsKey(path)).toBe(false);
+  });
 });

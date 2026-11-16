@@ -98,6 +98,27 @@ describe("opencode mapQuestions", () => {
     expect(native.map((q) => q.header)).toEqual(headers);
   });
 
+  it("keeps every header at most 30 characters and unique, even with 120 collisions", () => {
+    const opts = [
+      { label: "x", description: "dx" },
+      { label: "y", description: "dy" },
+    ];
+    const prefix = "a-very-long-shared-question-identifier-prefix-"; // > 30 chars
+    const qs = Array.from({ length: 120 }, (_, i) => ({
+      id: `${prefix}${i}`,
+      text: `Q${i}?`,
+      options: opts,
+    }));
+    const plan = mapQuestions(qs);
+    const headers = Object.keys(plan.idMap);
+    expect(headers).toHaveLength(120);
+    expect(new Set(headers).size).toBe(120);
+    for (const h of headers) expect(h.length).toBeLessThanOrEqual(30);
+    // Every question is still reachable.
+    const all = [...Object.values(plan.idMap), ...plan.textOnly].sort();
+    expect(all).toEqual(qs.map((q) => q.id).sort());
+  });
+
   it("sends a question with no options as text, and idMap round-trips", () => {
     const plan = mapQuestions([
       { id: "a", text: "A?" },

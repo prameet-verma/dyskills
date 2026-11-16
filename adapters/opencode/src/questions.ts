@@ -7,33 +7,32 @@ import type {
 /** OpenCode's documented header limit for the `question` tool. */
 const HEADER_MAX = 30;
 
-/** Header length left for the id prefix once a `~N` de-duplication suffix is needed. */
-const HEADER_BASE_MAX = 27;
-
 /** Most de-duplication attempts before giving up and reusing a numeric tail. */
-const MAX_SUFFIX = 9999;
+const MAX_SUFFIX = 99_999;
 
 /**
- * Picks a header for `id` that is not already in `used`: the first 30 characters of `id`, or, if
- * that collides with an earlier question's header (two ids sharing the same 30-character prefix),
- * the first 27 characters plus a `~2`, `~3`, … suffix, so no question's native id is ever dropped
- * silently by a collision.
+ * Picks a header for `id` that is not already in `used`, never longer than 30 characters: the
+ * first 30 characters of `id`, or, if that collides with an earlier question's header (two ids
+ * sharing the same 30-character prefix), as many leading characters of `id` as fit alongside a
+ * `~2`, `~3`, … suffix (`id.slice(0, 30 - suffix.length) + suffix`), so no question's native id is
+ * ever dropped silently by a collision, and the header never exceeds the tool's limit.
  *
  * @param id - The question id.
  * @param used - Headers already assigned to earlier questions in this call.
- * @returns A header not in `used`.
+ * @returns A header not in `used`, at most 30 characters long.
  */
 function uniqueHeader(id: string, used: ReadonlySet<string>): string {
   const header = id.slice(0, HEADER_MAX);
   if (!used.has(header)) return header;
-  const base = id.slice(0, HEADER_BASE_MAX);
   for (let n = 2; n <= MAX_SUFFIX; n++) {
-    const candidate = `${base}~${n}`;
+    const suffix = `~${n}`;
+    const candidate = id.slice(0, HEADER_MAX - suffix.length) + suffix;
     if (!used.has(candidate)) return candidate;
   }
-  // Exhausted every short suffix (thousands of colliding ids): fall back to a header that is
-  // merely very unlikely to collide, rather than looping forever.
-  return `${base}~${Date.now()}`;
+  // Exhausted every suffix up to five digits (tens of thousands of colliding ids): fall back to a
+  // header that is merely very unlikely to collide, rather than looping forever or growing past 30.
+  const suffix = `~${Date.now() % 100_000}`;
+  return id.slice(0, Math.max(0, HEADER_MAX - suffix.length)) + suffix;
 }
 
 /**

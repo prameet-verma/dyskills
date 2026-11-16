@@ -120,6 +120,19 @@ describe("consentNotes", () => {
     expect(consentNotes(doc, "v2", PATH).some((n) => n.includes("save"))).toBe(true);
   });
 
+  it("v2 bash->shell rename: a top-level '*': allow after the migrated bash asks still wins (note)", () => {
+    const doc: JsonValue = {
+      permission: {
+        bash: { "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" },
+        "*": "allow",
+      },
+    };
+    const notes = consentNotes(doc, "v2", PATH);
+    expect(notes).toHaveLength(2);
+    expect(notes.some((n) => n.includes("save"))).toBe(true);
+    expect(notes.some((n) => n.includes("init"))).toBe(true);
+  });
+
   it("probe row: a non-object root is silently ignored", () => {
     expect(consentNotes([], "v1", PATH)).toEqual([]);
     expect(consentNotes("ask" as unknown as JsonValue, "v1", PATH)).toEqual([]);
@@ -134,5 +147,63 @@ describe("consentNotes", () => {
     };
     const notes = consentNotes(doc, "v1", PATH);
     expect(notes.some((n) => n.includes("save"))).toBe(true);
+  });
+
+  it("a deny-wins note says the command is denied, and never advises moving or removing it", () => {
+    const doc: JsonValue = {
+      permission: {
+        bash: { "dynamic-skills save *": "ask" },
+        "*": "deny",
+      },
+    };
+    const notes = consentNotes(doc, "v1", PATH);
+    const note = notes.find((n) => n.includes("save"))!;
+    expect(note).toMatch(/denied/i);
+    expect(note).not.toMatch(/move or remove/i);
+  });
+
+  it("a documented opt-out rule (dynamic-skills save ...: allow) is described as lifting consent, not a defeat", () => {
+    const doc: JsonValue = {
+      permission: {
+        bash: {
+          "*": "ask",
+          "dynamic-skills *": "allow",
+          "dynamic-skills save *": "ask",
+          "dynamic-skills init *": "ask",
+          "dynamic-skills save --session *": "allow",
+        },
+      },
+    };
+    const notes = consentNotes(doc, "v1", PATH);
+    const saveNote = notes.find((n) => n.includes("save"))!;
+    expect(saveNote).toBeDefined();
+    expect(saveNote).toMatch(/lifted by your rule/i);
+    expect(saveNote).not.toMatch(/move or remove/i);
+    expect(notes.some((n) => n.includes("init"))).toBe(false);
+  });
+
+  it("a documented opt-out for init (dynamic-skills init ...: allow) is also described as lifting consent", () => {
+    const doc: JsonValue = {
+      permission: {
+        bash: {
+          "*": "ask",
+          "dynamic-skills *": "allow",
+          "dynamic-skills save *": "ask",
+          "dynamic-skills init *": "ask",
+          "dynamic-skills init --harness *": "allow",
+        },
+      },
+    };
+    const notes = consentNotes(doc, "v1", PATH);
+    const initNote = notes.find((n) => n.includes("init"))!;
+    expect(initNote).toMatch(/lifted by your rule/i);
+    expect(initNote).not.toMatch(/move or remove/i);
+  });
+
+  it("a top-level string permission of allow is a defeat; ask is silent", () => {
+    expect(consentNotes({ permission: "ask" }, "v1", PATH)).toEqual([]);
+    const notes = consentNotes({ permission: "allow" }, "v1", PATH);
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toMatch(/move or remove/i);
   });
 });

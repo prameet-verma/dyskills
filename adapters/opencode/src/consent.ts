@@ -92,6 +92,45 @@ const describe = (rule: Rule): string =>
   `${rule.action}:${JSON.stringify(rule.pattern)} -> ${rule.effect}`;
 
 /**
+ * True when `pattern` is a documented opt-out for `label` (Ruling R36): an allow rule specifically
+ * scoped to `dynamic-skills save …` or `dynamic-skills init …`, rather than a broad or accidental
+ * rule that happens to also cover it.
+ *
+ * @param label - `"save"` or `"init"`.
+ * @param pattern - The winning rule's pattern.
+ * @returns Whether `pattern` is the documented opt-out shape for `label`.
+ */
+const isDocumentedOptOut = (label: string, pattern: string): boolean =>
+  pattern.startsWith(`dynamic-skills ${label} `);
+
+/**
+ * Builds the note for one probe whose outcome is not `"ask"`. A documented opt-out allow (Ruling
+ * R36's advice, scoped to the probed command) is reported as consent being deliberately lifted,
+ * never as something to move or remove. A deny is reported as the command being denied outright
+ * (stricter than asking), also never with "move or remove" advice, since denying is itself a valid
+ * choice. Anything else — a broad or misplaced allow that was not meant to cover this command — is
+ * reported as a defeat, naming the rule and advising it be moved or removed.
+ *
+ * @param label - `"save"` or `"init"`.
+ * @param rule - The winning rule.
+ * @param path - The config file path.
+ * @returns The note text.
+ */
+function noteFor(label: string, rule: Rule, path: string): string {
+  if (rule.effect === "allow" && isDocumentedOptOut(label, rule.pattern)) {
+    return `Consent for \`dynamic-skills ${label}\` is lifted by your rule ${describe(rule)} in ${path} (a documented opt-out, not a defeat).`;
+  }
+  if (rule.effect === "deny") {
+    return `\`dynamic-skills ${label}\` is denied, not asked, by ${describe(rule)} in ${path} (stricter than the consent entry, not a defeat).`;
+  }
+  return (
+    `D6 consent for \`dynamic-skills ${label}\` will not apply in ${path}: ` +
+    `${describe(rule)} wins there (OpenCode evaluates the last matching rule). ` +
+    "Move or remove that rule so the consent entry is evaluated last."
+  );
+}
+
+/**
  * Mirrors OpenCode's own rule evaluation (last matching rule wins) for `dynamic-skills save` and
  * `dynamic-skills init` against the config document `init` is about to write, after its merge: the
  * V1 `permission` object's own rules on the V1 line; on the V2 line, those same rules migrated
@@ -115,11 +154,7 @@ export function consentNotes(merged: JsonValue, variant: string | null, path: st
   for (const probe of PROBES) {
     const rule = evaluate(queryAction, probe.command, rules);
     if (rule.effect === "ask") continue;
-    notes.push(
-      `D6 consent for \`dynamic-skills ${probe.label}\` will not apply in ${path}: ` +
-        `${describe(rule)} wins there (OpenCode evaluates the last matching rule). ` +
-        "Move or remove that rule so the consent entry is evaluated last.",
-    );
+    notes.push(noteFor(probe.label, rule, path));
   }
   return notes;
 }

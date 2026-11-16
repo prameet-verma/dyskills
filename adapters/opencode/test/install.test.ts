@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -326,14 +327,17 @@ describe("opencode installer", () => {
     );
     const p = await plan(w, "personal");
     const notes = p.notes.join("\n");
-    expect(notes).toMatch(/D6 consent for `dynamic-skills save`/);
+    expect(notes).toMatch(/Consent for `dynamic-skills save` is lifted by your rule/);
+    expect(notes).not.toMatch(/D6 consent for `dynamic-skills save`/);
     expect(notes).not.toMatch(/D6 consent for `dynamic-skills init`/);
   });
 
-  it("cross-scope override note appears only for personal scope", async () => {
+  it("cross-scope override note appears only for personal scope, and names both project config file forms", async () => {
     const w = await setup(FIXTURE_V1, V1_VERSION);
     const personalNotes = (await plan(w, "personal")).notes.join("\n");
     expect(personalNotes).toMatch(/project .*opencode\.json.*overrides/i);
+    expect(personalNotes).toContain(".opencode/opencode.json(c)");
+    expect(personalNotes).toMatch(/root `?opencode\.json\(c\)`?/);
     expect(personalNotes).toMatch(/scope project/);
     const projectNotes = (await plan(w, "project")).notes.join("\n");
     expect(projectNotes).not.toMatch(/overrides these personal asks/);
@@ -431,5 +435,42 @@ describe("opencode installer", () => {
     expect(mergeWrite(await plan(w, "project")).path).toBe(
       join(w.project, ".opencode/opencode.jsonc"),
     );
+  });
+
+  it("the personal fallback, with nothing on disk at all, is opencode.jsonc", async () => {
+    const emptyHome = await mkdtemp(join(tmpdir(), "oc-empty-"));
+    try {
+      const w = await makeWorld({
+        fixtureHome: emptyHome,
+        versionOutput: V1_VERSION,
+        adapter: openCodeAdapter,
+        vars: { XDG_CONFIG_HOME: "{home}/.config" },
+      });
+      worlds.push(w);
+      const p = await plan(w, "personal");
+      expect(mergeWrite(p).path).toBe(join(personalConfigDir(w.env), "opencode.jsonc"));
+    } finally {
+      await rm(emptyHome, { recursive: true, force: true });
+    }
+  });
+
+  it('the simulation applies promotion: an existing bash: "allow" does not trigger an R34 note', async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const probe = await plan(w, "personal");
+    const configPath = mergeWrite(probe).path;
+    await mkdir(dirname(configPath), { recursive: true });
+    await writeFile(configPath, JSON.stringify({ permission: { bash: "allow" } }));
+    const p = await plan(w, "personal");
+    // Promoted to { "*": "allow" }, then our own asks are appended after it within the same
+    // "bash" key, so the simulated last match is still our ask, not the promoted "*": "allow".
+    expect(p.notes.join("\n")).not.toMatch(/D6 consent/);
+    expect(p.notes.join("\n")).not.toMatch(/lifted by your rule/);
+  });
+
+  it("the verify regex rejects empty output", async () => {
+    const w2 = await setup(FIXTURE_V2, V2_VERSION);
+    const p2 = await plan(w2, "personal");
+    expect(p2.verify[0]!.expect.test("")).toBe(false);
+    expect(p2.verify[0]!.expect.test("   ")).toBe(false);
   });
 });

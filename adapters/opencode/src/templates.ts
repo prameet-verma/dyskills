@@ -31,7 +31,7 @@ export const PROJECT_EXTERNAL_DIR_NOTE =
  * that project (Ruling R34's cross-scope case).
  */
 export const CROSS_SCOPE_NOTE =
-  'A project `.opencode/opencode.json(c)` with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` overrides these personal asks for that project; run `dynamic-skills init --harness opencode --scope project` there too.';
+  'A project `.opencode/opencode.json(c)` or a root `opencode.json(c)` with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` overrides these personal asks for that project (OpenCode 1.x deep-merges the root and `.opencode` project files, so a broad allow in either can win); run `dynamic-skills init --harness opencode --scope project` there too.';
 
 /**
  * Renders the read-only context analyst agent markdown OpenCode loads from `agents/`.
