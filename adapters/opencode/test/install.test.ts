@@ -1,13 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyPlan, type InstallPlan, type PlannedWrite } from "@dynamic-skills/adapter-sdk";
-import { makeWorld, type World } from "../../../packages/adapter-sdk/src/testkit/fixtures";
+import { makeWorld, REPO_ROOT, type World } from "@dynamic-skills/adapter-sdk/testkit";
 import { openCodeAdapter, OPENCODE_TESTED_VERSIONS, personalConfigDir } from "../src/index";
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const FIXTURE_V1 = join(REPO_ROOT, "fixtures/harness-homes/opencode-v1/home");
 const FIXTURE_V2 = join(REPO_ROOT, "fixtures/harness-homes/opencode-v2/home");
 const BOOT = Buffer.from("bootstrap bytes\n");
