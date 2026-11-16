@@ -193,6 +193,9 @@ importers:
       vitest:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -237,6 +240,19 @@ importers:
 
   packages/cli:
     dependencies:
+      commander:
+        specifier: ^15.1.0
+        version: 15.1.0
+      smol-toml:
+        specifier: ^1.9.1
+        version: 1.9.1
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
       '@dynamic-skills/activation':
         specifier: workspace:*
         version: link:../activation
@@ -267,22 +283,12 @@ importers:
       '@dynamic-skills/skill-compiler':
         specifier: workspace:*
         version: link:../skill-compiler
-      commander:
-        specifier: ^15.1.0
-        version: 15.1.0
-      smol-toml:
-        specifier: ^1.9.1
-        version: 1.9.1
-      yaml:
-        specifier: ^2.9.1
-        version: 2.9.1
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
       tsup:
         specifier: ^9.0.0
         version: 9.0.0(postcss@8.5.32)(tsx@4.23.15)(typescript@6.0.3)(yaml@2.9.1)
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
 
   packages/context-analyzer:
     dependencies:

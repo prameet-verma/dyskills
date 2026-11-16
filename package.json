@@ -1,5 +1,5 @@
 {
-  "name": "dynamic-skills",
+  "name": "dynamic-skills-monorepo",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.18.0",
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "gen:schemas": "tsx scripts/gen-schemas.ts",
-    "build": "pnpm --filter @dynamic-skills/cli build"
+    "build": "pnpm --filter dynamic-skills build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -25,6 +25,7 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2",
     "vitest": "^5.1.0",
+    "yaml": "^2.9.1",
     "zod": "^4.6.7"
   }
 }
