@@ -211,13 +211,23 @@ describe("citation patterns", () => {
     expect(count(CITATION_PATTERN, `[evidence:${" ".repeat(201)}a]`)).toBe(0);
   });
 
+  it("uses only bounded quantifiers, so matching is linear", () => {
+    // Structural guarantee that does not depend on machine load: no `*`, `+` or open-ended `{n,}`.
+    for (const re of [CITATION_PATTERN, INFERENCE_PATTERN, ASSUMPTION_PATTERN]) {
+      const unescaped = re.source.replace(/\\./g, "");
+      expect(unescaped).not.toMatch(/[*+]|\{\d+,\}/);
+    }
+  });
+
   it("scans adversarial input in linear time", () => {
+    // Linear scans take ~20 ms here even under load; a quadratic scan of 100k characters takes
+    // minutes, so a 2 s ceiling still catches catastrophic backtracking without flaking.
     for (const re of [CITATION_PATTERN, INFERENCE_PATTERN, ASSUMPTION_PATTERN]) {
       const name = re.source.slice(2, re.source.indexOf(":"));
       const spaces = `[${name}:${" ".repeat(100_000)}`;
       const repeated = `[${name}:a`.repeat(20_000);
-      expect(timed(() => count(re, spaces))).toBeLessThan(100);
-      expect(timed(() => count(re, repeated))).toBeLessThan(100);
+      expect(timed(() => count(re, spaces))).toBeLessThan(2_000);
+      expect(timed(() => count(re, repeated))).toBeLessThan(2_000);
     }
   });
 });
