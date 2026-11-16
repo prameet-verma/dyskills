@@ -385,7 +385,7 @@ export async function placeBundle(input: PlaceInput): Promise<PlaceResult> {
  * missing, different or unremovable bundle.
  *
  * Callers that remove a path read from session state (an attacker-influenced file) MUST pass
- * `within`: then `realpath(dirname(path))` must lie inside `realpath(within)` (compared by path
+ * `within`: then `basename(path)` must be a valid skill name (so `..` and `.` are refused), `realpath(dirname(path))` must lie inside `realpath(within)` (compared by path
  * segment), the removal runs on that resolved parent, and `lstat(path)` must be a real directory
  * immediately before `rm`; otherwise nothing is removed. A parent swapped between the last check
  * and `rm` remains a residual window.
@@ -398,10 +398,14 @@ export async function removePlacedBundle(
   try {
     let target = path;
     if (within !== undefined) {
+      // `..`, `.` and anything else that is not a skill name would let join() normalise the
+      // target away from the checked parent.
+      if (!SkillNameSchema.safeParse(basename(path)).success) return false;
       const realWithin = await realpath(within);
       const realParent = await realpath(dirname(path));
       if (!isInside(realParent, realWithin)) return false;
       target = join(realParent, basename(path));
+      if (!isInside(target, realWithin) || target === realWithin) return false;
     }
     const plainDir = async (): Promise<boolean> => {
       const st = await lstat(target);

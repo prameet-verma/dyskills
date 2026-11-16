@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   renameError: null as string | null,
   lstatLie: null as { suffix: string; as: string } | null,
   randoms: [] as string[],
+  afterRealpath: null as { suffix: string; fn: () => Promise<void> } | null,
 }));
 
 vi.mock("node:fs/promises", async (orig) => {
@@ -18,6 +19,15 @@ vi.mock("node:fs/promises", async (orig) => {
       const r = await (m.readdir as (...x: unknown[]) => Promise<unknown[]>)(...a);
       return state.reverse ? [...r].reverse() : r;
     }) as typeof m.readdir,
+    realpath: (async (p: string, ...rest: unknown[]) => {
+      const r = await (m.realpath as (...x: unknown[]) => Promise<string>)(p, ...rest);
+      const hook = state.afterRealpath;
+      if (hook !== null && String(p).endsWith(hook.suffix)) {
+        state.afterRealpath = null;
+        await hook.fn();
+      }
+      return r;
+    }) as typeof m.realpath,
     rename: async (from: string, to: string) => {
       if (state.renameError !== null) {
         throw Object.assign(new Error(state.renameError), { code: state.renameError });
@@ -43,7 +53,8 @@ vi.mock("node:crypto", async (orig) => {
   };
 });
 
-const { BundleLayoutError, bundleManifest, placeBundle } = await import("../src/index");
+const { BundleLayoutError, bundleManifest, placeBundle, removePlacedBundle } =
+  await import("../src/index");
 
 let root: string;
 let src: string;
@@ -60,12 +71,14 @@ beforeEach(async () => {
   state.renameError = null;
   state.lstatLie = null;
   state.randoms = [];
+  state.afterRealpath = null;
 });
 afterEach(async () => {
   state.reverse = false;
   state.renameError = null;
   state.lstatLie = null;
   state.randoms = [];
+  state.afterRealpath = null;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -146,5 +159,30 @@ describe("temp-name collisions", () => {
     state.randoms = Array.from({ length: 50 }, () => "deadbeef");
     await expect(place()).rejects.toMatchObject({ code: "EEXIST" });
     expect(await readdir(clash)).toEqual(["keep"]);
+  });
+});
+
+describe("removePlacedBundle resolved parent", () => {
+  it("removes through the resolved parent even if the raw path is retargeted afterwards", async () => {
+    const real1 = join(project, "real1");
+    const outside = join(root, "outside");
+    for (const d of [real1, outside]) {
+      await mkdir(join(d, "demo-skill"), { recursive: true });
+      await writeFile(join(d, "demo-skill", "SKILL.md"), "same\n");
+    }
+    await symlink(real1, join(project, "link"));
+    const sha = (await bundleManifest(join(real1, "demo-skill"))).sha256;
+    state.afterRealpath = {
+      suffix: "/link",
+      fn: async () => {
+        await rm(join(project, "link"));
+        await symlink(outside, join(project, "link"));
+      },
+    };
+    const ok = await removePlacedBundle(join(project, "link", "demo-skill"), sha, project);
+    expect(state.afterRealpath).toBeNull();
+    expect(ok).toBe(true);
+    expect(await readdir(real1)).toEqual([]);
+    expect(await readdir(outside)).toEqual(["demo-skill"]);
   });
 });

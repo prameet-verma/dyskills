@@ -8,6 +8,7 @@ import {
   realpath,
   rm,
   stat,
+  lutimes,
   symlink,
   utimes,
   writeFile,
@@ -512,5 +513,97 @@ describe("removePlacedBundle containment", () => {
   it("refuses when within does not exist", async () => {
     const r = await place();
     expect(await removePlacedBundle(r.path, r.manifest.sha256, join(root, "missing"))).toBe(false);
+  });
+});
+
+describe("removePlacedBundle dot-segment bypass", () => {
+  it("never deletes through a trailing `..` or `.`, nor `within` itself", async () => {
+    const r = await place();
+    const bundle = r.path;
+    await mkdir(join(bundle, "W2"));
+    await mkdir(join(bundle, "a"));
+    const sha = (await bundleManifest(bundle)).sha256;
+    const cases: [string, string][] = [
+      [`${bundle}/W2/..`, join(bundle, "W2")],
+      [`${bundle}/a/..`, bundle],
+      [`${bundle}/.`, bundle],
+      [`${bundle}/..`, bundle],
+      [bundle, bundle],
+      [`${bundle}/a/../`, bundle],
+    ];
+    for (const [path, within] of cases) {
+      expect(await removePlacedBundle(path, sha, within), `${path} within ${within}`).toBe(false);
+      expect((await stat(join(bundle, "SKILL.md"))).isFile()).toBe(true);
+    }
+    // `within` itself, with a matching manifest, is never removed.
+    const sha2 = (await bundleManifest(bundle)).sha256;
+    expect(await removePlacedBundle(`${bundle}/a/..`, sha2, bundle)).toBe(false);
+    expect((await stat(bundle)).isDirectory()).toBe(true);
+  });
+
+  it("refuses a basename that is not a skill name", async () => {
+    const r = await place({ name: "demo-skill" });
+    const odd = join(project, ".skills", "Odd Name");
+    await mkdir(odd);
+    await writeFile(join(odd, "SKILL.md"), "x");
+    const sha = (await bundleManifest(odd)).sha256;
+    expect(await removePlacedBundle(odd, sha, project)).toBe(false);
+    expect((await stat(odd)).isDirectory()).toBe(true);
+    expect((await stat(r.path)).isDirectory()).toBe(true);
+  });
+});
+
+describe("placeBundle guards that must stay pinned", () => {
+  it.skipIf(!canChmod)("rethrows EACCES raised while resolving the parent chain", async () => {
+    const locked = join(project, "locked");
+    await mkdir(locked);
+    await chmod(locked, 0o000);
+    try {
+      await expect(place({ destRoot: join(locked, "skills") })).rejects.toMatchObject({
+        code: "EACCES",
+      });
+    } finally {
+      await chmod(locked, 0o700);
+    }
+  });
+
+  it("returns race when destRoot resolves elsewhere after it was created", async () => {
+    const real1 = join(project, "real1");
+    const real2 = join(project, "real2");
+    await mkdir(real1);
+    await mkdir(real2);
+    await symlink(real1, join(project, "link"));
+    const r = await place({
+      destRoot: join(project, "link", "skills"),
+      testHooks: {
+        afterMkdir: async () => {
+          await rm(join(project, "link"));
+          await symlink(real2, join(project, "link"));
+        },
+      },
+    });
+    expect(r).toMatchObject({ action: "conflict", reason: "race" });
+    expect(await readdir(real2)).toEqual([]);
+    expect(await readdir(join(real1, "skills"))).toEqual([]);
+  });
+
+  it("sweeps only stale directories: a stale file and a stale symlink stay", async () => {
+    const dest = join(project, ".skills");
+    const outside = join(root, "outside");
+    await mkdir(dest);
+    await mkdir(outside);
+    await writeFile(join(outside, "keep"), "k");
+    const file = join(dest, ".demo-skill.tmp-aaaaaaaa");
+    const link = join(dest, ".demo-skill.tmp-bbbbbbbb");
+    await writeFile(file, "x");
+    await symlink(outside, link);
+    const old = new Date(Date.now() - 2 * 3_600_000);
+    await utimes(file, old, old);
+    await lutimes(link, old, old);
+    expect((await place()).action).toBe("create");
+    expect((await readdir(dest)).sort()).toEqual(
+      [".demo-skill.tmp-aaaaaaaa", ".demo-skill.tmp-bbbbbbbb", "demo-skill"].sort(),
+    );
+    expect(await readdir(outside)).toEqual(["keep"]);
   });
 });

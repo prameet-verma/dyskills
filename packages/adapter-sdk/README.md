@@ -19,7 +19,7 @@ session home (`init` and `save`). It names no harness; it only uses core's `Harn
 - `previewPlan(plan, { force })`, `applyPlan(plan, { dryRun, force })`, `PlanApplyError`.
 - `verifyInstall(plan, probe)`.
 - Bundles: `bundleManifest(dir)`, `placeBundle({ srcDir, destRoot, name, mode, within, dryRun })`,
-  `removePlacedBundle(path, manifestSha256)`, `findSaveConflicts({ name, manifestSha256, roots })`,
+  `removePlacedBundle(path, manifestSha256, within?)`, `findSaveConflicts({ name, manifestSha256, roots })`,
   `BundleLayoutError`, and `planSaveTargets({ harnesses, primary, readRoots })`.
 - Analyst text: `ANALYST_AGENT_NAME`, `ANALYST_DESCRIPTION`, `ANALYST_INSTRUCTIONS`.
 - `@dynamic-skills/adapter-sdk/testkit`: `defineAdapterCompatSuite(target)` (see below).
@@ -57,7 +57,7 @@ removes the colliding directory. `testHooks` on `placeBundle` is an internal tes
 
 `removePlacedBundle(path, sha256, within?)` removes a bundle only when it is a plain directory (not
 a symlink) whose current manifest equals the sha256. Callers removing a path read from session state
-MUST pass `within`: the realpath of the path's parent must then lie inside `realpath(within)` (by
+MUST pass `within`: the basename must be a valid skill name (so `..`/`.` are refused), the target may not be `within` itself, and the realpath of the path's parent must then lie inside `realpath(within)` (by
 path segment), and the directory is re-checked immediately before removal; otherwise it returns
 `false` and removes nothing. `findSaveConflicts` lists `<root>/<name>` entries that differ, are not
 plain directories, are over the caps or cannot be read. `planSaveTargets` greedily picks the fewest
