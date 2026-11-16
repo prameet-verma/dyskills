@@ -59,6 +59,7 @@ describe("dynamic-skill-bootstrap", () => {
       "eval record",
       "activate",
       "clean",
+      "save",
     ]) {
       expect(body).toContain(c);
     }
@@ -68,6 +69,22 @@ describe("dynamic-skill-bootstrap", () => {
     // Ruling R19: the bare command only; a package runner could fetch an unrelated package.
     expect(body).not.toMatch(/\b(?:npx|pnpx|bunx|yarn\s+dlx|pnpm\s+dlx|npm\s+exec)\b/);
     expect(body).toContain("`dynamic-skills <command>`");
+    for (const t of [
+      "options",
+      "multiSelect",
+      "--harness",
+      "native.calls",
+      "native.idMap",
+      "loadOrder",
+      "save --scope project|personal",
+      "clean",
+    ]) {
+      expect(body).toContain(t);
+    }
+    expect(body).not.toContain("no choices field");
+    expect(body).not.toMatch(/\$[0-9]/);
+    expect(body).not.toMatch(/\$ARGUMENTS/);
+    expect(body.length).toBeLessThanOrEqual(7944);
     expect(body).toMatch(/not found, stop and tell the user to install it/);
     for (const t of [
       "--decision",
