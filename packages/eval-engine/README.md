@@ -52,9 +52,12 @@ behavioural smoke recorder; it implements PRD §5.5
 - `completenessEval`: each answerable gap category is cited (warning); user evidence must be
   cited (fail).
 - `scopeEval`: the description shares a content word with the task.
-- `roleEval`: headings count in both `## X` and underlined setext form (a multi-line setext
-  heading is one heading); five role sections for a new skill; task contract, project context
-  and optional additions only, for an augmentation.
+- `roleEval`: sections open at level-1 and level-2 headings, ATX (up to three spaces of
+  indent) or underlined setext (a multi-line setext heading is one heading); a leading h1 is
+  the title. Level 3-6 headings stay inside their section, so `groundingEval` still checks the
+  bullets under them. Five role sections for a new skill; for an augmentation, task contract,
+  project context and optional additions only, and every heading of any level must be one of
+  those names.
 - `duplicationEval`: 8-word shingle containment against existing skills and instruction text;
   an augmentation is also checked base-side (0.3 fails, 0.15 warns).
 - `behaviouralDefinitionEval` (mandatory): a smoke eval with prohibited behaviour and an

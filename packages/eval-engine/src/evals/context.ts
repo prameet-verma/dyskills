@@ -86,10 +86,15 @@ interface Line {
   fenced: boolean;
 }
 
-/** A `## ` section of a Markdown body; `heading` is normalised (see {@link normaliseHeading}). */
+/**
+ * A level-1 or level-2 section of a Markdown body; `heading` is normalised (see
+ * {@link normaliseHeading}). Level 3-6 headings stay inside their parent section as lines (so
+ * grounding still sees the bullets under them) and are also listed in `subheadings`.
+ */
 interface Section {
   heading: string;
   lines: Line[];
+  subheadings: string[];
 }
 
 /** Heading comparison form: trimmed, lowercase, trailing `:` removed (PRD §8.1). */
@@ -163,7 +168,7 @@ function sectionsOf(body: string): Section[] {
   let titled = false; // a leading level-1 heading is the title and opens no section
   const openSection = (heading: string, level: number): void => {
     if (level === 1 && sections.length === 0 && !titled) titled = true;
-    else sections.push({ heading: normaliseHeading(heading), lines: [] });
+    else sections.push({ heading: normaliseHeading(heading), lines: [], subheadings: [] });
   };
   lines.forEach((text, i) => {
     const setext = setextText.get(i);
@@ -174,8 +179,14 @@ function sectionsOf(body: string): Section[] {
     if (consumed.has(i)) return;
     const isFenced = fenced[i] === true;
     const atx = isFenced ? null : /^ {0,3}(#{1,6})(?:[ \t]+([\s\S]*))?$/.exec(text);
-    if (atx) openSection(atxText(atx[2] ?? ""), (atx[1] ?? "").length);
-    else sections.at(-1)?.lines.push({ text, fenced: isFenced });
+    const level = (atx?.[1] ?? "").length;
+    const current = sections.at(-1);
+    if (atx && level >= 3 && current !== undefined) {
+      // A subheading belongs to its parent section; it is still checked by the allow-list.
+      current.subheadings.push(normaliseHeading(atxText(atx[2] ?? "")));
+      current.lines.push({ text, fenced: false });
+    } else if (atx) openSection(atxText(atx[2] ?? ""), level);
+    else current?.lines.push({ text, fenced: isFenced });
   });
   return sections;
 }
@@ -457,10 +468,11 @@ export const roleEval: GenerationEval = {
       failures.push('## Task contract needs a line starting "- Adds:"');
     }
     const allowedNorm = new Set(allowed.map(normaliseHeading));
-    const extra = sections.filter((s) => !allowedNorm.has(s.heading));
+    const headings = sections.flatMap((s) => [s.heading, ...s.subheadings]);
+    const extra = headings.filter((h) => !allowedNorm.has(h));
     if (extra.length > 0) {
       failures.push(
-        `augmentation may only contain sections: ${allowed.join(", ")} (found: ${extra.map((s) => s.heading).join(", ")})`,
+        `augmentation may only contain sections: ${allowed.join(", ")} (found: ${extra.join(", ")})`,
       );
     }
     return result(failures);

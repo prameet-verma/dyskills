@@ -105,6 +105,15 @@ describe("grounding", () => {
     expect(r.messages.join("\n")).toContain("uncited project claim");
   });
 
+  it("checks bullets under a ### subheading inside Project context", async () => {
+    for (const sub of ["### Performance", "  #### Performance ####"]) {
+      const raw = `${GOLDEN_RAW.trimEnd()}\n\n${sub}\n- It is fast.\n`;
+      const r = await groundingEval.run(await makeContext({ raw }));
+      expect(r.outcome, sub).toBe("fail");
+      expect(r.messages.join("\n"), sub).toContain("uncited project claim: - It is fast.");
+    }
+  });
+
   it("passes a matching [assumption:] and fails an unknown one", async () => {
     const assumptions = [
       {
