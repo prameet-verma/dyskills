@@ -448,6 +448,23 @@ describe("activate report writes", () => {
     }
   });
 
+  it("does not leave performance.json behind when another report cannot be written", async () => {
+    await mkdir(join(dir, "reports", "discovery.json"));
+    await expect(
+      activate({
+        state: makeState(),
+        sessionDir: dir,
+        skill: null,
+        report: null,
+        behavioural: undefined,
+        packet: null,
+        evidence: [],
+        now: NOW,
+      }),
+    ).rejects.toThrow();
+    expect(await exists(join(dir, "reports", "performance.json"))).toBe(false);
+  });
+
   it("leaves no temp file in reports after a normal activation refusal", async () => {
     await activate({
       state: makeState(),

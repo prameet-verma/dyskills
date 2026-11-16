@@ -44,7 +44,12 @@ export function sanitizeEvidenceValue(raw: string): string {
   let out = redactSecrets(raw);
   out = out.replace(/\s+/g, " ").replace(/</g, "‹").replace(/>/g, "›");
   // Count code points, not UTF-16 units, so a surrogate pair is never split.
-  const points = Array.from(out);
-  if (points.length > MAX_VALUE_LENGTH) out = points.slice(0, MAX_VALUE_LENGTH - 1).join("") + "…";
+  // A string within the limit in UTF-16 units is within it in code points, so skip the split.
+  if (out.length > MAX_VALUE_LENGTH) {
+    const points = Array.from(out);
+    if (points.length > MAX_VALUE_LENGTH) {
+      out = points.slice(0, MAX_VALUE_LENGTH - 1).join("") + "…";
+    }
+  }
   return out;
 }

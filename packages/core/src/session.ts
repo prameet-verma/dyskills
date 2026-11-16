@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   open,
+  realpath,
   readFile,
   rename,
   rm,
@@ -52,10 +53,13 @@ export class UnsafeHomeError extends Error {
    * Creates the error.
    * @param path - The refused directory.
    * @param reason - Why it was refused.
+   * @param subPath - True for a path inside a session directory (no `DYNAMIC_SKILLS_HOME` hint).
    */
-  constructor(path: string, reason: string) {
+  constructor(path: string, reason: string, subPath = false) {
     super(
-      `Unsafe session home ${path}: ${reason}. Remove it or set DYNAMIC_SKILLS_HOME to a private directory.`,
+      subPath
+        ? `Unsafe session path ${path}: ${reason}. Remove it.`
+        : `Unsafe session home ${path}: ${reason}. Remove it or set DYNAMIC_SKILLS_HOME to a private directory.`,
     );
     this.name = "UnsafeHomeError";
   }
@@ -127,6 +131,8 @@ export async function ensurePrivateDir(
  * planted `reports -> elsewhere` would otherwise redirect the write), missing directories are
  * created with mode 0700, and the file is written to a temp file in the same directory (mode
  * 0600) and renamed into place, so a reader never sees a partial file and no temp file remains.
+ * The parent's real path is re-checked just before the rename; a small window remains between
+ * that check and the rename, exploitable only by the same user (the session dir is 0700).
  *
  * @param sessionDir - The session directory; the only tree this function writes into.
  * @param rel - Relative path of the file inside `sessionDir`.
@@ -158,15 +164,21 @@ export async function writeSessionFile(
       if ((e as NodeJS.ErrnoException).code === "ENOENT") break;
       throw e;
     }
-    if (info.isSymbolicLink()) throw new UnsafeHomeError(current, "it is a symbolic link");
+    if (info.isSymbolicLink()) throw new UnsafeHomeError(current, "it is a symbolic link", true);
     if (i < parts.length - 1 && !info.isDirectory()) {
-      throw new UnsafeHomeError(current, "it is not a directory");
+      throw new UnsafeHomeError(current, "it is not a directory", true);
     }
   }
   await mkdir(dirname(abs), { recursive: true, mode: PRIVATE_DIR_MODE });
   const temp = join(dirname(abs), `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
   try {
     await writeFile(temp, content, { mode: PRIVATE_FILE_MODE, flag: "wx" });
+    // Re-check the parent just before the rename: a component swapped for a symlink since the
+    // walk above would redirect the rename.
+    const parent = await realpath(dirname(abs));
+    if (parent !== join(await realpath(base), dirname(r))) {
+      throw new UnsafeHomeError(dirname(abs), "it changed while writing", true);
+    }
     await rename(temp, abs);
   } catch (e) {
     await rm(temp, { force: true }).catch(() => undefined);

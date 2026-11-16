@@ -282,14 +282,19 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect((await h.run(["report", "perf"])).out.count).toBe(0);
   });
 
-  it("removes temp files when a temp write fails", async () => {
+  it("leaves no performance.json or temp file when a report write fails", async () => {
     const id = await analysed(h);
-    await mkdir(join(h.home, "sessions", id, "reports", ".assumptions.json.tmp"), {
+    await mkdir(join(h.home, "sessions", id, "reports", "assumptions.json"), {
       recursive: true,
     });
     const r = await h.run(["clean", "--session", id]);
     expect(r.exitCode).not.toBe(0);
-    for (const f of ["performance.json", ".performance.json.tmp", ".discovery.json.tmp"]) {
+    for (const f of [
+      "performance.json",
+      ".performance.json.tmp",
+      ".discovery.json.tmp",
+      ".assumptions.json.tmp",
+    ]) {
       expect(await h.exists(id, `reports/${f}`), f).toBe(false);
     }
   });
@@ -312,10 +317,21 @@ describe("terminal reports refuse a symlinked reports directory", () => {
       const reports = join(h.home, "sessions", id, "reports");
       await rm(reports, { recursive: true, force: true });
       await symlink(elsewhere, reports);
+      // Same-named files in the target must survive: the failure path never deletes through it.
+      await writeFile(join(elsewhere, ".performance.json.tmp"), "keep-tmp");
+      await writeFile(join(elsewhere, "performance.json"), "keep-perf");
+      const before = JSON.parse(await h.read(id, "session.json"));
       h.clock.t += 2 * HOUR;
       const r = await h.run(["discover", "--session", id]);
-      expect(r.exitCode).not.toBe(0);
-      expect(await readdir(elsewhere)).toEqual([]);
+      expect(r.exitCode).toBe(1);
+      expect(r.out.error).toBe("HOME_UNSAFE");
+      expect((await readdir(elsewhere)).sort()).toEqual([
+        ".performance.json.tmp",
+        "performance.json",
+      ]);
+      expect(await readFile(join(elsewhere, ".performance.json.tmp"), "utf8")).toBe("keep-tmp");
+      expect(await readFile(join(elsewhere, "performance.json"), "utf8")).toBe("keep-perf");
+      expect(JSON.parse(await h.read(id, "session.json")).status).toBe(before.status);
     } finally {
       await rm(elsewhere, { recursive: true, force: true });
     }

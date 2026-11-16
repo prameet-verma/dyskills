@@ -1,16 +1,26 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { fingerprintFile, getRepoRevision } from "../src/index";
 
+const made: string[] = [];
+const tmp = (prefix: string): string => {
+  const d = mkdtempSync(prefix);
+  made.push(d);
+  return d;
+};
+afterEach(() => {
+  for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
 it("returns 'untracked' outside git and a sha inside git", async () => {
-  const outside = mkdtempSync(join(tmpdir(), "ds-rev-"));
+  const outside = tmp(join(tmpdir(), "ds-rev-"));
   expect(await getRepoRevision(outside)).toBe("untracked");
   expect(await getRepoRevision(join(outside, "missing"))).toBe("untracked");
 
-  const repo = mkdtempSync(join(tmpdir(), "ds-git-"));
+  const repo = tmp(join(tmpdir(), "ds-git-"));
   const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe" });
   git("init", "-q");
   writeFileSync(join(repo, "f.txt"), "hi");
@@ -31,7 +41,7 @@ it("returns 'untracked' outside git and a sha inside git", async () => {
 });
 
 it("fingerprints files as 64-char hex", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ds-fp-"));
+  const dir = tmp(join(tmpdir(), "ds-fp-"));
   const f = join(dir, "a.txt");
   writeFileSync(f, "hello");
   const h = await fingerprintFile(f);
@@ -40,7 +50,7 @@ it("fingerprints files as 64-char hex", async () => {
 });
 
 it("refuses to fingerprint a directory, an oversize file or a missing file", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ds-fp-"));
+  const dir = tmp(join(tmpdir(), "ds-fp-"));
   const f = join(dir, "big.txt");
   writeFileSync(f, "x".repeat(20));
   await expect(fingerprintFile(dir)).rejects.toThrow(/not-a-file/);
@@ -49,7 +59,7 @@ it("refuses to fingerprint a directory, an oversize file or a missing file", asy
 });
 
 it("ignores GIT_* variables in the caller's environment", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "ds-git-env-"));
+  const repo = tmp(join(tmpdir(), "ds-git-env-"));
   const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe" });
   git("init", "-q");
   writeFileSync(join(repo, "f.txt"), "hi");

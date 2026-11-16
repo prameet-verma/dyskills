@@ -4,7 +4,9 @@ import { MAX_BASE_FILE_BYTES, readSafeFile } from "@dynamic-skills/core";
 /**
  * Reads the repository's current commit so evidence can be tied to a revision (PRD §7).
  * Uses `execFile` (no shell) so the path cannot be interpreted as a command, and runs git with
- * every `GIT_*` variable removed from its environment.
+ * every `GIT_*` variable removed from its environment. That also drops
+ * `GIT_CONFIG_COUNT`/`GIT_CONFIG_PARAMETERS`, so a repo trusted only through those settings reads
+ * as "untracked"; this fails safe.
  *
  * @param repo - Path to the repository root.
  * @returns The HEAD commit sha, or `"untracked"` on any failure (not a repo, no commits, no git).

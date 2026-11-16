@@ -335,6 +335,15 @@ describe("writeSessionFile", () => {
     expect((await stat(join(store.dir(s.id), "a/b"))).mode & 0o777).toBe(0o700);
   });
 
+  it("says path, not home, for a refused sub-path", async () => {
+    const s = await store.create(init);
+    await mkdir(join(home, "e"));
+    await symlink(join(home, "e"), join(store.dir(s.id), "r"));
+    const err = await store.writeArtifact(s.id, "r/x", "1").catch((e: Error) => e);
+    expect((err as Error).message).toContain("Unsafe session path");
+    expect((err as Error).message).not.toContain("DYNAMIC_SKILLS_HOME");
+  });
+
   it("rejects a path that escapes the session directory", async () => {
     const s = await store.create(init);
     await expect(writeSessionFile(store.dir(s.id), "../escape", "x")).rejects.toThrow();

@@ -100,7 +100,6 @@ async function writeReports(input: ActivationInput): Promise<void> {
   const put = (name: string, doc: unknown): Promise<string> =>
     writeSessionFile(sessionDir, `reports/${name}`, `${JSON.stringify(doc, null, 2)}\n`);
   await Promise.all([
-    put("performance.json", buildPerformanceReport(state, now)),
     put("discovery.json", buildDiscoveryReport(state, packet, evidence)),
     put(
       "assumptions.json",
@@ -109,6 +108,9 @@ async function writeReports(input: ActivationInput): Promise<void> {
     // Keep the recorded behavioural result inside the evaluation report.
     ...(report ? [put("evaluation.json", { ...report, behavioural })] : []),
   ]);
+  // `performance.json` goes last: it is the only file `report perf` reads, so a failed write
+  // above never leaves a counted report behind for a session whose state is discarded.
+  await put("performance.json", buildPerformanceReport(state, now));
 }
 
 /**
