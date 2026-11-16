@@ -1,6 +1,7 @@
-import { readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { NATIVE_PLACEMENT_TTL_MS } from "./constants";
+import { SESSION_ID_PATTERN } from "./session";
 import { readSafeFile } from "./safe-read";
 import { SessionStateSchema, type SessionMetrics } from "./schemas";
 
@@ -31,8 +32,21 @@ export async function readNativeReferences(
   const root = join(home, "sessions");
   const ids = await readdir(root).catch(() => [] as string[]);
   for (const id of ids) {
-    if (id === opts.exclude) continue;
-    const read = await readSafeFile(join(root, id, "session.json"), { maxBytes: 1_000_000 });
+    if (id === opts.exclude || !SESSION_ID_PATTERN.test(id)) continue;
+    const dirStat = await lstat(join(root, id)).catch(() => undefined);
+    if (dirStat === undefined) continue;
+    if (dirStat.isSymbolicLink()) {
+      // Never followed; it may point at anything, so treat it as a session we cannot see.
+      unparsable++;
+      continue;
+    }
+    if (!dirStat.isDirectory()) continue;
+    const file = join(root, id, "session.json");
+    const fileStat = await lstat(file).catch(() => undefined);
+    const read =
+      fileStat === undefined || fileStat.isSymbolicLink()
+        ? ({ ok: false } as const)
+        : await readSafeFile(file, { maxBytes: 1_000_000, realBasename: "session.json" });
     if (!read.ok) {
       unparsable++;
       continue;

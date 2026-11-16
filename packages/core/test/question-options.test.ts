@@ -1,7 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   CONTRACT_VERSION,
   ClarificationRequestSchema,
@@ -19,6 +19,11 @@ const q = {
   blocking: false,
 };
 const req = (extra: object) => ({ schemaVersion: "1", questions: [{ ...q, ...extra }] });
+
+const tmps: string[] = [];
+afterEach(async () => {
+  await Promise.all(tmps.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+});
 
 describe("question options", () => {
   it("accepts options and multiSelect", () =>
@@ -50,7 +55,35 @@ describe("question options", () => {
       ).success,
     ).toBe(true));
 
+  it("accepts exactly four options", () =>
+    expect(
+      ClarificationRequestSchema.safeParse(
+        req({ options: ["A", "B", "C", "D"].map((label) => ({ label, description: "" })) }),
+      ).success,
+    ).toBe(true));
+
+  it("accepts multiSelect false without options", () =>
+    expect(ClarificationRequestSchema.safeParse(req({ multiSelect: false })).success).toBe(true));
+
   it.each([
+    [
+      "blank label",
+      {
+        options: [
+          { label: "   ", description: "" },
+          { label: "B", description: "" },
+        ],
+      },
+    ],
+    [
+      "multi-line label",
+      {
+        options: [
+          { label: "a\nb", description: "" },
+          { label: "B", description: "" },
+        ],
+      },
+    ],
     ["one option", { options: [{ label: "A", description: "" }] }],
     [
       "five options",
@@ -122,6 +155,7 @@ describe("question options", () => {
 
   it("leaves native absent on a Phase 1 session", async () => {
     const home = await mkdtemp(join(tmpdir(), "ds-qo-"));
+    tmps.push(home);
     const state: SessionState = await new SessionStore(home).create({
       task: "t",
       mode: "auto",

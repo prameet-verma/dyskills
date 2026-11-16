@@ -153,7 +153,7 @@ export class SessionLockedError extends Error {
 }
 
 /** Shape of every id produced by {@link SessionStore.create}. */
-const SESSION_ID_PATTERN = /^ds-\d{14}-[0-9a-f]{6}$/;
+export const SESSION_ID_PATTERN = /^ds-\d{14}-[0-9a-f]{6}$/;
 
 /** Formats epoch ms as `YYYYMMDDHHmmss` in UTC for use in session ids. */
 function stamp(ms: number): string {

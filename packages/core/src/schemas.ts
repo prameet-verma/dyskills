@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONTRACT_VERSION } from "./constants";
+import { CONTRACT_VERSION, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS } from "./constants";
 
 /**
  * Zod schema. The contract version every persisted or exchanged document carries as
@@ -108,11 +108,13 @@ export const SkillNameSchema = z
  * multi-select separator, so a label never contains it.
  */
 export const QuestionOptionSchema = z.strictObject({
+  // Single line, no separator, not blank (a linear check, no overlapping quantifiers).
   label: z
     .string()
     .min(1)
     .max(60)
-    .regex(/^[^;]+$/),
+    .regex(/^[^;\r\n]+$/)
+    .refine((label) => label.trim() !== "", "label must not be blank"),
   description: z.string().max(200),
 });
 /** Type inferred from {@link QuestionOptionSchema}. */
@@ -131,7 +133,11 @@ export const QuestionSchema = z.object({
   material: z.boolean(),
   blocking: z.boolean(),
   /** Two to four choices; absent means the question is always asked as free text (D4). */
-  options: z.array(QuestionOptionSchema).min(2).max(4).optional(),
+  options: z
+    .array(QuestionOptionSchema)
+    .min(MIN_QUESTION_OPTIONS)
+    .max(MAX_QUESTION_OPTIONS)
+    .optional(),
   /**
    * Whether several options may be chosen. A multi-select answer's `value` lists the chosen
    * labels separated by `"; "`; free text is always accepted.

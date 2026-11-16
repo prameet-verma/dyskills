@@ -128,7 +128,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 60,
-                      "pattern": "^[^;]+$"
+                      "pattern": "^[^;\\r\\n]+$"
                     },
                     "description": {
                       "type": "string",
@@ -194,7 +194,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 60,
-                      "pattern": "^[^;]+$"
+                      "pattern": "^[^;\\r\\n]+$"
                     },
                     "description": {
                       "type": "string",

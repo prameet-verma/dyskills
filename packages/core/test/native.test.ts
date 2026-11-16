@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   NATIVE_PLACEMENT_TTL_MS,
   SessionStore,
@@ -25,7 +25,24 @@ const run = (p: { mtimeMs: number }, refs: NativeReference[], unparsable = 0): s
     now: T,
   });
 
+const tmps: string[] = [];
+afterEach(async () => {
+  await Promise.all(tmps.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+});
+
 describe("selectExpiredPlacements", () => {
+  it("keeps a placement exactly at the TTL boundary", () =>
+    expect(run({ mtimeMs: T - NATIVE_PLACEMENT_TTL_MS }, [], 1)).toEqual([]));
+  it("keeps a placement exactly at a custom TTL boundary", () =>
+    expect(
+      selectExpiredPlacements({
+        placements: [{ dir: "/n/a", mtimeMs: T - 1000 }],
+        refs: new Map(),
+        unparsable: 1,
+        now: T,
+        ttlMs: 1000,
+      }),
+    ).toEqual([]));
   it("TTL is 24 hours", () => expect(NATIVE_PLACEMENT_TTL_MS).toBe(24 * H));
   it("keeps a fresh activated placement", () =>
     expect(run({ mtimeMs: 0 }, [ref(T - H, "activated")])).toEqual([]));
@@ -66,6 +83,7 @@ describe("selectExpiredPlacements", () => {
 describe("readNativeReferences", () => {
   it("collects references, counts unparsable and honours exclude", async () => {
     const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
+    tmps.push(home);
     const store = new SessionStore(home);
     const base = { task: "t", mode: "auto", explicit: false, repo: "/r", revision: "x" } as const;
     const a = await store.create(base);
@@ -85,7 +103,7 @@ describe("readNativeReferences", () => {
       }),
     );
     void b;
-    const bad = join(home, "sessions", "ds-bad");
+    const bad = join(home, "sessions", "ds-20260101000000-abcdef");
     await mkdir(bad, { recursive: true });
     await writeFile(join(bad, "session.json"), "{not json");
 
@@ -102,6 +120,44 @@ describe("readNativeReferences", () => {
 
   it("returns nothing when there is no sessions directory", async () => {
     const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
+    tmps.push(home);
     expect(await readNativeReferences(home)).toEqual({ byDir: new Map(), unparsable: 0 });
+  });
+
+  it("ignores stray entries and non-session names", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
+    tmps.push(home);
+    await mkdir(join(home, "sessions"), { recursive: true });
+    await writeFile(join(home, "sessions", ".DS_Store"), "x");
+    await mkdir(join(home, "sessions", "not-a-session"));
+    await writeFile(join(home, "sessions", "ds-20260101000000-abcdef"), "a file, not a dir");
+    expect((await readNativeReferences(home)).unparsable).toBe(0);
+  });
+
+  it("counts a real session dir without session.json as unparsable", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
+    tmps.push(home);
+    await mkdir(join(home, "sessions", "ds-20260101000000-abcdef"), { recursive: true });
+    expect((await readNativeReferences(home)).unparsable).toBe(1);
+  });
+
+  it("counts a symlinked session dir as unparsable", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
+    tmps.push(home);
+    const real = await mkdtemp(join(tmpdir(), "ds-nat-real-"));
+    tmps.push(real);
+    await mkdir(join(home, "sessions"), { recursive: true });
+    await symlink(real, join(home, "sessions", "ds-20260101000000-abcdef"));
+    expect((await readNativeReferences(home)).unparsable).toBe(1);
+  });
+
+  it("counts a symlinked session.json as unparsable", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ds-nat-"));
+    tmps.push(home);
+    const dir = join(home, "sessions", "ds-20260101000000-abcdef");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(home, "other.json"), "{}");
+    await symlink(join(home, "other.json"), join(dir, "session.json"));
+    expect((await readNativeReferences(home)).unparsable).toBe(1);
   });
 });
