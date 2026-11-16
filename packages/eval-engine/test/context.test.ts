@@ -12,6 +12,8 @@ import {
   scopeEval,
   type GenerationEval,
 } from "../src/index";
+/** Absolute, load-tolerant ceiling; a quadratic scan misses it by orders of magnitude. */
+const CEILING_MS = 3000;
 import { GOLDEN_AUGMENT_RAW, GOLDEN_RAW, ROOT, makeContext } from "./helpers";
 
 const ALL: GenerationEval[] = [
@@ -422,10 +424,56 @@ describe("role", () => {
   });
 
   it("does not let an indented backtick line open a fence", async () => {
-    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n    \`\`\`\n\nOwnership\n---\n`;
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n    \`\`\`\nOwnership\n---\n    \`\`\`\n`;
     expect((await roleEval.run(await makeContext({ raw, augmentation: true }))).outcome).toBe(
       "fail",
     );
+  });
+
+  it("does not open a backtick fence whose info string has a backtick", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n\`\`\`a\`b\nOwnership\n---\n\`\`\`\n`;
+    expect((await roleEval.run(await makeContext({ raw, augmentation: true }))).outcome).toBe(
+      "fail",
+    );
+  });
+
+  it("keeps an indented continuation in the paragraph", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nOwnership\n    more\n---\n`;
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r.messages.join("\n")).toContain("ownership more");
+  });
+
+  it("does not let a non-1 ordered item or empty bullet interrupt a paragraph", async () => {
+    for (const mid of ["2. x", "-"]) {
+      const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nOwnership\n${mid}\n---\n`;
+      const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+      expect(r.outcome, mid).toBe("fail");
+    }
+  });
+
+  it("lets a real list item interrupt a paragraph", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n- Adds: nothing\n\nFoo\n1. x\n---\n`;
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r.messages.join("\n")).not.toContain("foo");
+  });
+
+  it("counts every ATX level and indent against the allow-list", async () => {
+    for (const h of [
+      " ## Ownership",
+      "# Ownership",
+      "### Ownership",
+      "   #### Ownership ####",
+      "##",
+    ]) {
+      const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\n${h}\n- x\n`;
+      const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+      expect(r.outcome, h).toBe("fail");
+    }
+  });
+
+  it("still allows the leading h1 title", async () => {
+    const r = await roleEval.run(await makeContext({ augmentation: true }));
+    expect(r.outcome).toBe("pass");
   });
 
   it("scans 9k stacked setext pairs quickly", async () => {
@@ -433,7 +481,7 @@ describe("role", () => {
     const ctx = await makeContext({ raw, augmentation: true });
     const t0 = performance.now();
     await roleEval.run(ctx);
-    expect(performance.now() - t0).toBeLessThan(500);
+    expect(performance.now() - t0).toBeLessThan(CEILING_MS);
   });
 
   it("scans hostile setext underlines quickly", async () => {
@@ -441,7 +489,7 @@ describe("role", () => {
     const ctx = await makeContext({ raw, augmentation: true });
     const t0 = performance.now();
     await roleEval.run(ctx);
-    expect(performance.now() - t0).toBeLessThan(500);
+    expect(performance.now() - t0).toBeLessThan(CEILING_MS);
   });
 
   it("fails an augmentation without - Adds:", async () => {

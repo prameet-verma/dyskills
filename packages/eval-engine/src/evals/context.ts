@@ -101,10 +101,14 @@ function normaliseHeading(h: string): string {
 }
 
 /**
- * Splits a body into its `## ` sections. Headings inside fenced code blocks do not count. A fence
- * closes on the same character with at least the opening length (as in skill-compiler's
- * `stripFences`); a fence still open at the end of the text is treated as not fenced so it cannot
- * hide later sections. Lines before the first `## ` heading are dropped.
+ * Splits a body into sections at every heading CommonMark accepts: ATX (`#` to `######`, up to
+ * three spaces of indent) and setext (a paragraph underlined by `===` or `---`), so no heading
+ * form can slip past the augmentation allow-list. The one exemption is a leading level-1 heading
+ * (the document title), which opens no section. Headings inside fenced code blocks do not count.
+ * Fence rules are stricter than skill-compiler's `stripFences`: at most three spaces of indent,
+ * no backtick in a backtick fence's info string, and closing on the same character with at least
+ * the opening length. A fence still open at the end of the text is treated as not fenced so it
+ * cannot hide later sections. Lines before the first section are dropped.
  */
 function sectionsOf(body: string): Section[] {
   const lines = body.split(/\r?\n/);
@@ -128,7 +132,7 @@ function sectionsOf(body: string): Section[] {
   // text is the run joined with spaces. Both underline kinds count, so a setext heading cannot
   // slip a section past the augmentation allow-list. One forward pass: `start` is the first line
   // of the current paragraph run, so each line is looked at a constant number of times.
-  const setextText = new Map<number, string>(); // first line of a heading -> its text
+  const setextText = new Map<number, { text: string; level: number }>(); // first line -> heading
   const consumed = new Set<number>(); // every line of a setext heading, underline included
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -137,19 +141,18 @@ function sectionsOf(body: string): Section[] {
     if (fenced[i] === true) {
       start = -1;
     } else if (underline && start >= 0) {
-      setextText.set(
-        start,
-        lines
-          .slice(start, i)
-          .map((l) => l.trim())
-          .join(" "),
-      );
+      const text = lines
+        .slice(start, i)
+        .map((l) => l.trim())
+        .join(" ");
+      setextText.set(start, { text, level: line.trimStart().startsWith("=") ? 1 : 2 });
       for (let j = start; j <= i; j++) consumed.add(j);
       start = -1;
     } else if (
       line.trim() === "" ||
       underline ||
-      /^ {0,3}(?:>|#{1,6}(?:[ \t]|$)|(?:[-*+]|\d+[.)])(?:\s|$)|(?:[-*_][ \t]*){3,}$)/.test(line)
+      // Only a non-empty bullet or an ordered item starting at 1 may interrupt a paragraph.
+      /^ {0,3}(?:>|#{1,6}(?:[ \t]|$)|(?:[-*+]|1[.)])[ \t]+\S|(?:[-*_][ \t]*){3,}$)/.test(line)
     ) {
       start = -1;
     } else if (start < 0 && /^ {0,3}\S/.test(line)) {
@@ -157,19 +160,33 @@ function sectionsOf(body: string): Section[] {
     }
   }
   const sections: Section[] = [];
+  let titled = false; // a leading level-1 heading is the title and opens no section
+  const openSection = (heading: string, level: number): void => {
+    if (level === 1 && sections.length === 0 && !titled) titled = true;
+    else sections.push({ heading: normaliseHeading(heading), lines: [] });
+  };
   lines.forEach((text, i) => {
     const setext = setextText.get(i);
     if (setext !== undefined) {
-      sections.push({ heading: normaliseHeading(setext), lines: [] });
+      openSection(setext.text, setext.level);
       return;
     }
     if (consumed.has(i)) return;
     const isFenced = fenced[i] === true;
-    const heading = isFenced ? null : /^##[ \t]+(.*)$/.exec(text)?.[1]?.trim();
-    if (heading) sections.push({ heading: normaliseHeading(heading), lines: [] });
+    const atx = isFenced ? null : /^ {0,3}(#{1,6})(?:[ \t]+([\s\S]*))?$/.exec(text);
+    if (atx) openSection(atxText(atx[2] ?? ""), (atx[1] ?? "").length);
     else sections.at(-1)?.lines.push({ text, fenced: isFenced });
   });
   return sections;
+}
+
+/** ATX heading text: trimmed, without a closing `#` run (which must follow a space). */
+function atxText(raw: string): string {
+  let t = raw.trim();
+  let end = t.length;
+  while (end > 0 && t[end - 1] === "#") end--;
+  if (end === 0 || t[end - 1] === " " || t[end - 1] === "\t") t = t.slice(0, end).trim();
+  return t;
 }
 
 /** Every section with the given heading (any case, optional trailing colon). */

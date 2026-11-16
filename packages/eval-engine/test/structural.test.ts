@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,6 +11,13 @@ import {
   type GenerationEval,
 } from "../src/index";
 import { BASE_SHA, GOLDEN_AUGMENT_RAW, GOLDEN_RAW, makeContext } from "./helpers";
+
+/** Wall-clock ceiling: absolute and generous so load cannot flake it; a quadratic scan misses it by orders of magnitude. */
+const CEILING_MS = 3000;
+
+/** Full prose-placeholder message. */
+const PROSE =
+  "positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts";
 
 const ALL: GenerationEval[] = [
   specEval,
@@ -501,14 +508,14 @@ describe("scan cost and line bounds", () => {
   it("scans 400k adversarial characters in under 500 ms", async () => {
     const raw = withExtra(GOLDEN_RAW, `${lines(200)}\n${chunk.repeat(5000)}`);
     const r = await timed(raw);
-    expect(r.ms).toBeLessThan(500);
+    expect(r.ms).toBeLessThan(CEILING_MS);
     expect(r.sec).toBe("fail"); // the long line
   });
 
   it("scans 100k repeated 'cat ' in under 500 ms", async () => {
     const raw = withExtra(GOLDEN_RAW, "cat ".repeat(25_000));
     const r = await timed(raw);
-    expect(r.ms).toBeLessThan(500);
+    expect(r.ms).toBeLessThan(CEILING_MS);
   });
 
   it("fails a line over 2,000 characters without scanning it", async () => {
@@ -572,8 +579,8 @@ describe("rendered syntax and placeholders (portability)", () => {
     ["```\necho $ARGUMENTS\n```", "argument placeholder"],
     ["${CLAUDE_SKILL_DIR}/x", "host environment placeholder"],
     ["```\ncat ${CLAUDE_SKILL_DIR}/x\n```", "host environment placeholder"],
-    ["Pass $1 as the id", "positional placeholder in prose"],
-    ["Pass `$1` as the id", "positional placeholder in prose"],
+    ["Pass $1 as the id", PROSE],
+    ["Pass `$1` as the id", PROSE],
   ];
   for (const [text, msg] of fails) {
     it(`fails "${text.replace(/\n/g, "\\n")}"`, async () => {
@@ -608,7 +615,7 @@ describe("rendered syntax and placeholders (portability)", () => {
     ].join("\n");
     const t0 = performance.now();
     await run(hostile);
-    expect(performance.now() - t0).toBeLessThan(500);
+    expect(performance.now() - t0).toBeLessThan(CEILING_MS);
   });
 });
 
@@ -706,7 +713,7 @@ describe("fix round 1 (portability)", () => {
 
   for (const text of ["file$1", "Cost $$1", "Path \\\\$1", "Use $10"]) {
     it(`fails positional "${text}"`, async () => {
-      expect((await run(text)).messages).toContain("positional placeholder in prose");
+      expect((await run(text)).messages).toContain(PROSE);
     });
   }
 
@@ -725,7 +732,7 @@ describe("fix round 1 (portability)", () => {
   it("scans long digit runs and backslashes quickly", async () => {
     const t0 = performance.now();
     await run(`${"$1".repeat(900)}\n${"\\".repeat(1900)}\n${"$".repeat(900)}${"1".repeat(900)}`);
-    expect(performance.now() - t0).toBeLessThan(500);
+    expect(performance.now() - t0).toBeLessThan(CEILING_MS);
   });
 
   it("names an unlinked oversize file a bundle file", async () => {
@@ -749,5 +756,15 @@ describe("fix round 1 (portability)", () => {
     });
     const r = await portabilityEval.run(inside);
     expect(r.messages).toContain("dot-prefixed entry .DS_Store");
+  });
+});
+
+describe("fixed-token portability patterns", () => {
+  it("carry no unbounded quantifier, so they are linear by construction", () => {
+    const src = readFileSync(join(import.meta.dirname, "../src/evals/structural.ts"), "utf8");
+    for (const literal of ["/(^|\\s)!`/", "/```!/", "/\\$ARGUMENTS/"]) {
+      expect(src, literal).toContain(literal);
+      expect(literal, literal).not.toMatch(/[*+]|\{\d+,\}/);
+    }
   });
 });

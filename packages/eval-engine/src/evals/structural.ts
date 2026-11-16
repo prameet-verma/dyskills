@@ -481,7 +481,13 @@ export const portabilityEval: GenerationEval = {
       }
       if (POSITIONAL.test(line)) {
         if (fenced) warned.add(tag(label, "positional placeholder in code"));
-        else found.add(tag(label, "positional placeholder in prose"));
+        else
+          found.add(
+            tag(
+              label,
+              "positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts",
+            ),
+          );
       }
     });
     return result([...failures, ...layout, ...found], [...warned]);

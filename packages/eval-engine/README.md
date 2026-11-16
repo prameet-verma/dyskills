@@ -29,8 +29,8 @@ behavioural smoke recorder; it implements PRD §5.5
   an exclamation mark), an arguments placeholder, a host environment placeholder, and a
   positional placeholder (`$1`) in prose, where an inline code span counts as prose. A positional
   placeholder inside a fenced code block only warns. Layout failures: a nested `SKILL.md`, any
-  dot-prefixed entry, any other entry beside the bundle in its skills directory (operating-system junk files such as
-  `.DS_Store` are ignored there, never inside the bundle), and a bundle too
+  dot-prefixed entry, any other entry beside the bundle in its skills directory (operating-system
+  junk files such as `.DS_Store` are ignored there, never inside the bundle), and a bundle too
   large to scan. The exact patterns live next to the code in `src/evals/structural.ts`.
 - `securityEval` (mandatory): fails on piping downloads into a shell, destructive deletes, unsafe
   flags, prompt-injection phrases, reading secrets, weakening the sandbox, global installs and
