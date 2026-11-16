@@ -35,13 +35,26 @@ allow rule can override them. `codex exec` cannot approve a prompt: for a non-in
 
 ## The opt-in allow rule (a trust decision)
 
-Without `--codex-allow-rule`, `dynamic-skills` runs inside the Codex sandbox and `save` may be
-denied, because `.agents/` is protected and `~/.agents` is outside the writable roots. With the
-flag, `init` also writes `prefix_rule(pattern = ["dynamic-skills"], decision = "allow", ...)`. That
-lets every `dynamic-skills` command run outside the sandbox with no prompt (the two prompt rules
-above still win for `save` and `init`). From then on the CLI's own path checks are the only
-boundary around those commands. Enable it only if you accept that. It matches the bare binary only,
-never a package runner.
+With `--codex-allow-rule`, `init` also writes
+`prefix_rule(pattern = ["dynamic-skills"], decision = "allow", ...)`. That lets every
+`dynamic-skills` command other than `save` and `init` run outside the Codex sandbox with no prompt.
+`save` and `init` always match the stricter prompt rules, so they always ask, and Codex then runs an
+approved prompt with the session's current permissions, still sandboxed. The allow rule therefore
+never gives them a sandbox escape. Saving into `.agents/skills` from inside the sandbox may need the
+agent to request escalated permissions, or running `dynamic-skills save` in a terminal.
+
+The allow rule trusts whatever `dynamic-skills` resolves to on `PATH`: a different binary earlier on
+`PATH` would run unsandboxed. From then on the CLI's own path checks are the only boundary around
+those commands. Enable it only if you accept that. It matches the bare binary only, never a package
+runner.
+
+## Editing the rules file
+
+Editing or removing rules in `dynamic-skills.rules` (as the consent-rule note invites for
+non-interactive saves), or adding `--codex-allow-rule` later, makes the file differ from what `init`
+writes. The next `init` then reports a conflict that needs `--force`. Codex stops loading rules at
+the first parse error, so a Starlark mistake in an edited rules file silently disables ALL of your
+rules, including `default.rules`.
 
 ## Questions
 

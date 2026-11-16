@@ -119,7 +119,7 @@ export const codexAdapter: HarnessAdapter = {
     ];
     if (!opts.allowRule) {
       notes.push(
-        "Saving a skill from inside the Codex sandbox needs `--codex-allow-rule`, which lets dynamic-skills run outside the sandbox; without it `save` may be denied.",
+        "`--codex-allow-rule` lets `dynamic-skills` commands other than `save` and `init` run outside the sandbox; `save` and `init` always ask, then run with the session's current permissions. Saving into `.agents/skills` from inside the sandbox may need the agent to request escalated permissions, or running `dynamic-skills save` in a terminal.",
       );
     }
     if (project) notes.push("Codex applies .codex/ only in trusted projects.");

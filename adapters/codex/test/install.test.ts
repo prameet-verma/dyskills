@@ -90,6 +90,18 @@ describe("codex detect", () => {
     expect(d.warnings.length).toBeGreaterThan(0);
   });
 
+  it("reports an unreadable version as installed, untested, with a warning", async () => {
+    const w = await world();
+    for (const run of [
+      async () => ({ code: 1, stdout: "codex-cli 0.169.0\n", stderr: "boom" }),
+      async () => ({ code: 0, stdout: "no version here", stderr: "" }),
+    ]) {
+      const d = await codexAdapter.detect({ ...w.env, probe: { ...w.env.probe, run } });
+      expect(d).toMatchObject({ installed: true, version: null, tested: false });
+      expect(d.warnings.length).toBeGreaterThan(0);
+    }
+  });
+
   it("reports a missing binary", async () => {
     const w = await world();
     const d = await codexAdapter.detect({
@@ -179,7 +191,7 @@ describe("codex install plan", () => {
     const hostile =
       'a"""\nname = "pwned"\n\\ \\" \u0000 \u007f \r\n[features]\napps = true # \'\'\'';
     const doc = parse(analystToml(hostile));
-    expect(doc.developer_instructions).toBe(hostile.replaceAll("\r\n", "\r\n"));
+    expect(doc.developer_instructions).toBe(hostile);
     expect(doc.name).toBe("dynamic_skills_context_analyst");
     expect((doc.features as Record<string, unknown>).apps).toBe(false);
     for (const s of ['"', "\\", '"""', "\u0001", "\n", "é", " "]) {
@@ -238,6 +250,10 @@ describe("codex install plan", () => {
     expect(notes).toContain("Restart Codex to load the rules.");
     expect(notes).toContain("codex exec");
     expect(notes).toContain("--codex-allow-rule");
+    expect(notes).toContain("other than `save` and `init`");
+    expect(notes).toContain("current permissions");
+    expect(notes).toContain("escalated permissions");
+    expect(notes).not.toContain("save` may be denied");
     const rules = file(off, "dynamic-skills.rules").path;
     expect(off.verify).toEqual([
       {
