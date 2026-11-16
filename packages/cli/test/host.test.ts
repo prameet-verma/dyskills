@@ -172,7 +172,7 @@ describe("environment passthrough to the skill scan", () => {
     });
     const names = r.out.skills.map((s: { name: string }) => s.name);
     expect(names).toContain("oc-skill");
-    expect(names).not.toContain("xdg-skill"); // OPENCODE_CONFIG_DIR wins over XDG_CONFIG_HOME
+    expect(names).toContain("xdg-skill"); // OpenCode 1.x reads both (R37)
   });
 
   it("existingSkillsFor honours vars directly", async () => {

@@ -145,7 +145,9 @@ describe("resolveSkillRoots", () => {
     });
     expect(oc).toContain(join(t, "oc/skills"));
     expect(oc).toContain(join(t, "oc/skill"));
-    expect(oc).not.toContain(join(t, "xdg/opencode/skills"));
+    // OpenCode 1.x adds OPENCODE_CONFIG_DIR to the XDG config dir (2.x replaces it): list both (R37).
+    expect(oc).toContain(join(t, "xdg/opencode/skills"));
+    expect(oc).toContain(join(t, "xdg/opencode/skill"));
 
     const rel = await dirsOf({
       CODEX_HOME: "relative/x",

@@ -123,10 +123,13 @@ export async function resolveSkillRoots(opts: RootOptions): Promise<ResolvedSkil
     "codex",
   ]);
   add(join(resolve(etcDir), "codex/skills"), "personal", "codex", ["codex"]);
-  const ocBase =
-    env("OPENCODE_CONFIG_DIR") ?? join(env("XDG_CONFIG_HOME") ?? join(home, ".config"), "opencode");
-  add(join(resolve(ocBase), "skills"), "personal", "opencode", ["opencode"]);
-  add(join(resolve(ocBase), "skill"), "personal", "opencode", ["opencode"]);
+  // OpenCode 2.x replaces the XDG config dir with OPENCODE_CONFIG_DIR; 1.x reads both (R37).
+  const ocOverride = env("OPENCODE_CONFIG_DIR");
+  const ocXdg = join(env("XDG_CONFIG_HOME") ?? join(home, ".config"), "opencode");
+  for (const ocBase of ocOverride === undefined ? [ocXdg] : [ocOverride, ocXdg]) {
+    add(join(resolve(ocBase), "skills"), "personal", "opencode", ["opencode"]);
+    add(join(resolve(ocBase), "skill"), "personal", "opencode", ["opencode"]);
+  }
 
   const dropOpencode =
     OPENCODE_TRUE.has(vars.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ?? "") ||
