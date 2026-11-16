@@ -47,3 +47,33 @@ it("refuses to fingerprint a directory, an oversize file or a missing file", asy
   await expect(fingerprintFile(f, 10)).rejects.toThrow(/too-large/);
   await expect(fingerprintFile(join(dir, "nope"))).rejects.toThrow(/missing/);
 });
+
+it("ignores GIT_* variables in the caller's environment", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "ds-git-env-"));
+  const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe" });
+  git("init", "-q");
+  writeFileSync(join(repo, "f.txt"), "hi");
+  git("add", ".");
+  git(
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@t",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "-q",
+    "-m",
+    "c",
+  );
+  const expected = await getRepoRevision(repo);
+  expect(expected).toMatch(/^[0-9a-f]{40}$/);
+  const saved = process.env.GIT_DIR;
+  process.env.GIT_DIR = "/nonexistent";
+  try {
+    expect(await getRepoRevision(repo)).toBe(expected);
+  } finally {
+    if (saved === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = saved;
+  }
+});

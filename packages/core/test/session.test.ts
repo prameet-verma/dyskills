@@ -1,4 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { chmod, mkdtemp, rm, stat, symlink, utimes, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   SessionStore,
   UnsafeHomeError,
+  writeSessionFile,
   enforceDeadline,
   ensurePrivateDir,
   SlaClock,
@@ -295,5 +297,46 @@ describe("private session home (I3)", () => {
     // A new store, as in a new CLI process: each process checks the home once.
     await new SessionStore(home).withLock(s.id, async () => undefined);
     expect(await mode(join(home, "sessions"))).toBe(0o700);
+  });
+});
+
+describe("writeSessionFile", () => {
+  it("refuses a symlinked component and writes nothing through it", async () => {
+    const s = await store.create(init);
+    const elsewhere = join(home, "elsewhere");
+    await mkdir(elsewhere);
+    await symlink(elsewhere, join(store.dir(s.id), "reports"));
+    await expect(store.writeArtifact(s.id, "reports/x.json", "{}")).rejects.toMatchObject({
+      code: "HOME_UNSAFE",
+    });
+    await expect(writeSessionFile(store.dir(s.id), "reports/x.json", "{}")).rejects.toBeInstanceOf(
+      UnsafeHomeError,
+    );
+    expect(await readdir(elsewhere)).toEqual([]);
+  });
+
+  it("refuses a symlink at the final path", async () => {
+    const s = await store.create(init);
+    const target = join(home, "target.txt");
+    await writeFile(target, "keep");
+    await symlink(target, join(store.dir(s.id), "x.json"));
+    await expect(store.writeArtifact(s.id, "x.json", "new")).rejects.toMatchObject({
+      code: "HOME_UNSAFE",
+    });
+  });
+
+  it("leaves no temp file behind and uses private modes", async () => {
+    const s = await store.create(init);
+    await store.writeArtifact(s.id, "a/b/c.json", "1");
+    await store.writeArtifact(s.id, "a/b/c.json", "2");
+    expect(await store.readArtifact(s.id, "a/b/c.json")).toBe("2");
+    expect(await readdir(join(store.dir(s.id), "a", "b"))).toEqual(["c.json"]);
+    expect((await stat(join(store.dir(s.id), "a/b/c.json"))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(store.dir(s.id), "a/b"))).mode & 0o777).toBe(0o700);
+  });
+
+  it("rejects a path that escapes the session directory", async () => {
+    const s = await store.create(init);
+    await expect(writeSessionFile(store.dir(s.id), "../escape", "x")).rejects.toThrow();
   });
 });

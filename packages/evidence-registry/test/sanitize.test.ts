@@ -27,3 +27,14 @@ it("redacts a whole private key block and other token shapes", () => {
   expect(sanitizeEvidenceValue("xoxb-1234567890-abc")).toBe("[REDACTED]");
   expect(sanitizeEvidenceValue("xoxp-1234567890-abc")).toBe("[REDACTED]");
 });
+
+it("truncates by code point and never leaves a lone surrogate", () => {
+  const out = sanitizeEvidenceValue("😀".repeat(600));
+  expect(Array.from(out)).toHaveLength(500);
+  expect(out.endsWith("…")).toBe(true);
+  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(out)).toBe(false);
+  expect(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(out)).toBe(false);
+  // An odd offset: a BMP char first shifts every pair by one UTF-16 unit.
+  const odd = sanitizeEvidenceValue("a" + "😀".repeat(600));
+  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(odd)).toBe(false);
+});

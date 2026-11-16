@@ -137,3 +137,17 @@ describe("EvidenceRegistry", () => {
     expect(EvidenceRegistry.fromJSON([legacy]).get("k")?.origin).toBe("programmatic");
   });
 });
+
+describe("EvidenceRegistry fresh conflicting add", () => {
+  it("records the observation itself when no conflicts are supplied", () => {
+    const r = new EvidenceRegistry();
+    const e = r.add({
+      ...base,
+      key: "k",
+      value: "npm",
+      source: "package-lock.json",
+      confidence: "conflicting",
+    });
+    expect(e.conflicts).toEqual(["npm (package-lock.json)"]);
+  });
+});

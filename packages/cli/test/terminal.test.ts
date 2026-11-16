@@ -1,4 +1,15 @@
-import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/run";
@@ -290,5 +301,23 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect(JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8")).outcome).toBe(
       "skipped",
     );
+  });
+});
+
+describe("terminal reports refuse a symlinked reports directory", () => {
+  it("writes nothing through it on the TIMEOUT path", async () => {
+    const id = await analysed(h);
+    const elsewhere = await mkdtemp(join(tmpdir(), "ds-cli-elsewhere-"));
+    try {
+      const reports = join(h.home, "sessions", id, "reports");
+      await rm(reports, { recursive: true, force: true });
+      await symlink(elsewhere, reports);
+      h.clock.t += 2 * HOUR;
+      const r = await h.run(["discover", "--session", id]);
+      expect(r.exitCode).not.toBe(0);
+      expect(await readdir(elsewhere)).toEqual([]);
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
+    }
   });
 });

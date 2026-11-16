@@ -1,6 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -411,5 +421,45 @@ describe("activate", () => {
       process.env.HOME = saved;
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("activate report writes", () => {
+  it("refuses a symlinked reports directory and writes nothing through it", async () => {
+    const elsewhere = await mkdtemp(join(tmpdir(), "activation-elsewhere-"));
+    try {
+      await rm(join(dir, "reports"), { recursive: true });
+      await symlink(elsewhere, join(dir, "reports"));
+      await expect(
+        activate({
+          state: makeState(),
+          sessionDir: dir,
+          skill: null,
+          report: null,
+          behavioural: undefined,
+          packet: null,
+          evidence: [],
+          now: NOW,
+        }),
+      ).rejects.toMatchObject({ code: "HOME_UNSAFE" });
+      expect(await readdir(elsewhere)).toEqual([]);
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves no temp file in reports after a normal activation refusal", async () => {
+    await activate({
+      state: makeState(),
+      sessionDir: dir,
+      skill: null,
+      report: null,
+      behavioural: undefined,
+      packet: null,
+      evidence: [],
+      now: NOW,
+    });
+    const names = await readdir(join(dir, "reports"));
+    expect(names.sort()).toEqual(["assumptions.json", "discovery.json", "performance.json"]);
   });
 });
