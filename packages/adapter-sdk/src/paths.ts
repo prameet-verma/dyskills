@@ -9,9 +9,14 @@ export async function realpathEnsured(dir: string, mode = 0o700): Promise<string
 
 /**
  * Realpath of the nearest existing ancestor of `path`, joined with the missing segments. Creates
- * nothing. `path` must be absolute. Throws when an entry exists but cannot be resolved (a dangling
- * symlink, code `ELOOP` or `ENOENT` from `realpath`) and when an existing ancestor of a missing
- * segment is not a directory (code `ENOTDIR`).
+ * nothing. `path` must be absolute.
+ *
+ * Throws (callers must map these to a conflict or an error):
+ * - `ENOENT`: an entry exists but cannot be resolved, i.e. a dangling symlink in the chain (also
+ *   thrown when no ancestor exists at all);
+ * - `ELOOP`: a symlink loop in the chain (from `realpath`);
+ * - `ENOTDIR`: an existing ancestor of a missing segment is not a directory;
+ * - any other `lstat`/`realpath`/`stat` error (e.g. `EACCES`) propagates unchanged.
  */
 export async function realpathOfPlanned(path: string): Promise<string> {
   const missing: string[] = [];

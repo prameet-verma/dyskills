@@ -46,3 +46,7 @@ session home (`init` and `save`). It names no harness; it only uses core's `Harn
   only when they differ). The residual window is a concurrent edit landing between that check and
   `rename`, which is lost; it is never merged into.
 - JSONC array appends are inserted item by item, so comments inside the array survive.
+- `realpathOfPlanned` throws `ENOENT` (dangling symlink, or no ancestor), `ELOOP` (symlink loop) and
+  `ENOTDIR` (a non-directory ancestor); callers map these to a conflict or an error.
+- `applyPlan` accepts `testHooks` (`beforeWrite`, `afterCheck`, `beforeRename`), an internal test
+  seam; never wire user input into it.

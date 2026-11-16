@@ -159,8 +159,10 @@ describe("applyPlan", () => {
     ]);
     const r = await applyPlan(p, {
       ...opts,
-      beforeWrite: async (w) => {
-        if (w.path.endsWith("s.json")) await writeFile(w.path, '{"a":1,"user":true}');
+      testHooks: {
+        beforeWrite: async (w) => {
+          if (w.path.endsWith("s.json")) await writeFile(w.path, '{"a":1,"user":true}');
+        },
       },
     });
     expect(r[0]).toMatchObject({ action: "conflict", reason: "changed since preview" });
@@ -172,8 +174,10 @@ describe("applyPlan", () => {
     const p = plan([file(join(project, "n.txt"), "x")]);
     const r = await applyPlan(p, {
       ...opts,
-      beforeWrite: async (w) => {
-        await writeFile(w.path, "squatter");
+      testHooks: {
+        beforeWrite: async (w) => {
+          await writeFile(w.path, "squatter");
+        },
       },
     });
     expect(r[0]).toMatchObject({ action: "conflict", reason: "changed since preview" });
@@ -233,8 +237,10 @@ describe("applyPlan", () => {
     const p = plan([file(join(project, "a.txt"), "1"), file(join(project, "b.txt"), "2")]);
     const err = await applyPlan(p, {
       ...opts,
-      beforeWrite: (w) => {
-        if (w.path.endsWith("b.txt")) throw new Error("disk on fire");
+      testHooks: {
+        beforeWrite: (w) => {
+          if (w.path.endsWith("b.txt")) throw new Error("disk on fire");
+        },
       },
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PlanApplyError);

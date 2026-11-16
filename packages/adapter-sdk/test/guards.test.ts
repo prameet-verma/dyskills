@@ -13,7 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyPlan, previewPlan, type InstallPlan, type PlannedWrite } from "../src/index";
+import {
+  applyPlan,
+  previewPlan,
+  realpathOfPlanned,
+  type InstallPlan,
+  type PlannedWrite,
+} from "../src/index";
 
 let root: string;
 let project: string;
@@ -84,9 +90,11 @@ describe("containment swaps", () => {
     const p = plan([file(join(project, ".claude", "x.txt"))]);
     const r = await applyPlan(p, {
       ...opts,
-      beforeWrite: async () => {
-        await rm(join(project, ".claude"), { recursive: true });
-        await symlink(outside, join(project, ".claude"));
+      testHooks: {
+        beforeWrite: async () => {
+          await rm(join(project, ".claude"), { recursive: true });
+          await symlink(outside, join(project, ".claude"));
+        },
       },
     });
     expect(r[0]).toMatchObject({ action: "conflict", reason: "outside project" });
@@ -97,9 +105,11 @@ describe("containment swaps", () => {
     const p = plan([file(join(project, ".claude", "x.txt"))]);
     const r = await applyPlan(p, {
       ...opts,
-      afterCheck: async () => {
-        await rm(join(project, ".claude"), { recursive: true });
-        await symlink(outside, join(project, ".claude"));
+      testHooks: {
+        afterCheck: async () => {
+          await rm(join(project, ".claude"), { recursive: true });
+          await symlink(outside, join(project, ".claude"));
+        },
       },
     });
     expect(r[0]).toMatchObject({ action: "conflict", reason: "outside project" });
@@ -192,8 +202,10 @@ describe("rename-time recheck", () => {
     const p = plan([{ ...base, kind: "json-merge", path: f, patch: { b: 2 }, within: project }]);
     const r = await applyPlan(p, {
       ...opts,
-      beforeRename: async () => {
-        await writeFile(f, '{"a":1,"u":1}');
+      testHooks: {
+        beforeRename: async () => {
+          await writeFile(f, '{"a":1,"u":1}');
+        },
       },
     });
     expect(r[0]).toMatchObject({ action: "conflict", reason: "changed since preview" });
@@ -204,8 +216,10 @@ describe("rename-time recheck", () => {
     const f = join(project, "n.txt");
     const r = await applyPlan(plan([file(f)]), {
       ...opts,
-      beforeRename: async () => {
-        await writeFile(f, "squatter");
+      testHooks: {
+        beforeRename: async () => {
+          await writeFile(f, "squatter");
+        },
       },
     });
     expect(r[0]).toMatchObject({ action: "conflict", reason: "changed since preview" });
@@ -224,5 +238,82 @@ describe("hard links", () => {
     );
     expect(await readFile(join(project, "b.json"), "utf8")).toBe('{"a":1}');
     expect((await stat(a)).nlink).toBe(1);
+  });
+});
+
+describe("round 2", () => {
+  const jsoncPlan = (f: string): InstallPlan =>
+    plan([{ ...base, kind: "jsonc-merge", path: f, patch: { z: 1 }, within: project }]);
+
+  for (const depth of [150, 300]) {
+    it(`reports JSONC nested ${depth} deep as a conflict, never a throw`, async () => {
+      const f = join(project, "d.jsonc");
+      await writeFile(f, '{"k":' + "[".repeat(depth) + "]".repeat(depth) + "}");
+      const r = await previewPlan(jsoncPlan(f), { force: false });
+      expect(r).toHaveLength(1);
+      expect(r[0]?.action).toBe("conflict");
+    });
+  }
+  it("maps depth 300 in strict JSON to a single 'too deeply nested' conflict", async () => {
+    const f = join(project, "d.json");
+    await writeFile(f, "[".repeat(300) + "]".repeat(300));
+    const r = await previewPlan(
+      plan([{ ...base, kind: "json-merge", path: f, patch: { z: 1 }, within: project }]),
+      { force: false },
+    );
+    expect(r[0]).toMatchObject({ action: "conflict", reason: "too deeply nested" });
+  });
+  it("keeps depth 200 mergeable in strict JSON (pins the 256 cap)", async () => {
+    const f = join(project, "d.json");
+    await writeFile(f, '{"k":' + "[".repeat(200) + "]".repeat(200) + "}");
+    const r = await previewPlan(
+      plan([{ ...base, kind: "json-merge", path: f, patch: { z: 1 }, within: project }]),
+      { force: false },
+    );
+    expect(r[0]?.action).toBe("update");
+  });
+  it("turns a dir that appears after preview into a conflict, not an error", async () => {
+    const d = join(project, "newdir");
+    const r = await applyPlan(plan([{ ...base, kind: "dir", path: d, within: project }]), {
+      ...opts,
+      testHooks: {
+        beforeWrite: async () => {
+          await mkdir(d);
+        },
+      },
+    });
+    expect(r[0]).toMatchObject({ action: "conflict", reason: "changed since preview" });
+  });
+  it("catches a same-size edit made before rename", async () => {
+    const f = join(project, "s.json");
+    await writeFile(f, '{"a":1}');
+    const r = await applyPlan(
+      plan([{ ...base, kind: "json-merge", path: f, patch: { b: 2 }, within: project }]),
+      {
+        ...opts,
+        testHooks: {
+          beforeRename: async () => {
+            await writeFile(f, '{"a":2}');
+          },
+        },
+      },
+    );
+    expect(r[0]).toMatchObject({ action: "conflict", reason: "changed since preview" });
+    expect(await readFile(f, "utf8")).toBe('{"a":2}');
+  });
+  it("realpathOfPlanned throws ENOTDIR when an ancestor is a regular file", async () => {
+    await writeFile(join(project, "f"), "x");
+    await expect(realpathOfPlanned(join(project, "f", "a", "b"))).rejects.toMatchObject({
+      code: "ENOTDIR",
+    });
+  });
+  it("realpathOfPlanned throws ENOENT for a dangling link and ELOOP-class errors for loops", async () => {
+    await symlink(join(root, "missing"), join(project, "dang"));
+    await expect(realpathOfPlanned(join(project, "dang", "x"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await symlink(join(project, "l2"), join(project, "l1"));
+    await symlink(join(project, "l1"), join(project, "l2"));
+    await expect(realpathOfPlanned(join(project, "l1", "x"))).rejects.toBeInstanceOf(Error);
   });
 });

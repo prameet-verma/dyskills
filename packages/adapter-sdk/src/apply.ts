@@ -34,12 +34,17 @@ export interface ApplyOptions {
   dryRun: boolean;
   /** Overwrite a differing `file` write. Never applies to merges, symlinks or invalid JSON. */
   force: boolean;
-  /** Test seam: runs just before each create/update is written. */
-  beforeWrite?: (write: PlannedWrite) => void | Promise<void>;
-  /** Test seam: runs after the staleness recheck, just before parents are created. */
-  afterCheck?: (write: PlannedWrite) => void | Promise<void>;
-  /** Test seam: runs after the temp file is written, just before the final target recheck. */
-  beforeRename?: (write: PlannedWrite) => void | Promise<void>;
+  /**
+   * Test seams: `beforeWrite` runs before each create/update, `afterCheck` after the staleness
+   * recheck (before parents are created), `beforeRename` after the temp file is written.
+   *
+   * @internal Test seam; never wire user input into these.
+   */
+  testHooks?: {
+    beforeWrite?: (write: PlannedWrite) => void | Promise<void>;
+    afterCheck?: (write: PlannedWrite) => void | Promise<void>;
+    beforeRename?: (write: PlannedWrite) => void | Promise<void>;
+  };
 }
 
 interface Entry {
@@ -175,14 +180,19 @@ function planMergeInner(
   const edits: Edit[] = [];
   diffPaths(current as JsonValue, value, [], edits);
   let out = text;
-  for (const e of edits) {
-    out = applyEdits(
-      out,
-      modify(out, e.path, e.value, {
-        ...(e.append ? { isArrayInsertion: true } : {}),
-        formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
-      }),
-    );
+  try {
+    for (const e of edits) {
+      out = applyEdits(
+        out,
+        modify(out, e.path, e.value, {
+          ...(e.append ? { isArrayInsertion: true } : {}),
+          formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
+        }),
+      );
+    }
+  } catch {
+    // jsonc-parser's formatter can throw on deeply nested input; report, never throw.
+    return conflict(write, "cannot edit JSONC", hash);
   }
   return { write, action: "update", hash, next: Buffer.from(out, "utf8") };
 }
@@ -395,10 +405,10 @@ export async function applyPlan(plan: InstallPlan, opts: ApplyOptions): Promise<
 /** Writes one create/update; returns a conflict reason when the target went stale. */
 async function commit(entry: Entry, plan: InstallPlan, opts: ApplyOptions): Promise<string | null> {
   const write = entry.write;
-  await opts.beforeWrite?.(write);
+  await opts.testHooks?.beforeWrite?.(write);
   const stale = await recheck(entry, plan);
   if (stale !== null) return stale;
-  await opts.afterCheck?.(write);
+  await opts.testHooks?.afterCheck?.(write);
   await mkdir(dirname(write.path), { recursive: true, mode: DIR_MODE });
   const again = await containment(write, plan);
   if (again !== null) return again;
@@ -410,7 +420,7 @@ async function commit(entry: Entry, plan: InstallPlan, opts: ApplyOptions): Prom
   const mode = entry.action === "update" ? (await lstat(write.path)).mode & 0o7777 : FILE_MODE;
   try {
     await writeAtomic(write.path, entry.next as Buffer, mode, async () => {
-      await opts.beforeRename?.(write);
+      await opts.testHooks?.beforeRename?.(write);
       await guardTarget(entry);
     });
   } catch (e) {
