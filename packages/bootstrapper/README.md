@@ -25,8 +25,9 @@ task (with invocation-mode gating), and validates the agent's Skill Sufficiency 
   | personal (admin)                                     | `<etcDir>/codex/skills`                                                                  | codex       | codex                                                  |
   | personal                                             | `${OPENCODE_CONFIG_DIR ?? ${XDG_CONFIG_HOME ?? ~/.config}/opencode}/skills`, `.../skill` | opencode    | opencode                                               |
 
-  A non-empty `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` removes opencode from every `.claude/skills`
-  root, and a root left with no readers is omitted. The admin root is reported as `personal` so `ExistingSkill.scope` is unchanged.
+  `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` or the umbrella `OPENCODE_DISABLE_CLAUDE_CODE` set to
+  `true`, `yes`, `on`, `1` or `y` (OpenCode's boolean config; anything else is false) removes
+  opencode from every `.claude/skills` root, and a root left with no readers is omitted. The admin root is reported as `personal` so `ExistingSkill.scope` is unchanged.
 
 - **`scanExistingSkills({ repo, home, vars?, etcDir? })`** (`scan.ts`): reads
   `<root>/<entry>/SKILL.md` for every resolved root. Returns

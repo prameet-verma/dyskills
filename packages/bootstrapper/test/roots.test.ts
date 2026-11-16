@@ -81,6 +81,25 @@ describe("resolveSkillRoots", () => {
     expect(find(empty, join(mono, ".claude/skills"))?.readBy).toEqual(["claude-code", "opencode"]);
   });
 
+  it("reads the OpenCode disable flags as its boolean config does (R33)", async () => {
+    const { t, mono, repo } = await monorepo();
+    const base = { repo, home: join(t, "home"), etcDir: join(t, "etc") };
+    const readers = async (vars: Record<string, string>) =>
+      (await resolveSkillRoots({ ...base, vars })).find(
+        (r) => r.dir === join(mono, ".claude/skills"),
+      )?.readBy;
+    for (const v of ["true", "yes", "on", "1", "y"]) {
+      expect(await readers({ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: v }), v).toEqual(["claude-code"]);
+      expect(await readers({ OPENCODE_DISABLE_CLAUDE_CODE: v }), v).toEqual(["claude-code"]);
+    }
+    for (const v of ["0", "false", "no", "TRUE", "enabled", " 1"]) {
+      expect(await readers({ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: v }), v).toEqual([
+        "claude-code",
+        "opencode",
+      ]);
+    }
+  });
+
   it("resolves personal roots with defaults", async () => {
     const { t, repo } = await monorepo();
     const home = join(t, "home");

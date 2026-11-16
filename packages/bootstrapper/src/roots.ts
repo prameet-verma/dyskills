@@ -56,13 +56,17 @@ export async function findProjectRoot(start: string): Promise<string> {
   return origin;
 }
 
+/** Values OpenCode's boolean config reads as true (case-sensitive); anything else is false. */
+const OPENCODE_TRUE: ReadonlySet<string> = new Set(["true", "yes", "on", "1", "y"]);
+
 /**
  * Lists every skill directory the three harnesses read for this repository and user, in dedupe
  * priority order: project levels from `repo` up to the project root, then personal roots.
  * Roots with the same resolved `dir` are merged (`readBy` union; the first entry's `harness` and
- * `scope` are kept). Non-absolute environment values are ignored. When
- * `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` is non-empty, `opencode` is dropped from the readers of
- * every `.claude/skills` root, and a root nobody reads any more is omitted.
+ * `scope` are kept). Non-absolute path values are ignored. When `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`
+ * or the umbrella `OPENCODE_DISABLE_CLAUDE_CODE` is true in OpenCode's boolean config sense (exactly
+ * `true`, `yes`, `on`, `1` or `y`; Ruling R33), `opencode` is dropped from the readers of every
+ * `.claude/skills` root, and a root nobody reads any more is omitted.
  *
  * @param opts - Repository, home, environment and optional `/etc` replacement.
  * @returns The ordered, merged roots. Directories need not exist.
@@ -124,7 +128,9 @@ export async function resolveSkillRoots(opts: RootOptions): Promise<ResolvedSkil
   add(join(resolve(ocBase), "skills"), "personal", "opencode", ["opencode"]);
   add(join(resolve(ocBase), "skill"), "personal", "opencode", ["opencode"]);
 
-  const dropOpencode = (vars.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ?? "") !== "";
+  const dropOpencode =
+    OPENCODE_TRUE.has(vars.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ?? "") ||
+    OPENCODE_TRUE.has(vars.OPENCODE_DISABLE_CLAUDE_CODE ?? "");
   const merged = new Map<string, ResolvedSkillRoot>();
   for (const root of list) {
     const readBy = root.readBy.filter(
