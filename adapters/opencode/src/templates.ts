@@ -10,13 +10,28 @@ export const BASH_ENTRIES: Readonly<Record<string, string>> = {
   "dynamic-skills init *": "ask",
 };
 
-/** Note shown for both scopes about the consent entries and non-interactive saves. */
+/**
+ * Note shown for both scopes about the consent entries and non-interactive saves (Ruling R36: the
+ * opt-out key is distinct from, and more specific than, the consent entry it follows, so appending
+ * it never creates a duplicate JSON key that would make the next `init` conflict).
+ */
 export const CONSENT_NOTE =
-  '`dynamic-skills save` and `init` ask for approval; `opencode run` rejects asks; a non-interactive save means running `dynamic-skills save` in a terminal, or appending `"dynamic-skills save *": "allow"` after the ask entry (last match wins).';
+  '`dynamic-skills save` and `init` ask for approval; `opencode run` rejects asks; a non-interactive save means running `dynamic-skills save` in a terminal, or appending a more specific allow after the ask entry (last match wins), for example `"dynamic-skills save --session *": "allow"` and `"dynamic-skills init --harness *": "allow"`.';
+
+/** Note shown in both scopes: OpenCode matches the literal command text, not its parsed intent. */
+export const QUOTED_SUBCOMMAND_NOTE =
+  "OpenCode matches the command as written; quoted or extra-spaced subcommands (for example `dynamic-skills 'save' …` or `dynamic-skills  save`) are not caught by the ask rules. We do not widen the asks to catch them (for example to `*save*`), because that would also prompt on unrelated commands such as `assess --task \"save …\"`.";
 
 /** Note shown for project installs: OpenCode 1.x needs an extra allow to read the session home. */
 export const PROJECT_EXTERNAL_DIR_NOTE =
   "Reading the session home from OpenCode 1.x needs an external_directory allow: run `dynamic-skills init --harness opencode --scope personal`.";
+
+/**
+ * Note shown for personal installs only: a project-scoped config can defeat the personal asks for
+ * that project (Ruling R34's cross-scope case).
+ */
+export const CROSS_SCOPE_NOTE =
+  'A project `.opencode/opencode.json(c)` with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` overrides these personal asks for that project; run `dynamic-skills init --harness opencode --scope project` there too.';
 
 /**
  * Renders the read-only context analyst agent markdown OpenCode loads from `agents/`.

@@ -92,8 +92,11 @@ export const openCodeAdapter: HarnessAdapter = {
   },
 
   saveNotes(detection) {
-    return detection.variant === "v1"
-      ? ["OpenCode 1.x lists a newly saved skill after a restart."]
-      : ["OpenCode 2.x lists the saved skill at the next step."];
+    if (detection.variant === "v1")
+      return ["OpenCode 1.x lists a newly saved skill after a restart."];
+    if (detection.variant === "v2") return ["OpenCode 2.x lists the saved skill at the next step."];
+    return [
+      "OpenCode lists a newly saved skill once the running instance re-reads its skills (restart on 1.x, live on 2.x).",
+    ];
   },
 };

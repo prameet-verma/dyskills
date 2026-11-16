@@ -78,6 +78,26 @@ describe("opencode mapQuestions", () => {
     expect((plan.calls[0]!.questions as JsonObject[]).length).toBe(7);
   });
 
+  it("de-duplicates headers that collide on their first 30 characters", () => {
+    const opts = [
+      { label: "x", description: "dx" },
+      { label: "y", description: "dy" },
+    ];
+    const plan = mapQuestions([
+      { id: "deployment-environment-target-region", text: "Region?", options: opts },
+      { id: "deployment-environment-target-zone", text: "Zone?", options: opts },
+    ]);
+    const headers = Object.keys(plan.idMap);
+    expect(headers).toHaveLength(2);
+    expect(new Set(headers).size).toBe(2);
+    expect(plan.idMap[headers[0]!]).toBe("deployment-environment-target-region");
+    expect(plan.idMap[headers[1]!]).toBe("deployment-environment-target-zone");
+    expect(headers[1]).toMatch(/~\d+$/);
+    expect(headers[1]!.length).toBeLessThanOrEqual(30);
+    const native = plan.calls[0]!.questions as JsonObject[];
+    expect(native.map((q) => q.header)).toEqual(headers);
+  });
+
   it("sends a question with no options as text, and idMap round-trips", () => {
     const plan = mapQuestions([
       { id: "a", text: "A?" },

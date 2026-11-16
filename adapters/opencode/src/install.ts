@@ -1,20 +1,26 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { parse, type ParseError } from "jsonc-parser";
 import type {
   HostEnv,
   InstallOptions,
   InstallPlan,
   JsonObject,
+  JsonValue,
   PlannedWrite,
   VerifyCommand,
 } from "@dynamic-skills/adapter-sdk";
+import { mergeJson } from "@dynamic-skills/adapter-sdk";
 import { chooseConfigFile } from "./config-file";
+import { consentNotes } from "./consent";
 import {
   analystAgentFile,
   BASH_ENTRIES,
   commandFile,
   CONSENT_NOTE,
+  CROSS_SCOPE_NOTE,
   PROJECT_EXTERNAL_DIR_NOTE,
+  QUOTED_SUBCOMMAND_NOTE,
 } from "./templates";
 
 /** Name of the bootstrap skill directory. */
@@ -47,84 +53,41 @@ export function personalConfigDir(env: HostEnv): string {
   return join(base, "opencode");
 }
 
+function isJsonObject(v: JsonValue | undefined): v is JsonObject {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 /**
- * Finds the keys of every object directly under the root of a JSON or JSONC document, skipping
- * comments and string contents. Used only to warn about an existing top-level `permissions` key;
- * a parse the document cannot make sense of yields no keys, never an error. Single linear pass
- * over `text` with no backtracking.
+ * Parses `path` as JSON or JSONC (comments and trailing commas allowed). A missing file,
+ * unreadable file, or a document `jsonc-parser` cannot make sense of is `undefined`, never an
+ * error: every caller treats an undefined document the same as "nothing written yet".
  *
- * @param text - JSON or JSONC document text.
- * @returns The root object's own keys, or an empty set if `text` is not an object document.
+ * @param path - Config file path.
+ * @returns The parsed value, or `undefined`.
  */
-function topLevelKeys(text: string): Set<string> {
-  const keys = new Set<string>();
-  let depth = 0;
-  const n = text.length;
-  let i = 0;
-  while (i < n) {
-    const ch = text[i];
-    if (ch === "/" && text[i + 1] === "/") {
-      i += 2;
-      while (i < n && text[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "/" && text[i + 1] === "*") {
-      i += 2;
-      while (i < n && !(text[i] === "*" && text[i + 1] === "/")) i++;
-      i += 2;
-      continue;
-    }
-    if (ch === '"') {
-      let j = i + 1;
-      let raw = "";
-      while (j < n && text[j] !== '"') {
-        if (text[j] === "\\") {
-          raw += text[j] + (text[j + 1] ?? "");
-          j += 2;
-          continue;
-        }
-        raw += text[j];
-        j++;
-      }
-      j++;
-      let k = j;
-      while (
-        k < n &&
-        (text[k] === " " || text[k] === "\t" || text[k] === "\n" || text[k] === "\r")
-      ) {
-        k++;
-      }
-      if (depth === 1 && text[k] === ":") {
-        try {
-          keys.add(JSON.parse(`"${raw}"`) as string);
-        } catch {
-          // An unparsable escape sequence: not a key we can name reliably, skip it.
-        }
-      }
-      i = j;
-      continue;
-    }
-    if (ch === "{") depth++;
-    else if (ch === "}") depth--;
-    i++;
+async function readJsoncDocument(path: string): Promise<JsonValue | undefined> {
+  try {
+    const text = await readFile(path, "utf8");
+    const errors: ParseError[] = [];
+    const value = parse(text, errors, { allowTrailingComma: true }) as JsonValue | undefined;
+    return errors.length > 0 ? undefined : value;
+  } catch {
+    return undefined;
   }
-  return keys;
 }
 
 /**
  * True when `path` exists, parses as JSON or JSONC, and has a top-level `permissions` key (the
- * V2-only array form OpenCode 1.x rejects). A missing or unreadable file is `false`.
+ * V2-only array form OpenCode 1.x rejects). A missing, unreadable or unparsable file is `false`,
+ * as is a `permissions` key nested under another object, named only inside a string value, or
+ * found on a non-object document root.
  *
  * @param path - Config file path.
  * @returns Whether the file already declares a top-level `permissions` key.
  */
-async function hasTopLevelPermissionsKey(path: string): Promise<boolean> {
-  try {
-    const text = await readFile(path, "utf8");
-    return topLevelKeys(text).has("permissions");
-  } catch {
-    return false;
-  }
+export async function hasTopLevelPermissionsKey(path: string): Promise<boolean> {
+  const doc = await readJsoncDocument(path);
+  return isJsonObject(doc) && Object.hasOwn(doc, "permissions");
 }
 
 /**
@@ -209,14 +172,21 @@ export async function planOpenCodeInstall(
 
   const notes: string[] = [];
   if (project) notes.push(PROJECT_EXTERNAL_DIR_NOTE);
-  notes.push(CONSENT_NOTE);
+  else notes.push(CROSS_SCOPE_NOTE);
+  notes.push(CONSENT_NOTE, QUOTED_SUBCOMMAND_NOTE);
   if (variant === "v1" && (await hasTopLevelPermissionsKey(chosen))) {
     notes.push(`OpenCode 1.x rejects the V2 \`permissions\` key in ${chosen}.`);
   }
 
+  // Ruling R34: simulate the merge OpenCode's own evaluator would see, and report (never block)
+  // when another rule would outrank the consent entries we are about to write.
+  const currentDoc = await readJsoncDocument(chosen);
+  const merged = mergeJson(currentDoc, patch, { promote: PROMOTE }).value;
+  notes.push(...consentNotes(merged, variant, chosen));
+
   const verify: VerifyCommand[] =
     variant === "v2"
-      ? [{ name: "config paths", bin: "opencode", args: ["debug", "paths"], expect: /[\s\S]*/ }]
+      ? [{ name: "config paths", bin: "opencode", args: ["debug", "paths"], expect: /\S/ }]
       : [];
 
   return { harness: "opencode", scope: opts.scope, projectRoot: P, writes, notes, verify };

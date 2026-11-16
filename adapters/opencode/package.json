@@ -9,6 +9,7 @@
   "dependencies": {
     "@dynamic-skills/adapter-sdk": "workspace:*",
     "@dynamic-skills/bootstrapper": "workspace:*",
-    "@dynamic-skills/core": "workspace:*"
+    "@dynamic-skills/core": "workspace:*",
+    "jsonc-parser": "^3.3.1"
   }
 }

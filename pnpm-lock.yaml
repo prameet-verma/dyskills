@@ -211,6 +211,9 @@ importers:
       '@dynamic-skills/core':
         specifier: workspace:*
         version: link:../../packages/core
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
 
   packages/activation:
     dependencies:
