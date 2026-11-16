@@ -1,10 +1,7 @@
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { scanExistingSkills } from "@dynamic-skills/bootstrapper";
-import { defineAdapterCompatSuite } from "@dynamic-skills/adapter-sdk/testkit";
+import { defineAdapterCompatSuite, REPO_ROOT } from "@dynamic-skills/adapter-sdk/testkit";
 import { claudeCodeAdapter } from "../src/index";
-
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 defineAdapterCompatSuite({
   name: "claude-code",

@@ -22,7 +22,9 @@ session home (`init` and `save`). It names no harness; it only uses core's `Harn
   `removePlacedBundle(path, manifestSha256, within?)`, `findSaveConflicts({ name, manifestSha256, roots })`,
   `BundleLayoutError`, and `planSaveTargets({ harnesses, primary, readRoots })`.
 - Analyst text: `ANALYST_AGENT_NAME`, `ANALYST_DESCRIPTION`, `ANALYST_INSTRUCTIONS`.
-- `@dynamic-skills/adapter-sdk/testkit`: `defineAdapterCompatSuite(target)` (see below).
+- `@dynamic-skills/adapter-sdk/testkit`: `defineAdapterCompatSuite(target)` (see below), plus the
+  fixture helpers adapter tests share: `makeWorld`, `World`, `WorldInput`, `fakeProbe`,
+  `readBootstrap` and `REPO_ROOT`.
 
 ## Bundle placement
 

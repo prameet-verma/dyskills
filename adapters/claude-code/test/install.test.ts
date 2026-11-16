@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ANALYST_INSTRUCTIONS,
@@ -11,10 +10,9 @@ import {
   type JsonObject,
   type PlannedWrite,
 } from "@dynamic-skills/adapter-sdk";
-import { makeWorld, type World } from "../../../packages/adapter-sdk/src/testkit/fixtures";
+import { makeWorld, REPO_ROOT, type World } from "@dynamic-skills/adapter-sdk/testkit";
 import { claudeCodeAdapter, CLAUDE_CODE_TESTED_VERSIONS } from "../src/index";
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const FIXTURE = join(REPO_ROOT, "fixtures/harness-homes/claude-code/home");
 const BOOT = Buffer.from("bootstrap bytes\n");
 
