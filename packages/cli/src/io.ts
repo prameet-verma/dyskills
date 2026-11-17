@@ -45,6 +45,8 @@ export type CliErrorCode =
   | "VERDICT_INVALID"
   | "BUNDLE_INVALID"
   | "EVAL_ATTEMPTS_EXHAUSTED"
+  | "INIT_CONFLICT"
+  | "HARNESS_NOT_DETECTED"
   | "TIMEOUT"
   | "INTERNAL";
 

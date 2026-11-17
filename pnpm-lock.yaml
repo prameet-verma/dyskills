@@ -303,6 +303,9 @@ importers:
       commander:
         specifier: ^15.1.0
         version: 15.1.0
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       smol-toml:
         specifier: ^1.9.1
         version: 1.9.1
@@ -316,6 +319,15 @@ importers:
       '@dynamic-skills/activation':
         specifier: workspace:*
         version: link:../activation
+      '@dynamic-skills/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../../adapters/claude-code
+      '@dynamic-skills/adapter-codex':
+        specifier: workspace:*
+        version: link:../../adapters/codex
+      '@dynamic-skills/adapter-opencode':
+        specifier: workspace:*
+        version: link:../../adapters/opencode
       '@dynamic-skills/adapter-sdk':
         specifier: workspace:*
         version: link:../adapter-sdk

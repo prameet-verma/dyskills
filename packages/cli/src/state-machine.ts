@@ -17,7 +17,8 @@ export type CliCommand =
   | "activate"
   | "status"
   | "clean"
-  | "report perf";
+  | "report perf"
+  | "init";
 
 /** Names appended to `SessionState.completedSteps` by a successful command (amends Ruling R2). */
 export type CompletedStep =
