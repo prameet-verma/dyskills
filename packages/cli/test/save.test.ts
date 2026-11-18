@@ -18,6 +18,7 @@ import { scanExistingSkills } from "@dynamic-skills/bootstrapper";
 import { SessionStore } from "@dynamic-skills/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionState } from "@dynamic-skills/core";
+import { ADAPTERS } from "../src/adapters";
 import { discardSession } from "../src/commands/clean";
 import { assertCanSave } from "../src/state-machine";
 import { bundleDigest } from "../src/commands/bundle";
@@ -469,6 +470,24 @@ describe("save: placement failures roll back what this call created", () => {
     await none();
   });
 
+  it("rejects a placement whose bytes differ from the evaluated ones even if the source is restored", async () => {
+    const id = await activated();
+    const md = join(sessionSkill(id), "SKILL.md");
+    const original = await readFile(md, "utf8");
+    hooks.calls = 0;
+    hooks.place = async (input, real) => {
+      await appendFile(join(input.srcDir, "SKILL.md"), "\nTemporary edit.\n");
+      try {
+        return await real(input);
+      } finally {
+        await writeFile(join(input.srcDir, "SKILL.md"), original);
+      }
+    };
+    const r = await save(id, ["--scope", "project", "--harness", "claude-code"]);
+    expect(r.out.error).toBe("BUNDLE_INVALID");
+    expect(await readdir(join(h.repo, ".claude/skills")).catch(() => [])).toEqual([]);
+  });
+
   it("does not remove an unchanged bundle it did not create", async () => {
     const id = await activated();
     expect((await save(id, ["--scope", "project", "--harness", "claude-code"])).exitCode).toBe(0);
@@ -608,11 +627,16 @@ describe("discardSession: native root safety (Ruling R38)", () => {
       () => false,
     );
   const sha = async (dir: string) => (await bundleManifest(dir)).sha256;
-  async function reference(id: string, dir: string, digest: string): Promise<void> {
+  async function reference(
+    id: string,
+    dir: string,
+    digest: string,
+    harnessId = "claude-code",
+  ): Promise<void> {
     const file = join(h.home, "sessions", id, "session.json");
     const state = JSON.parse(await readFile(file, "utf8"));
     state.native = {
-      harness: "claude-code",
+      harness: harnessId,
       dir,
       manifestSha256: digest,
       placedAt: new Date(1_700_000_000_000).toISOString(),
@@ -672,6 +696,50 @@ describe("discardSession: native root safety (Ruling R38)", () => {
     await reference(a, skillsDir, await sha(skillsDir).catch(() => "0".repeat(64)));
     await h.run(["clean", "--session", a]);
     expect(await exists(join(real, "SKILL.md"))).toBe(true);
+  });
+
+  it("keeps a placement recorded for a harness without native placement, with a note", async () => {
+    const native = join(await realpath(h.home), "native");
+    const real = join(native, "claude-code/.claude/skills", NAME);
+    const digest = await seed(real);
+    const a = await ready(h);
+    await reference(a, real, digest, "codex");
+    const r = await h.run(["clean", "--session", a]);
+    expect(r.exitCode).toBe(0);
+    expect(r.out.notes).toHaveLength(1);
+    expect(await exists(join(real, "SKILL.md"))).toBe(true);
+  });
+
+  it("stays safe when the adapter's layout lookup throws", async () => {
+    const native = join(await realpath(h.home), "native");
+    const real = join(native, "claude-code/.claude/skills", NAME);
+    const digest = await seed(real);
+    const a = await ready(h);
+    await reference(a, real, digest);
+    const spy = vi.spyOn(ADAPTERS["claude-code"], "nativeSessionRoot").mockImplementation(() => {
+      throw new Error("reads another HostEnv field");
+    });
+    try {
+      const r = await h.run(["clean", "--session", a]);
+      expect(r.exitCode).toBe(0);
+      expect(r.out).toMatchObject({ removed: true });
+      expect(r.out.notes).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await exists(join(real, "SKILL.md"))).toBe(true);
+    expect(await exists(join(h.home, "sessions", a))).toBe(false);
+  });
+
+  it("keeps a placement reached through a symlinked directory inside native", async () => {
+    const native = join(await realpath(h.home), "native");
+    const behind = join(native, "other/.claude/skills", NAME);
+    const digest = await seed(behind);
+    await symlink(join(native, "other"), join(native, "claude-code"));
+    const a = await ready(h);
+    await reference(a, join(native, "claude-code/.claude/skills", NAME), digest);
+    await h.run(["clean", "--session", a]);
+    expect(await exists(join(behind, "SKILL.md"))).toBe(true);
   });
 
   it("keeps a placement when another session references something inside it", async () => {

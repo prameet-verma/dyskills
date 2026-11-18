@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { HostEnv } from "@dynamic-skills/adapter-sdk";
 import { removePlacedBundle } from "@dynamic-skills/adapter-sdk";
 import {
@@ -55,12 +55,29 @@ async function nativeRemovalBlocker(
   }
   const { dir, harness } = state.native;
   // The adapter owns its placement layout: the recorded path must be exactly what it plans.
-  const root = ADAPTERS[harness].nativeSessionRoot({
-    sessionHome: dirname(within),
-    vars: { DYNAMIC_SKILLS_NATIVE: "1" },
-  } as unknown as HostEnv);
+  let root: string | null;
+  try {
+    root = ADAPTERS[harness].nativeSessionRoot({
+      sessionHome: dirname(within),
+      vars: { DYNAMIC_SKILLS_NATIVE: "1" },
+    } as unknown as HostEnv);
+  } catch {
+    // `clean` is always safe (Ruling R3): an adapter needing more of the environment keeps the placement.
+    return "the native placement layout could not be determined; it was not removed";
+  }
   if (root === null || dir !== join(root, basename(dir))) {
     return "the recorded native placement is not at its expected location; it was not removed";
+  }
+  // Every directory between the native root and the placement must be a plain directory, so a
+  // symlink inside native cannot redirect the removal (the SDK only checks the final parent).
+  let walk = within;
+  for (const part of relative(within, dirname(dir)).split(sep)) {
+    walk = join(walk, part);
+    const st = await lstat(walk).catch(() => null);
+    if (st === null) return null; // missing: nothing to remove
+    if (!st.isDirectory() || st.isSymbolicLink()) {
+      return "a directory on the native placement path is a symlink; it was not removed";
+    }
   }
   const refs = await readNativeReferences(store.home, { exclude: state.id });
   if (refs.unparsable > 0) {

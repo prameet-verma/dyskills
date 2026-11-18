@@ -270,7 +270,8 @@ budget ran out is not counted as active time (a last command that itself ran pas
 keeps that overrun). Terminal reports are written, so abandoning a session still counts in
 `fallbackRate`. If the archive cannot be written the command fails and nothing is removed.
 
-stdout: `removed: true`, `archived` (whether a report was archived).
+stdout: `removed: true`, `archived` (whether a report was archived), `notes` (why a native
+placement was kept, if it was).
 
 If the session recorded a native placement, `clean` also removes that placement, unless another
 session references the same directory or any other `session.json` cannot be read (then it is kept,
@@ -292,7 +293,7 @@ account and never changes `session.json`, `completedSteps` or the reports).
   are then archived, Ruling R21), archives its report to
   `<home>/reports/<id>.json` and removes the session directory and any unshared native placement.
   stdout: `scope`, `removed: true`, `archived` (the archive path, or `null` when there was no valid
-  report). Always allowed.
+  report) and `notes` (why a native placement was kept, if it was). Always allowed.
 - `project`, `personal`: copies the evaluated bundle to the skill root of each selected harness.
   Needs a session with status `completed` or `warning`, last step `activate` and outcome
   `activated`; otherwise `INVALID_STATE` with `expected: ["activate"]`. An augmentation is
