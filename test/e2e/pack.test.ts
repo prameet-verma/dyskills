@@ -37,6 +37,8 @@ beforeAll(() => {
   pkgDir = join(out, "package");
   symlinkSync(join(CLI, "node_modules"), join(pkgDir, "node_modules"));
   pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as Record<string, unknown>;
+  // Written once: rewriting executables between runs risks executing a just-written script.
+  writeFakeBins(join(tmp, "bin"), join(pkgDir, "dist/index.js"));
 }, SLOW);
 
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -77,7 +79,6 @@ export function openReleaseGaps(pkg: Record<string, unknown>, problems: string[]
 /** Runs the packed binary with a minimal environment (nothing of the real user's reaches it). */
 function runPacked(argv: string[]): { code: number; stdout: string } {
   const home = join(tmp, "home");
-  writeFakeBins(join(tmp, "bin"), join(pkgDir, "dist/index.js"));
   execFileSync("mkdir", ["-p", home, join(tmp, "dshome"), join(tmp, "etc"), join(tmp, "repo")]);
   try {
     const stdout = execFileSync(process.execPath, [join(pkgDir, "dist/index.js"), ...argv], {
