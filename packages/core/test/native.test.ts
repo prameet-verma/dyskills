@@ -6,6 +6,7 @@ import {
   NATIVE_PLACEMENT_TTL_MS,
   SessionStore,
   readNativeReferences,
+  NATIVE_FUTURE_SKEW_MS,
   selectExpiredPlacements,
   type NativeReference,
 } from "../src/index";
@@ -43,6 +44,13 @@ describe("selectExpiredPlacements", () => {
         ttlMs: 1000,
       }),
     ).toEqual([]));
+  it("lets the TTL remove an unreferenced placement with a far-future mtime", () =>
+    expect(run({ mtimeMs: T + 5 * H }, [], 1)).toEqual(["/n/a"]));
+  it("tolerates small clock skew on an unreferenced placement", () =>
+    expect(run({ mtimeMs: T + 60_000 }, [], 1)).toEqual([]));
+  it("does not apply the future rule to a referenced placement", () =>
+    expect(run({ mtimeMs: 0 }, [ref(T + 2 * H, "activated")])).toEqual([]));
+  it("exports the future-skew tolerance (1 h)", () => expect(NATIVE_FUTURE_SKEW_MS).toBe(H));
   it("TTL is 24 hours", () => expect(NATIVE_PLACEMENT_TTL_MS).toBe(24 * H));
   it("keeps a fresh activated placement", () =>
     expect(run({ mtimeMs: 0 }, [ref(T - H, "activated")])).toEqual([]));
