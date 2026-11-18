@@ -16,8 +16,8 @@ and §10.6 (assumptions for declined or unanswered questions).
   - `answer(answers, now)`: resumes the SLA and adds the wait to `metrics.humanWaitMs`. Answered
     questions become verified `user.<questionId>` evidence (origin `user`); declined, skipped and
     unanswered ones become assumptions and never evidence. Unresolved blocking questions go to
-    `state.blockedBy`. Only pending questions can be answered (else throws `Question <id> is not
-pending`); an `answered` reply needs a non-blank value; `answers: []` is valid.
+    `state.blockedBy`. Only pending questions can be answered (else it throws
+    "Question <id> is not pending"); an `answered` reply needs a non-blank value; `answers: []` is valid.
   - `ask` throws if a round is still pending. Question ids must be unique across the whole
     session; a reused id is rejected as `duplicate`.
   - `canAskMore()`: whether a round remains.

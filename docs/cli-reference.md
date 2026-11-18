@@ -45,16 +45,21 @@ stdout, nothing on stderr, and exits 0. The version is the published package ver
 
 ## Environment
 
-The skill scan honours the variables that relocate harness skill roots (`CLAUDE_CONFIG_DIR`,
-`CODEX_HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG_DIR`; only absolute values are used) and the
-admin skill root `/etc/codex/skills`. This applies to `assess`, `compile` and `evaluate`.
+Variables the CLI reads. Empty values count as unset where noted; a relative path is ignored where
+"absolute" is required.
 
-- `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` or `OPENCODE_DISABLE_CLAUDE_CODE`: when either is `true`,
-  `yes`, `on`, `1` or `y` (as OpenCode reads it), OpenCode is no longer counted as a reader of the
-  Claude Code skill directories.
-- `DYNAMIC_SKILLS_ETC_DIR`: overrides the system configuration root (`/etc`) that holds the admin
-  skill root, mainly for tests. Only an absolute path counts; an empty value counts as unset.
-- `DYNAMIC_SKILLS_HOME` and `DYNAMIC_SKILLS_BUDGET_MS` are read from the same environment.
+| Variable                                                                    | Effect                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DYNAMIC_SKILLS_HOME`                                                       | The session home (default `<os tmpdir>/dynamic-skills-<uid>`); an empty value counts as unset. See [Session home](#session-home). `init` pins it for Claude Code.                                                                                               |
+| `DYNAMIC_SKILLS_BUDGET_MS`                                                  | The active-time budget of a new session in milliseconds (a positive integer), read by `assess`.                                                                                                                                                                 |
+| `DYNAMIC_SKILLS_HARNESS`                                                    | The current harness (`claude-code`, `codex`, `opencode`; alias `claude`) when `--harness` is not given. Read by `save`, `clarify ask` and `activate`; an invalid value is ignored. `init` sets it only where the host has a settings `env` block (Claude Code). |
+| `DYNAMIC_SKILLS_NATIVE`                                                     | `1` turns native placement on for `activate` (Claude Code only; `init --native` sets it). Without it `activate` places nothing and `native` is `null`.                                                                                                          |
+| `DYNAMIC_SKILLS_ETC_DIR`                                                    | Overrides the system configuration root (`/etc`) that holds the admin skill root `codex/skills`, mainly for tests. Absolute only; empty counts as unset.                                                                                                        |
+| `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG_DIR` | Relocate a harness's skill root. The skill scan, `init` and `save` honour them; only absolute values are used. On OpenCode 1.x `OPENCODE_CONFIG_DIR` is added to the XDG directory, on 2.x it replaces it (Ruling R37).                                         |
+| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`, `OPENCODE_DISABLE_CLAUDE_CODE`       | When either is `true`, `yes`, `on`, `1` or `y` (case-sensitive, as OpenCode reads it), OpenCode is no longer counted as a reader of the Claude Code skill directories (Ruling R33).                                                                             |
+
+The skill scan also reads the admin skill root `<etc dir>/codex/skills`. All of this applies to
+`assess`, `compile`, `evaluate` and `save`.
 
 ## Commands
 
@@ -88,6 +93,8 @@ One verdict is allowed per session, so a second `sufficiency submit` is `INVALID
 Creates the session, scans existing skills and instruction files, and applies the invocation-mode
 gate. The budget is `DEFAULT_BUDGET_MS` unless the environment variable `DYNAMIC_SKILLS_BUDGET_MS`
 (a positive integer, in milliseconds) is set. `--repo` is resolved to an absolute path.
+
+Before the session is created, `assess` runs the best-effort [native placement sweep](#native-placement).
 
 stdout: `sessionId`, `recommendation` (`none` ends the session as skipped, otherwise `discover`),
 `candidates` (ranked hints, never a reuse decision), `skills` (name, scope, scanned `path`),
@@ -160,7 +167,7 @@ ends the session as skipped.
 
 stdout: `approval` (`approved` or `declined`), `fallback` (text on decline, otherwise `null`).
 
-### `clarify ask --session <id> --file <f>`
+### `clarify ask --session <id> --file <f> [--harness <h>]`
 
 Proposes a round of questions. The manager rejects (in order) `round-limit`, `not-material`,
 `answerable-by-evidence`, `answerable-by-discovery` and `duplicate` questions. Accepting at least
@@ -170,7 +177,20 @@ must match the Agent Skills name pattern (1-64 lowercase letters, digits and sin
 example `r1-q1`); `text` is at most 1000 characters and `requirement` 200. Anything else is
 `SCHEMA_INVALID`.
 
-stdout: `round`, `accepted`, `rejected`.
+A question may carry `options` (2-4 `{ label, description }`, no label `other`, no `;`) and
+`multiSelect`; a question without options is always asked as text.
+
+`--harness` names the harness whose native question tool the plan targets (`claude-code`, `codex`,
+`opencode`; alias `claude`); without it `DYNAMIC_SKILLS_HARNESS` is used. An unknown `--harness` is
+`USAGE`; an unknown or unset harness only means `native` is `null`.
+
+stdout: `round`, `accepted`, `rejected` and `native`. `native` is `null` when the harness is unknown
+or nothing was accepted. Otherwise it is the plan for that harness's question tool: `tool` (its
+name), `calls` (the JSON arguments of each call, in order), `textOnly` (the question ids that must
+be asked in plain text, because the tool cannot carry them) and `idMap` (maps each native key back
+to the question id for `clarify answer`). Every accepted question appears exactly once, in a call
+or in `textOnly`. Where the tool is unavailable (a headless run), ask in text or answer `skipped`
+with an assumption. Per-harness limits are in the [harness guides](harnesses/claude-code.md).
 
 ### `clarify answer --session <id> --file <f>`
 
@@ -246,13 +266,45 @@ when it changed). Then the activation checks run in order: deadline, pending cla
 integrity, the evaluation report, the behavioural result.
 
 - Success: `activated: true`, `kind` (`generated` or `augmented`), `skillPath`, `content`, `base`
-  (the unchanged base, `augmented` only), `loadOrder` (base first), `limitations`, `notice`.
+  (the unchanged base, `augmented` only), `loadOrder` (base first), `limitations`, `notice` and
+  `native`. The agent always reads the files in `loadOrder`; `native` is additive.
 - Refusal (saved, session ends as failed, exit 2; exit 3 when `reason` is `timeout`):
   `ok: false`, `error` (`ACTIVATION_REFUSED`, or `TIMEOUT` when `reason` is `timeout`), `message`
   (derived from the reason), `activated: false`, `reason` (`timeout`, `blocked-by-clarification`,
   `base-changed`, `evaluation-failed`, `behavioural-missing`), `fallback`. A refusal with reason
   `timeout` leaves the session status as `timeout`. Reports (`performance.json`, `discovery.json`,
-  `assumptions.json`, and `evaluation.json` when one exists) are written for every outcome.
+  `assumptions.json`, and `evaluation.json` when one exists) are written for every outcome. A
+  refusal carries `native: null`.
+
+`native` is `{ name, path }` when the skill was also placed where the current harness lists it
+natively, else `null`. That needs a known harness (`DYNAMIC_SKILLS_HARNESS`) with native placement
+on (`DYNAMIC_SKILLS_NATIVE=1`), which only Claude Code supports; see
+[Native placement](#native-placement). A skipped placement never fails the activation: it adds a
+line to `limitations` (for example "Native registration skipped: a skill named x is already
+installed for this host."). `activate` sweeps expired placements first, best effort.
+
+### Native placement
+
+Native placement is the optional, additive extra of `activate` (D2). It copies the evaluated skill
+to `<realpath home>/native/<harness>/.claude/skills/<name>` (Claude Code), where a session started
+with `--add-dir <home>/native/claude-code` lists it, without touching a permanent skill directory.
+It is contained in the realpath session home and restricted to `native/` by a pre-check; it is
+skipped when `native` is not a plain directory, when a skill of the same name is already installed
+for the host, or when another session holds different bytes under that name. See
+[architecture](architecture.md#writes-outside-the-session-directory) for the writes rule and its
+residual windows.
+
+**The sweep.** Every `assess` and every `activate` removes expired placements under `<home>/native`,
+best effort and never failing the command (D5). A placement goes when it is older than 24 hours
+(`NATIVE_PLACEMENT_TTL_MS`), when no session references it, or when every session that references
+it ended without a successful activation (an outcome other than `activated` or `augmented`). A
+`session.json` that cannot be parsed counts as referencing every placement, so only the 24 hour TTL
+removes placements while one exists. A placement younger than 10 minutes by file time is always kept
+(`NATIVE_PLACEMENT_GRACE_MS`, Ruling R39), because it is unreferenced between placement and the
+session's save. The sweep skips symlinks, stops after a 2 second budget or 2000 directories, and
+removes only through a contained removal that refuses a path swapped for a symlink (Ruling R38).
+`clean` and `save --scope discard` remove the session's own placement too, unless another session
+references it.
 
 ### `status --session <id>`
 
@@ -333,7 +385,8 @@ stdout: `scope`, `skill`, `manifestSha256`, `dryRun`, `saved` (`root`, `path`, `
 of `create` or `unchanged`) and `notes` (each harness's own advice after a save).
 
 Run `save` through the host's consent prompt. Where the host cannot prompt (a headless run), run it
-yourself in a terminal; see the install guide for your host.
+yourself in a terminal; see the [harness guide](harnesses/claude-code.md) for your host, which also
+says when the saved skill is listed (a restart on OpenCode 1.x, for example).
 
 ### `report perf`
 
@@ -349,8 +402,9 @@ Percentiles are `null` when there are no sessions.
 ### `init [--harness <list>] [--scope project|personal] [--repo <path>] [--dry-run] [--force] [--native] [--codex-allow-rule]`
 
 Needs no session. Installs the bootstrap skill, the consent rules (D6) and each harness's own
-configuration, by reference to the adapter READMEs in `adapters/*/README.md` (what each harness
-gets is listed there). `--harness` takes a comma-separated list of `claude-code`, `codex` and
+configuration. What each harness gets is listed in its guide
+([Claude Code](harnesses/claude-code.md), [Codex](harnesses/codex.md),
+[OpenCode](harnesses/opencode.md)) and its adapter README in `adapters/*/README.md`. `--harness` takes a comma-separated list of `claude-code`, `codex` and
 `opencode` (alias `claude`); a named harness is planned even when it is not detected, with the note
 `<harness> not detected`. Without it, every detected harness is installed, and none detected is
 `HARNESS_NOT_DETECTED`. `--scope` defaults to `personal`; `--repo` (default: the working directory)

@@ -9,7 +9,11 @@ clarifying questions, writes a concise `SKILL.md` bundle, evaluates it, and only
 By default the skill is ephemeral and leaves no trace in your project. See [PRD.md](PRD.md) for the
 full product definition.
 
-**Status:** pre-release. Phase 1 (JIT Core Engine) is implemented and in verification; nothing is published yet.
+**Status:** pre-release. Phase 1 (JIT Core Engine) is implemented. Phase 2 (Harness Integrations:
+installer, consent rules, save, native questions and optional native activation for Claude Code,
+Codex and OpenCode) is implemented and awaiting its gate (live smoke runs by a human). Nothing is
+published yet: the package is not yet on npm, and the license and repository URL are pending a
+human decision.
 
 ## How it works
 
@@ -23,9 +27,10 @@ skill.
   spent paused waiting for a human. Clarification never resets the budget.
 - **Clarification pause.** If a material question must be asked, the clock pauses while the user
   answers. At most 3 rounds are allowed; unanswered questions become recorded assumptions.
-- **Ephemeral by default.** Phase 1 writes only inside a session directory
-  (`$DYNAMIC_SKILLS_HOME/sessions/<id>/`, defaulting to the OS temp directory) and never into any
-  harness skill directory.
+- **Ephemeral by default.** A session writes only inside its session directory
+  (`$DYNAMIC_SKILLS_HOME/sessions/<id>/`, defaulting to the OS temp directory) and never into a
+  permanent harness skill directory. The only other writes are `init`, `save` (after the host asks
+  you) and optional native placement under the session home; see [SECURITY.md](SECURITY.md).
 
 ### The pipeline
 
@@ -51,6 +56,25 @@ skill.
 The CLI and the bootstrap skill ([`skills/dynamic-skill-bootstrap/SKILL.md`](skills/dynamic-skill-bootstrap/SKILL.md)) are built.
 The repository contains the library packages below. The design rationale is in the
 [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
+
+## Install
+
+```sh
+npm i -g dynamic-skills
+dynamic-skills init                      # every detected harness, personal scope
+dynamic-skills init --harness codex --scope project --dry-run   # preview one harness, write nothing
+```
+
+The package is not yet published to npm (no license has been chosen either); until it is, build the
+repository (see [below](#requirements-and-quick-start)) and link the built `dynamic-skills` bin
+from `packages/cli` onto your `PATH`. Everything calls the bare `dynamic-skills` command and never a package runner,
+which could fetch an unrelated package of the same name (Ruling R19).
+
+`init` installs the `dynamic-skill-bootstrap` skill, a read-only analyst agent where the harness has
+one, and the harness's permission rules. It makes the harness ask before `dynamic-skills save` and
+`dynamic-skills init` run. It previews every harness first and writes nothing if any has a conflict.
+Per-harness guides: [Claude Code](docs/harnesses/claude-code.md),
+[Codex](docs/harnesses/codex.md) and [OpenCode 1.x and 2.x](docs/harnesses/opencode.md).
 
 ## Commands
 
@@ -78,31 +102,39 @@ Full detail is in the [CLI README](packages/cli/README.md).
 | `clean --session <id>`                                           | Archive the performance report, then remove the session directory.       |
 | `report perf`                                                    | Aggregate performance over all sessions (no session needed, read-only).  |
 
-## Phase 1 limitations
+## Current limitations
 
-- Activation is ephemeral and agent-mediated: `activate` returns the skill content and load order;
-  nothing is installed into any agent harness or skill directory (native activation is Phase 2).
-- Nothing is persisted beyond the session directory and the archived performance reports
-  (saved skills, versioning and caching are Phase 3), and there is no installer: put the built
-  `dynamic-skills` bin on `PATH` yourself. The bootstrap skill runs that bare command and never a
-  package runner.
+- Activation is agent-mediated: `activate` returns the skill content and `loadOrder`, and the agent
+  reads those files. On Claude Code, `init --native` adds an optional native listing through
+  `--add-dir`; Codex and OpenCode have none.
+- A skill outlives its session only through `save` (project or personal scope) after the host asks.
+  Saved skills carry no freshness fingerprint, and saving an augmentation is not supported yet;
+  both arrive in Phase 3, together with versioning and caching.
+- Headless runs cannot answer the consent prompt, so `save` there means running it in a terminal;
+  each harness guide gives the recipe. On Codex, the optional allow rule runs `dynamic-skills`
+  outside the sandbox and is a trust decision, and on OpenCode a quoted subcommand bypasses the ask
+  (see the guides).
 - There is no model call, network access or database anywhere in the packages.
 
 ## Packages
 
-| Package                                                                             | Purpose                                                                                                               |
-| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| [`@dynamic-skills/core`](packages/core/README.md)                                   | Shared zod schemas, fixed limits, SLA clock, ephemeral session store, status rendering, performance reporting.        |
-| [`@dynamic-skills/evidence-registry`](packages/evidence-registry/README.md)         | Provenance-tracking store of repository facts, with conflict recording and value sanitisation.                        |
-| [`@dynamic-skills/discovery`](packages/discovery/README.md)                         | Parallel, task-directed deterministic discovery with secret-file exclusion.                                           |
-| [`@dynamic-skills/context-analyzer`](packages/context-analyzer/README.md)           | Task requirements, evidence gap classification and semantic probe planning.                                           |
-| [`@dynamic-skills/context-packet`](packages/context-packet/README.md)               | Context Packet builder, safe targeted enrichment and excerpt sanitising.                                              |
-| [`@dynamic-skills/bootstrapper`](packages/bootstrapper/README.md)                   | Existing skill scan and coverage assessment (reuse, synthesize, suggest or none).                                     |
-| [`@dynamic-skills/clarification-manager`](packages/clarification-manager/README.md) | Clarification rounds, SLA pause/resume and assumption recording.                                                      |
-| [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                              |
-| [`@dynamic-skills/eval-engine`](packages/eval-engine/README.md)                     | Generation evals: spec, metadata, references, conciseness, portability and security.                                  |
-| [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                                     |
-| [`@dynamic-skills/cli`](packages/cli/README.md)                                     | The `dynamic-skills` command: framework, session state machine and every command (assess to activate, status, clean). |
+| Package                                                                             | Purpose                                                                                                             |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [`@dynamic-skills/core`](packages/core/README.md)                                   | Shared zod schemas, fixed limits, SLA clock, ephemeral session store, status rendering, performance reporting.      |
+| [`@dynamic-skills/evidence-registry`](packages/evidence-registry/README.md)         | Provenance-tracking store of repository facts, with conflict recording and value sanitisation.                      |
+| [`@dynamic-skills/discovery`](packages/discovery/README.md)                         | Parallel, task-directed deterministic discovery with secret-file exclusion.                                         |
+| [`@dynamic-skills/context-analyzer`](packages/context-analyzer/README.md)           | Task requirements, evidence gap classification and semantic probe planning.                                         |
+| [`@dynamic-skills/context-packet`](packages/context-packet/README.md)               | Context Packet builder, safe targeted enrichment and excerpt sanitising.                                            |
+| [`@dynamic-skills/bootstrapper`](packages/bootstrapper/README.md)                   | Existing skill scan and coverage assessment (reuse, synthesize, suggest or none).                                   |
+| [`@dynamic-skills/clarification-manager`](packages/clarification-manager/README.md) | Clarification rounds, SLA pause/resume and assumption recording.                                                    |
+| [`@dynamic-skills/skill-compiler`](packages/skill-compiler/README.md)               | Compilation brief (new skill and augmentation), bundle parser and golden skill fixtures.                            |
+| [`@dynamic-skills/eval-engine`](packages/eval-engine/README.md)                     | Generation evals: spec, metadata, references, conciseness, portability and security.                                |
+| [`@dynamic-skills/activation`](packages/activation/README.md)                       | Gated ephemeral activation of new skills and augmentations with timeout fallback.                                   |
+| [`@dynamic-skills/adapter-sdk`](packages/adapter-sdk/README.md)                     | Harness-neutral adapter contract, the planned/atomic writer, bundle placement and the compatibility testkit.        |
+| [`@dynamic-skills/adapter-claude-code`](adapters/claude-code/README.md)             | Claude Code installer, save roots, `AskUserQuestion` mapping and optional native placement.                         |
+| [`@dynamic-skills/adapter-codex`](adapters/codex/README.md)                         | Codex installer (skill, analyst agent, consent rules), save roots and `request_user_input` mapping.                 |
+| [`@dynamic-skills/adapter-opencode`](adapters/opencode/README.md)                   | One OpenCode adapter for 1.x and 2.x: installer, consent entries, save roots and `question` mapping.                |
+| [`dynamic-skills`](packages/cli/README.md)                                          | The CLI (published name, source in `packages/cli`): every command from `assess` to `activate`, plus `init`, `save`. |
 
 ## Requirements and quick start
 
@@ -119,14 +151,47 @@ pnpm gen:schemas   # regenerate JSON Schemas into schemas/
 ```
 
 The end-to-end tests (`test/e2e`) spawn the built binary against a temporary session home and user
-home. `scripts/live-smoke.sh` is a manual check that drives a real agent through the bootstrap
-skill; it is not part of the test suite and needs that agent installed.
+home, and put generated fake harness executables on `PATH`; no real harness binary runs in the test
+suite.
+
+## Live smoke
+
+`scripts/live-smoke.sh <claude-code|codex|opencode> [autonomous|explicit] [--native]` is a manual
+check, never run in CI. It runs a **real harness** with **your own login** (it costs tokens), in a
+temp workspace that is removed on exit, and records evidence for **you to judge**: it runs a few
+automatic checks (such as AC 28, that nothing ephemeral reached a permanent skill directory) but the
+verdicts are yours: it prints a checklist to fill in, the timing and the reports. Build first (`pnpm build`), then for example:
+
+```sh
+pnpm build
+scripts/live-smoke.sh claude-code explicit
+scripts/live-smoke.sh claude-code autonomous --native   # --native: Claude Code only
+SMOKE_SKIP_PROBES=1 scripts/live-smoke.sh codex autonomous
+```
+
+The scripts jail `init` and `save` to the temp workspace, deny the harness real config access and
+guard the CLI calls, so your real harness configuration and skill directories are not written.
+Environment variables:
+
+- `SMOKE_ALLOW_GLOBAL=1`: the script aborts when a `dynamic-skills` is already on `PATH`, because
+  it could shadow the guarded wrapper and bypass the guard and the jail. Set this to run anyway and
+  accept that risk (or uninstall the global copy).
+- `SMOKE_KEEP=<absolute dir>`: copy the run output and session files there before the workspace is
+  removed. Agent output may contain anything the agent printed.
+- `SMOKE_SKIP_PROBES=1`: skip the extra probes (consent rules, the Codex sandbox write, OpenCode
+  quoted-command bypass, compound commands, the `/var` alias) and run only the main flow.
+- `SMOKE_TIMEOUT_SECS=<n>`: wall-clock limit of each harness run (default 600; `0` disables it).
+  It needs `timeout` or `gtimeout` on `PATH`.
+
+Run it per harness and version listed in the Phase 2 gate; the harness guides name the tested
+versions.
 
 ## Roadmap
 
 1. **Phase 1, JIT Core Engine:** contracts, SLA clock, session store, evidence,
    discovery, gap analysis, clarification, evals, activation gating, CLI and bootstrap skill.
-2. **Phase 2, Harness Integrations:** adapter contract and adapters, native activation, installer.
+2. **Phase 2, Harness Integrations:** adapter contract and adapters, native activation, installer
+   (implemented; gate pending).
 3. **Phase 3, Persistence and Lifecycle:** saving skills, versioning, freshness checks, caching.
 4. **Phase 4, Evaluation Maturity:** eval fixture library, baseline-vs-skill benchmarks, regressions.
 5. **Phase 5, Ecosystem Expansion:** extension API, more adapters, optional headless LLM provider.
@@ -136,7 +201,10 @@ Details: [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
 ## Documentation
 
 - [Architecture](docs/architecture.md) - components, a full session, trust boundaries
-- [CLI reference](docs/cli-reference.md) - every command, flag, exit code and error code
+- [CLI reference](docs/cli-reference.md) - every command, flag, environment variable, exit code and error code
+- Harness guides: [Claude Code](docs/harnesses/claude-code.md), [Codex](docs/harnesses/codex.md),
+  [OpenCode](docs/harnesses/opencode.md)
+- [Writing a harness adapter](docs/adapters/authoring.md)
 - [Decision records](docs/adr/README.md) - why the design is the way it is
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to set up, develop and submit changes
 - [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [CHANGELOG.md](CHANGELOG.md)

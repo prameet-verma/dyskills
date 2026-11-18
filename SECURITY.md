@@ -36,14 +36,51 @@ treat as instructions. The design assumes both inputs can be hostile.
   guarantee. The evaluated bundle is pinned by digest, so an edit after evaluation is refused.
 - **Agent-written regular expressions are bounded.** They run in a worker thread under a total time
   budget and are terminated on timeout.
-- **No automatic installation, no package runner.** Nothing is installed into any agent or skill
-  directory. The bootstrap skill runs the bare `dynamic-skills` command and never a package runner,
-  which could fetch and run an unrelated registry package of the same name without a prompt
+- **No automatic installation, no package runner.** Nothing is installed or saved unless you run
+  `dynamic-skills init` or `save`, which the harness asks you to approve. The bootstrap skill runs the bare `dynamic-skills`
+  command and never a package runner, which could fetch and run an unrelated registry package of the same name without a prompt
   (Ruling R19); when the command is missing, the agent stops and asks the user to install it.
-- **Writes stay in the session directory in Phase 1.** Session artifact paths are lexically
-  confined to the session directory; agent-written bundle trees and performance reports are
+- **Where Dynamic Skills writes.** A session writes inside its session directory. Session artifact
+  paths are lexically confined to it; agent-written bundle trees and performance reports are
   walked or read without following symlinks; repository reads resolve real paths and re-check the
-  secret and excluded rules.
+  secret and excluded rules. Three other writes exist, each planned and reported by one executor
+  before it happens, idempotent, atomic (a temp file or directory, then `rename`), refusing a
+  symlink at the final path and never overwriting a file it did not plan:
+  - **`init`** writes the bootstrap skill, an analyst agent and the harness's permission and
+    consent rules, only to the paths its plan lists (`--dry-run` writes nothing). It merges into
+    your settings and keeps every other key, comment and file mode; it writes nothing for any
+    harness when one has a conflict, and `--force` replaces only installer files, never config.
+  - **`save`** copies the evaluated bundle to the skill roots its plan lists, only after the
+    harness asks you (the consent rules below), and refuses a name already in use, a machine path
+    in a committed skill, and a project path that leaves the repository.
+  - **Native placement** (Claude Code, opt-in) writes only under `<realpath home>/native/`: the real
+    path of the target's parent must lie inside the realpath session home, and a pre-check
+    restricts it to `native/`. The placement is swept after 24 hours, when no session references
+    it, or when its sessions ended without activating; never within 10 minutes of being placed.
+
+  Ephemeral skills never reach a permanent skill directory. Project files must stay inside the
+  realpath of the project root; symlinked parents are followed only for personal files. The
+  residual windows (a parent swapped between the executor's last check and the `rename`, by someone
+  with write access to that directory) are listed in
+  [architecture.md](docs/architecture.md#trust-boundaries). The CLI is still not a privilege
+  boundary.
+
+- **Consent rules.** `init` makes the harness ask before `dynamic-skills save` and
+  `dynamic-skills init`, even where `dynamic-skills` is otherwise allowed: Claude Code
+  `permissions.ask` (ask beats allow), a Codex `prefix_rule` with `decision = "prompt"` (the
+  strictest wins) and OpenCode `"ask"` entries after the allow (the last match wins). The CLI
+  rejects any option placed before the subcommand so `dynamic-skills -V save` cannot slip past
+  them. **Limit:** OpenCode matches the raw command text, so a quoted or extra-spaced subcommand
+  (`dynamic-skills 'save' ...`) is not asked; the ask rules are a prompt for ordinary calls, not an
+  enforcement boundary. A headless run cannot answer a prompt, so a save there is a terminal run
+  of `dynamic-skills save` or a relaxed rule, as each [harness guide](docs/harnesses/claude-code.md)
+  describes.
+- **The Codex allow rule runs the CLI unsandboxed.** With the opt-in `--codex-allow-rule`, `init`
+  lets every `dynamic-skills` command except `save` and `init` run outside the Codex sandbox, with
+  no prompt, and it trusts whatever `dynamic-skills` resolves to on `PATH`. `save` and `init` keep
+  their prompt rules; an approved prompt runs with the session's current permissions, so the allow
+  rule gives them no escape from the sandbox. Whether `save` needs an escalation or a terminal run
+  from inside Codex is still pending live verification. The rule is off by default.
 - **The session home is private.** The default home is per user,
   `<os tmpdir>/dynamic-skills-<uid>`. Before writing, the CLI refuses a home (or its `sessions/`)
   that is a symlink (including a trailing-slash spelling), not a directory, or owned by another

@@ -1,4 +1,4 @@
-# @dynamic-skills/cli
+# dynamic-skills
 
 The `dynamic-skills` command line: a thin, deterministic wrapper that lets a host agent drive the
 just-in-time skill pipeline one JSON-in, JSON-out step at a time. It makes no model calls; all
@@ -8,8 +8,9 @@ command framework, the session state machine and every command, from `assess` to
 
 Every command prints exactly one JSON object on stdout (always with `ok` and `schemaVersion: "1"`)
 and a human status block on stderr; the exceptions are `status`, which prints its block as plain
-text on stdout, and `report perf`, which has no session and so writes no status block to stderr. `--help` prints `{"ok":true,"schemaVersion":"1","help":true}` on stdout and the help
-text on stderr. Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed (including
+text on stdout, and `report perf`, which has no session and so writes no status block to stderr.
+`--help` prints `{"ok":true,"schemaVersion":"1","help":true}` on stdout and the help text on
+stderr. Exit codes: `0` ok, `1` usage or state error, `2` evaluation gate failed (including
 a refused activation), `3` timeout. Everything written to stderr has control characters (other than
 newline) removed, because session ids and option values are agent-controlled.
 
@@ -35,9 +36,9 @@ newline) removed, because session ids and option values are agent-controlled.
   `discard` are always allowed, `project` and `personal` need an activated (not augmented) session.
 - **`CliError`** and **`parseDocument(schema, text)`** (internal, `src/io.ts`): expected failures
   with a stable code (`SESSION_NOT_FOUND`, `SESSION_LOCKED`, `HOME_UNSAFE`, `INVALID_STATE`,
-  `SAVE_CONFLICT`, `SAVE_DENIED`, `SAVE_UNSUPPORTED`, `USAGE`, `ANALYSIS_LIMIT`, `BASE_CHANGED`, `ACTIVATION_REFUSED`, `SCHEMA_INVALID`,
-  `VERDICT_INVALID`, `BUNDLE_INVALID`, `EVAL_ATTEMPTS_EXHAUSTED`, `INIT_CONFLICT`,
-  `HARNESS_NOT_DETECTED`, `TIMEOUT`) and strict validation of agent documents with
+  `SAVE_CONFLICT`, `SAVE_DENIED`, `SAVE_UNSUPPORTED`, `USAGE`, `ANALYSIS_LIMIT`, `BASE_CHANGED`,
+  `ACTIVATION_REFUSED`, `SCHEMA_INVALID`, `VERDICT_INVALID`, `BUNDLE_INVALID`,
+  `EVAL_ATTEMPTS_EXHAUSTED`, `INIT_CONFLICT`, `HARNESS_NOT_DETECTED`, `TIMEOUT`) and strict validation of agent documents with
   `issues: { path, message }[]`.
 - **`ADAPTERS`, `HARNESS_IDS`, `parseHarnessList`, `currentHarness`** (internal,
   `src/adapters.ts`): the adapter registry (`claude-code`, `codex`, `opencode`) and the only CLI
@@ -75,12 +76,12 @@ newline) removed, because session ids and option values are agent-controlled.
 | `context submit --session <id> --file <f>`                                                        | Consolidates the agent's analysis; each accepted submission replaces the last (4 per session).                                                                                                                                                                                                                                       |
 | `sufficiency submit --session <id> --file <f>`                                                    | Records the verdict; `sufficient` reuses the base unchanged and ends the session.                                                                                                                                                                                                                                                    |
 | `sufficiency approve --session <id> --decision approve\|decline`                                  | Suggest mode: resumes the SLA; a decline ends the session as `skipped`.                                                                                                                                                                                                                                                              |
-| `clarify ask --session <id> --file <f>`                                                           | Asks up to 3 rounds of questions and pauses the SLA.                                                                                                                                                                                                                                                                                 |
+| `clarify ask --session <id> --file <f> [--harness h]`                                             | Asks up to 3 rounds of questions and pauses the SLA; `native` is the plan for the harness's question tool (`--harness`, else `DYNAMIC_SKILLS_HARNESS`), or `null`.                                                                                                                                                                   |
 | `clarify answer --session <id> --file <f>`                                                        | Applies answers (evidence or assumptions) and resumes the SLA; a blocking question left unresolved ends the session (skipped, `fallback`).                                                                                                                                                                                           |
 | `compile --session <id>`                                                                          | Writes `brief.md` (needs a validated analysis) and prepares `skills/` and `evals/`; a changed augmentation base ends the session (`BASE_CHANGED`, saved).                                                                                                                                                                            |
 | `evaluate --session <id>`                                                                         | Runs the 14 generation evals (3 attempts; allowed again after `eval record`) and pins the bundle digest; exit 2 `BUNDLE_INVALID` or `EVAL_ATTEMPTS_EXHAUSTED`.                                                                                                                                                                       |
 | `eval record --session <id> --output <f> --verdict pass\|fail [--notes <t>]`                      | Checks the smoke-eval assertions against the agent's output (regexes run in a bounded worker) and stores the `behavioural` result. Exit 2 `BUNDLE_INVALID` if the bundle changed since `evaluate`.                                                                                                                                   |
-| `activate --session <id>`                                                                         | Gated activation (also `BUNDLE_INVALID` if the bundle changed since `evaluate`): returns the skill (and the unchanged base first); `ACTIVATION_REFUSED` exit 2, 3 on timeout.                                                                                                                                                        |
+| `activate --session <id>`                                                                         | Gated activation (also `BUNDLE_INVALID` if the bundle changed since `evaluate`): returns the skill (and the unchanged base first) and `native` (an optional native placement, else `null`); `ACTIVATION_REFUSED` exit 2, 3 on timeout.                                                                                               |
 | `status --session <id>`                                                                           | Prints the status block as plain text on stdout; read-only.                                                                                                                                                                                                                                                                          |
 | `clean --session <id>`                                                                            | Archives `reports/performance.json` to `<home>/reports/<id>.json`, then removes the session directory.                                                                                                                                                                                                                               |
 | `init [--harness l] [--scope s] [--repo p] [--dry-run] [--force] [--native] [--codex-allow-rule]` | Installs the bootstrap skill and consent rules into each harness (`claude-code`, `codex`, `opencode`); previews all first and writes nothing on any conflict; idempotent; `--dry-run` writes nothing. See `docs/cli-reference.md`.                                                                                                   |
@@ -90,15 +91,17 @@ newline) removed, because session ids and option values are agent-controlled.
 ## Example
 
 ```ts
-import { runCli } from "@dynamic-skills/cli";
+import { runCli } from "dynamic-skills";
 
 const { stdout } = await runCli(["assess", "--task", "Add caching to order reads"]);
 const { sessionId } = JSON.parse(stdout);
 await runCli(["discover", "--session", sessionId]);
 ```
 
-Phase 1 writes only inside `$DYNAMIC_SKILLS_HOME/sessions/<id>/`. Existing skills and instruction
-files are only ever read.
+A session writes only inside `$DYNAMIC_SKILLS_HOME/sessions/<id>/`; the other writes are `init`,
+`save` and native placement under `<home>/native/`, each planned and contained (see
+[SECURITY.md](../../SECURITY.md)). Existing skills and instruction files are only ever read.
+Install and per-harness setup are in the [harness guides](../../docs/harnesses/claude-code.md).
 
 ## PRD sections implemented
 
