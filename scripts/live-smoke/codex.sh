@@ -29,11 +29,21 @@ harness_prompt() {
 # repo, so it is added as a writable root; whether that key is honoured is recorded below. Probes
 # use --json (JSONL events). There is no per-command deny flag in exec, so the grants are the
 # sandbox itself (writes confined to the repo and the session home).
+# Arguments after `codex exec`. --ignore-rules (spike section 6) drops the user's real rules, so a
+# broad allow in ~/.codex/rules cannot run the CLI outside the sandbox: the sandbox alone governs.
+# Consequence: D6 consent rules are ignored too, so exec cannot test them.
+codex_args() {
+  local kind="${1:-main}"
+  printf '%s\n' --sandbox workspace-write --ignore-rules -c approval_policy=never \
+    -c "sandbox_workspace_write.writable_roots=[\"$DSH_REAL\"]"
+  [[ "$kind" == "main" ]] || echo "--json"
+}
+
 harness_run() {
-  local prompt="$1" out="$2" kind="${3:-main}" extra=()
-  [[ "$kind" == "main" ]] || extra+=(--json)
-  (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} codex exec --sandbox workspace-write -c approval_policy=never \
-    -c "sandbox_workspace_write.writable_roots=[\"$DYNAMIC_SKILLS_HOME\"]" ${extra[@]+"${extra[@]}"} "$prompt") >"$out" 2>&1
+  local prompt="$1" out="$2" kind="${3:-main}" a
+  local args=()
+  while IFS= read -r a; do args+=("$a"); done < <(codex_args "$kind")
+  (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} codex exec "${args[@]}" "$prompt") >"$out" 2>&1
 }
 
 # JSONL events: print the command-execution events that mention the CLI, trimmed. Event field names
@@ -74,7 +84,7 @@ harness_checklist() {
   [ ] Did the analyst agent (dynamic-skills-context-analyst) run? (it lives in the untrusted .codex/agents: probably not loaded)
   [ ] Did sessions appear under the temp home (DYNAMIC_SKILLS_HOME reached the sandbox, writable_roots honoured)?
   [ ] R32 (exec only): save from inside the sandbox: SUCCEEDED / SANDBOX WRITE ERROR (probe r32-save evidence). Escalation cannot show in exec: do the manual procedure below.
-  [ ] D6: consent rule enforced: denied/rejected (a prompt cannot appear headless; and with an untrusted repo the rule is not loaded at all, so a pass here is not evidence)
+  [ ] D6: NOT testable under exec (--ignore-rules drops the consent rules and the repo is untrusted): record it as untested here; test it in the manual TUI procedure
   [ ] Questions headless: how were they handled (assumptions.json above)? Followed the bootstrap end to end?
   [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 60 s Timing line, AC 24 and AC 28 above
   [ ] R31: '-V save' refused (R31 lines above)
@@ -96,4 +106,6 @@ CHECK
   echo "Real Codex rules files mentioning dynamic-skills (names only): ${rules:-none}"
 }
 
-smoke_main codex codex "$MODE"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  smoke_main codex codex "$MODE"
+fi

@@ -22,31 +22,39 @@ harness_version_check() {
   echo "OpenCode variant: $VARIANT"
 }
 
-# Inline config merged over the temp one: edit denies on the real permanent roots and, for the main
-# run (kind main), bash denies on dynamic-skills init and save (Ruling R40). The same keys as init's
-# ask entries, so the deny replaces the ask for that run only; probes keep init's ask entries.
+# The seeded $OPENCODE_CONFIG_DIR/opencode.jsonc (the documented route): ask for every shell
+# command (init's allow entries come after and win, last match), and deny edits on the real
+# permanent roots, the real OpenCode and Codex config, the repo skill dirs, and the control files
+# inside the workspace (the wrapper dir, the temp config dir, the repo's opencode config).
+oc_seed() {
+  node -e '
+    const [home, ocConfig, codexHome, repo, tmp, cfgDir] = process.argv.slice(1);
+    const edit = {};
+    for (const p of [home + "/.claude/*", home + "/.agents/*", ocConfig + "/*", codexHome + "/*", repo + "/.opencode/skills/*", repo + "/.agents/skills/*", repo + "/.claude/skills/*", tmp + "/bin/*", cfgDir + "/*", repo + "/opencode.json*", repo + "/.opencode/opencode.json*"]) edit[p] = "deny";
+    console.log(JSON.stringify({ permission: { bash: { "*": "ask" }, edit } }));
+  ' "$REAL_HOME" "$OPENCODE_GLOBAL_CONFIG" "$CODEX_HOME_REAL" "$REPO" "$TMP" "$TMP/opencode-config"
+}
+
+# OPENCODE_CONFIG_CONTENT, merged over the files: only for the main run, bash denies on
+# dynamic-skills init and save (Ruling R40; the R41 wrapper is the authoritative guard).
 oc_content() {
   node -e '
-    const [kind, home, ocConfig, codexHome, repo] = process.argv.slice(1);
-    const edit = {};
-    for (const root of [home + "/.claude/*", home + "/.agents/*", ocConfig + "/*", codexHome + "/*", repo + "/.opencode/skills/*", repo + "/.agents/skills/*", repo + "/.claude/skills/*"]) edit[root] = "deny";
-    const permission = { edit };
-    if (kind === "main") permission.bash = { "dynamic-skills init *": "deny", "dynamic-skills save *": "deny" };
+    const permission = {};
+    if (process.argv[1] === "main") permission.bash = { "dynamic-skills init *": "deny", "dynamic-skills save *": "deny" };
     console.log(JSON.stringify({ permission }));
-  ' "$1" "$REAL_HOME" "$OPENCODE_GLOBAL_CONFIG" "$CODEX_HOME_REAL" "$REPO"
+  ' "$1"
 }
 
 harness_install() {
   export OPENCODE_CONFIG_DIR="$TMP/opencode-config"
   mkdir -p "$OPENCODE_CONFIG_DIR"
-  # OpenCode allows shell by default: seed a default-ask so only init's entries (which come after
-  # this and win, last match) allow the CLI.
-  echo '{"permission":{"bash":{"*":"ask"}}}' >"$OPENCODE_CONFIG_DIR/opencode.jsonc"
+  oc_seed >"$OPENCODE_CONFIG_DIR/opencode.jsonc"
   dynamic-skills init --harness opencode --scope personal
   dynamic-skills init --harness opencode --scope project --repo "$REPO"
   # A read-only print of the resolved config, if this OpenCode has one (`debug config` is not in
-  # the spike: unverified; failure is ignored).
-  echo "-- resolved OpenCode config (opencode debug config; may be unavailable) --"
+  # the spike: unverified; failure is ignored). It runs with OPENCODE_CONFIG_DIR exported but
+  # before OPENCODE_CONFIG_CONTENT is set (pre-env: the main-run bash denies are not shown).
+  echo "-- resolved OpenCode config, before OPENCODE_CONFIG_CONTENT (opencode debug config; may be unavailable) --"
   (cd "$REPO" && opencode debug config 2>&1 | head -n 60) || echo "(unavailable)"
 }
 
@@ -109,4 +117,6 @@ CHECK
   scan "$TMP/out/main.txt" "Subagent lines" 'subagent|background|analyst|task'
 }
 
-smoke_main opencode opencode "$MODE"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  smoke_main opencode opencode "$MODE"
+fi

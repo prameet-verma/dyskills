@@ -42,24 +42,22 @@ sha256_of() {
   fi
 }
 
-# snapshot_roots OUT ROOT...: one "<sha256>  <path>" line per file (and "link  <path> -> <target>"
-# per symlink) under every existing ROOT, sorted. Only hashes are written, never contents.
+# snapshot_roots ROOT...: print one "<sha256>  <path>" line per file under every existing ROOT,
+# sorted, and "link  <path> -> <target>" per dangling symlink. Only hashes are printed, never
+# contents. A symlinked file or root is followed (find -L), so a change behind a dotfiles symlink
+# shows. Baselines are kept in shell variables, never in files the agent could rewrite (R41).
 snapshot_roots() {
-  local out="$1" root f
-  shift
-  : >"$out"
+  local root f
   for root in "$@"; do
     [[ -d "$root" ]] || continue
     while IFS= read -r -d '' f; do
-      if [[ -L "$f" ]]; then
-        printf 'link  %s -> %s\n' "$f" "$(readlink "$f")" >>"$out"
+      if [[ -L "$f" && ! -f "$f" ]]; then
+        printf 'link  %s -> %s\n' "$f" "$(readlink "$f")"
       else
-        printf '%s  %s\n' "$(sha256_of "$f")" "$f" >>"$out"
+        printf '%s  %s\n' "$(sha256_of "$f")" "$f"
       fi
-    # -L follows a symlinked root (a dotfiles-managed ~/.claude/skills) so changes through it show.
     done < <(find -L "$root" \( -type f -o -type l \) -print0 2>/dev/null)
-  done
-  LC_ALL=C sort -o "$out" "$out"
+  done | LC_ALL=C sort
 }
 
 # The permanent skill roots of the real user (never to be touched) and of the temp repo.
@@ -81,21 +79,20 @@ repo_skill_roots() {
   )
 }
 
-# ac28_check [LABEL] [all|real]: compare the snapshots taken before and after the run. The
-# bootstrap that `init` installed in the temp repo is part of the repo baseline (taken after
-# init), so it is excluded. Scope real compares the user's permanent roots only (used after the
-# probes, whose `save` writes to the temp repo on purpose).
+# ac28_check [LABEL] [all|real]: compare the baselines (SNAP_REAL_BEFORE, SNAP_REPO_BEFORE) with
+# a fresh snapshot. The bootstrap that `init` installed in the temp repo is part of the repo
+# baseline (taken after init), so it is excluded. Scope real compares the user's permanent roots
+# only (used after the probes, whose `save` writes to the temp repo on purpose).
 ac28_check() {
-  local label="${1:-AC 28}" scope="${2:-all}"
-  local after_real="$TMP/snap-real-after" after_repo="$TMP/snap-repo-after" changed
+  local label="${1:-AC 28}" scope="${2:-all}" changed after
   real_skill_roots
   repo_skill_roots
-  snapshot_roots "$after_real" "${REAL_ROOTS[@]}"
-  changed="$(diff "$TMP/snap-real-before" "$after_real" || true)"
+  after="$(snapshot_roots "${REAL_ROOTS[@]}")"
+  changed="$(diff <(printf '%s\n' "$SNAP_REAL_BEFORE") <(printf '%s\n' "$after") || true)"
   if [[ "$scope" == "all" ]]; then
-    snapshot_roots "$after_repo" "${REPO_ROOTS[@]}"
+    after="$(snapshot_roots "${REPO_ROOTS[@]}")"
     changed="$changed
-$(diff "$TMP/snap-repo-before" "$after_repo" || true)"
+$(diff <(printf '%s\n' "$SNAP_REPO_BEFORE") <(printf '%s\n' "$after") || true)"
   fi
   changed="$(printf '%s\n' "$changed" | sed -n 's/^[<>] [^ ]*  //p; s/^[<>] link  //p' | sort -u | tr '\n' ' ')"
   if [[ -z "${changed// /}" ]]; then
@@ -111,6 +108,22 @@ json_field() {
     const fs = require("node:fs");
     try { const v = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[process.argv[2]]; if (v !== undefined) console.log(String(v)); } catch { }
   ' "$1" "$2"
+}
+
+# json_last FILE FIELD: the last element of a top-level array field (empty when absent).
+json_last() {
+  node -e '
+    const fs = require("node:fs");
+    try { const v = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[process.argv[2]]; if (Array.isArray(v) && v.length) console.log(String(v[v.length - 1])); } catch { }
+  ' "$1" "$2"
+}
+
+# json_path FILE KEY KEY: a string field two levels down (empty when absent).
+json_path() {
+  node -e '
+    const fs = require("node:fs");
+    try { const v = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[process.argv[2]][process.argv[3]]; if (v !== undefined) console.log(String(v)); } catch { }
+  ' "$1" "$2" "$3"
 }
 
 # newest_session: id of the newest live session directory, or empty.
@@ -155,8 +168,9 @@ print_reports() {
     cat "$DYNAMIC_SKILLS_HOME/sessions/$session/reports/assumptions.json" 2>/dev/null \
       || echo "(no assumptions report)"
     echo
-    echo "evaluation.json status: $(json_field "$DYNAMIC_SKILLS_HOME/sessions/$session/reports/evaluation.json" status)"
-    echo "session.json status: $(json_field "$DYNAMIC_SKILLS_HOME/sessions/$session/session.json" status)  outcome: $(json_field "$DYNAMIC_SKILLS_HOME/sessions/$session/session.json" outcome)"
+    local ev="$DYNAMIC_SKILLS_HOME/sessions/$session/reports/evaluation.json" sj="$DYNAMIC_SKILLS_HOME/sessions/$session/session.json"
+    echo "evaluation.json overall: $(json_field "$ev" overall)  activatable: $(json_field "$ev" activatable)"
+    echo "session.json status: $(json_field "$sj" status)  last completed step: $(json_last "$sj" completedSteps)  outcome: $(json_path "$sj" metrics outcome)"
   fi
   echo
   echo "AC 24 (activated skill applied without restarting the session): performance outcome='${outcome:-none}'"
@@ -200,22 +214,22 @@ version_check() {
 # allow rule `dynamic-skills *` would match while the save/init consent rules do not.
 r31_check() {
   local rc out bad=0 i
-  local -a cases=(
-    "-V save --session smoke-r31 --scope project --harness $HARNESS_ID"
-    "--version init --harness $HARNESS_ID --scope project --repo $REPO"
-  )
+  local -a argv
   for i in 0 1; do
-    local -a argv
-    read -r -a argv <<<"${cases[$i]}"
+    if ((i == 0)); then
+      argv=(-V save --session smoke-r31 --scope project --harness "$HARNESS_ID")
+    else
+      argv=(--version init --harness "$HARNESS_ID" --scope project --repo "$REPO")
+    fi
     set +e
     out="$(cd "$REPO" && dynamic-skills "${argv[@]}" 2>&1)"
     rc=$?
     set -e
     if ((rc == 0)); then
       bad=1
-      echo "R31: FAIL 'dynamic-skills ${cases[$i]}' exited 0"
+      echo "R31: FAIL 'dynamic-skills ${argv[0]} ${argv[1]} ...' exited 0"
     else
-      echo "R31: ok 'dynamic-skills ${argv[0]} ...' refused (exit $rc): $(echo "$out" | head -n 1)"
+      echo "R31: ok 'dynamic-skills ${argv[0]} ${argv[1]} ...' refused (exit $rc): $(echo "$out" | head -n 1)"
     fi
   done
   if ((bad == 0)); then echo "R31: PASS (-V save and --version init are refused)"; fi
@@ -230,7 +244,7 @@ probe() {
   note "probe: $name"
   echo "[progress] running probe $name ..." >&2
   set +e
-  harness_run "$prompt" "$out" "$kind"
+  run_agent "$prompt" "$out" "$kind"
   local rc=$?
   set -e
   echo "(exit $rc after $((SECONDS - t0)) s)"
@@ -262,27 +276,93 @@ probe_session() {
   echo "${s:-smoke-no-session}"
 }
 
-# cli_calls_report: how many times the workspace wrapper ran; zero with a session means shadowing.
+# run_agent PROMPT OUT KIND: harness_run with SMOKE_AGENT=1 exported for the agent's processes only,
+# so the wrapper enforces R41 for them and the script's own calls stay unrestricted.
+run_agent() {
+  ( export SMOKE_AGENT=1; harness_run "$@" )
+}
+
+# make_wrapper PATH NODE CLI LOG HARNESS: write the bare `dynamic-skills` wrapper (Ruling R41).
+# Under SMOKE_AGENT=1 it logs each call (so the count covers agent calls only; zero with a session
+# means another dynamic-skills shadowed this one, R19) and is the argument-level guard: `init`
+# only with --dry-run, `save` only with --scope project|ephemeral|discard and no --harness other
+# than the one under test. Exit 2 on refusal. Arguments are parsed by exact tokens, so quoting
+# games (`'init'`, double spaces) cannot change what is seen: the shell strips them first.
+make_wrapper() {
+  local out="$1" node_bin="$2" cli="$3" log="$4" harness="$5"
+  {
+    echo '#!/usr/bin/env bash'
+    printf 'LOG=%q\nHARNESS=%q\n' "$log" "$harness"
+    cat <<'WRAP'
+if [[ "${SMOKE_AGENT:-}" == "1" ]]; then
+  sub="" dry=0 scope="" has_scope=0 hv="" has_h=0 prev=""
+  for a in "$@"; do
+    case "$prev" in
+      --scope) scope="$a"; has_scope=1; prev=""; continue ;;
+      --harness) hv="$a"; has_h=1; prev=""; continue ;;
+    esac
+    prev=""
+    case "$a" in
+      --scope | --harness) prev="$a" ;;
+      --scope=*) scope="${a#--scope=}"; has_scope=1 ;;
+      --harness=*) hv="${a#--harness=}"; has_h=1 ;;
+      --dry-run) dry=1 ;;
+      -*) ;;
+      *) [[ -n "$sub" ]] || sub="$a" ;;
+    esac
+  done
+  refuse=""
+  if [[ "$sub" == "init" && "$dry" != "1" ]]; then
+    refuse="init is allowed only with --dry-run"
+  elif [[ "$sub" == "save" ]]; then
+    if [[ "$has_scope" != "1" ]] || [[ "$scope" != "project" && "$scope" != "ephemeral" && "$scope" != "discard" ]]; then
+      refuse="save needs --scope project, ephemeral or discard"
+    elif [[ "$has_h" == "1" && "$hv" != "$HARNESS" ]]; then
+      refuse="save --harness must be $HARNESS"
+    fi
+  fi
+  if [[ -n "$refuse" ]]; then
+    printf '%s %s refused: %s\n' "$(date +%s)" "${sub:-none}" "$refuse" >>"$LOG"
+    echo "dynamic-skills (live smoke guard, R41): refused: $refuse" >&2
+    exit 2
+  fi
+  printf '%s %s allowed\n' "$(date +%s)" "${sub:-none}" >>"$LOG"
+fi
+WRAP
+    printf 'exec %q %q "$@"\n' "$node_bin" "$cli"
+  } >"$out"
+  chmod 555 "$out"
+}
+
+# cli_calls_report: how many agent calls reached the workspace wrapper; zero with a session means
+# shadowing. Called right after the main run, so the count is the main run's.
 cli_calls_report() {
   local n=0 session
-  [[ -f "$CALLS_LOG" ]] && n="$(wc -l <"$CALLS_LOG" | tr -d ' ')"
+  if [[ -f "$CALLS_LOG" ]]; then n="$(wc -l <"$CALLS_LOG" | tr -d ' ')"; fi
   session="$(newest_session)"
   echo
-  echo "Workspace dynamic-skills calls logged: $n"
+  echo "Workspace dynamic-skills calls by the agent (logged only under SMOKE_AGENT=1): $n"
   if [[ "$n" == "0" && -n "$session" ]]; then
-    echo "SHADOWED: a session exists but the workspace build was never called; another dynamic-skills ran (R19)."
+    echo "SHADOWED: a session exists but the workspace build was never called by the agent; another dynamic-skills ran (R19)."
   fi
 }
 
-# smoke_keep: opt-in copy of the run output and the session reports (SMOKE_KEEP=<dir>).
-smoke_keep() {
-  [[ -n "${SMOKE_KEEP:-}" ]] || return 0
-  [[ "$SMOKE_KEEP" == /* ]] || { echo "SMOKE_KEEP must be an absolute path; nothing kept." >&2; return 0; }
-  mkdir -p "$SMOKE_KEEP"
-  cp -R "$TMP/out" "$SMOKE_KEEP/out"
-  [[ -d "$DYNAMIC_SKILLS_HOME/sessions" ]] && cp -R "$DYNAMIC_SKILLS_HOME/sessions" "$SMOKE_KEEP/sessions"
-  [[ -d "$DYNAMIC_SKILLS_HOME/reports" ]] && cp -R "$DYNAMIC_SKILLS_HOME/reports" "$SMOKE_KEEP/reports"
-  echo "Kept the run output and session files in $SMOKE_KEEP (agent output may contain anything the agent printed)."
+# smoke_cleanup: opt-in keep (SMOKE_KEEP=<absolute dir>), then remove the workspace. Runs from the
+# EXIT trap, so the copy happens even when the run fails midway. Idempotent.
+smoke_cleanup() {
+  [[ -n "${TMP:-}" && -d "$TMP" ]] || return 0
+  if [[ -n "${SMOKE_KEEP:-}" ]]; then
+    if [[ "$SMOKE_KEEP" == /* ]]; then
+      mkdir -p "$SMOKE_KEEP/out" "$SMOKE_KEEP/sessions"
+      cp -R "$TMP/out/." "$SMOKE_KEEP/out/" 2>/dev/null || true
+      cp -R "${DYNAMIC_SKILLS_HOME:-$TMP/sessions-home}/." "$SMOKE_KEEP/sessions/" 2>/dev/null || true
+      echo "Kept the run output and session files in $SMOKE_KEEP (agent output may contain anything the agent printed)." >&2
+    else
+      echo "SMOKE_KEEP must be an absolute path; nothing kept." >&2
+    fi
+  fi
+  chmod -R u+w "$TMP" 2>/dev/null || true # the wrapper dir is read-only
+  rm -rf "$TMP"
 }
 
 # smoke_setup: temp workspace, fixture repo, CLI on PATH, isolation variables.
@@ -295,7 +375,7 @@ smoke_setup() {
 
   TMP="$(mktemp -d "${TMPDIR:-/tmp}/dyskills-smoke.XXXXXX")"
   TMP="$(cd "$TMP" && pwd -P)" # realpath: macOS /var -> /private/var
-  trap 'rm -rf "$TMP"' EXIT
+  trap smoke_cleanup EXIT
 
   REPO="$TMP/repo"
   BIN="$TMP/bin"
@@ -311,17 +391,13 @@ smoke_setup() {
   CODEX_HOME_REAL="${CODEX_HOME:-$REAL_HOME/.codex}"
 
   TMP_REAL="$TMP"
-  # The bare dynamic-skills is a wrapper that logs each call, so a global install that shadows the
-  # workspace build (a login shell re-ordering PATH) shows up as zero logged calls (R19).
-  local node_bin
-  node_bin="$(command -v node)"
+  REPO_REAL="$REPO"
+  DSH_REAL="$DYNAMIC_SKILLS_HOME"
+  # The bare dynamic-skills is a guarding, logging wrapper (R41, R19); the bin dir and the wrapper
+  # are made read-only so the agent cannot rewrite them (the agent also has no grant on them).
   CALLS_LOG="$TMP/out/cli-calls.log"
-  {
-    echo '#!/usr/bin/env bash'
-    printf 'printf "%%s %%s\\n" "$(date +%%s)" "${1:-}" >>%q\n' "$CALLS_LOG"
-    printf 'exec %q %q "$@"\n' "$node_bin" "$CLI"
-  } >"$BIN/dynamic-skills"
-  chmod +x "$BIN/dynamic-skills"
+  make_wrapper "$BIN/dynamic-skills" "$(command -v node)" "$CLI" "$CALLS_LOG" "$HARNESS_ID"
+  chmod a-w "$BIN"
   if type -a dynamic-skills >/dev/null 2>&1; then
     echo "WARNING: a dynamic-skills is already installed on PATH; it could shadow the workspace build:" >&2
     type -a dynamic-skills >&2 || true
@@ -333,6 +409,8 @@ smoke_setup() {
       TIMEOUT_CMD=(timeout "${SMOKE_TIMEOUT_SECS:-600}")
     elif command -v gtimeout >/dev/null 2>&1; then
       TIMEOUT_CMD=(gtimeout "${SMOKE_TIMEOUT_SECS:-600}")
+    else
+      echo "WARNING: neither timeout nor gtimeout found; a hung harness run will not be stopped." >&2
     fi
   fi
   [[ "$(command -v dynamic-skills)" == "$BIN/dynamic-skills" ]] \
@@ -351,19 +429,19 @@ smoke_main() {
   harness_version_check
 
   real_skill_roots
-  snapshot_roots "$TMP/snap-real-before" "${REAL_ROOTS[@]}"
+  SNAP_REAL_BEFORE="$(snapshot_roots "${REAL_ROOTS[@]}")"
 
   note "init ($HARNESS_ID)"
   harness_install
   repo_skill_roots
-  snapshot_roots "$TMP/snap-repo-before" "${REPO_ROOTS[@]}"
+  SNAP_REPO_BEFORE="$(snapshot_roots "${REPO_ROOTS[@]}")"
 
   prompt="$(harness_prompt "$mode")"
   echo
   echo "[progress] running $HARNESS_ID ($mode mode) in $REPO (timeout ${TIMEOUT_CMD[*]:-none}) ..." >&2
   t0=$SECONDS
   set +e
-  harness_run "$prompt" "$TMP/out/main.txt" main
+  run_agent "$prompt" "$TMP/out/main.txt" main
   local rc=$?
   set -e
   secs=$((SECONDS - t0))
@@ -389,6 +467,5 @@ smoke_main() {
   note "checklist for the human"
   harness_checklist
   echo
-  smoke_keep
   echo "Re-run with SMOKE_SKIP_PROBES=1 to skip the extra probes (D6, R32/R35, compound, alias)."
 }

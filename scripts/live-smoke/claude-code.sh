@@ -28,44 +28,56 @@ harness_prompt() {
   fi
 }
 
-# Narrowest grants (Ruling R40). File tools are scoped to the realpath of the temp workspace
-# (TMP_REAL, no leading slash because //<path> is the absolute form). `dynamic-skills init` and
-# `save` are denied by command line in every run except the consent probe, because the temp repo is
-# untrusted and Claude Code may then ignore the project settings.json ask rules, in which case the
-# allowed Bash(dynamic-skills *) would let the agent write the REAL ~/.claude, ~/.codex or
-# ~/.agents (init --harness codex, save --scope personal). Real config roots are denied too.
-harness_run() {
-  local prompt="$1" out="$2" kind="${3:-main}" scope args deny allow
-  scope="//${TMP_REAL#/}/**"
-  allow=("Bash(dynamic-skills *)" "Read($scope)" "Edit($scope)" "Write($scope)" Glob Grep)
-  deny=(
+# Narrowest grants (Ruling R40, R41). Print, one per line, every argument after `claude -p <prompt>`
+# for KIND main, probe or probe-consent (a function so the tests can assert the list).
+# - File tools are granted only on the repo and the session home (realpaths, no leading slash
+#   because //<path> is the absolute form), never on the whole temp workspace, which also holds the
+#   wrapper, its read-only bin dir and the harness configs. Glob and Grep are not granted.
+# - `dynamic-skills init` is denied in every kind. `save` is denied in main and probe. In
+#   probe-consent only the exact save command is allowed (no broad Bash allow), and --settings loads
+#   the repo ask rules: whether --settings applies a file from an untrusted project is UNVERIFIED.
+#   Pattern rules are only a first layer: the wrapper (R41) enforces init/save arguments.
+claude_args() {
+  local kind="${1:-main}" repo home
+  repo="//${REPO_REAL#/}/**"
+  home="//${DSH_REAL#/}/**"
+  local allow=("Read($repo)" "Edit($repo)" "Write($repo)" "Read($home)" "Edit($home)" "Write($home)")
+  local deny=(
     "Bash(dynamic-skills init)" "Bash(dynamic-skills init *)"
+    "Edit(//${REPO_REAL#/}/.claude/settings*.json)" "Write(//${REPO_REAL#/}/.claude/settings*.json)"
     "Edit(//${REAL_HOME#/}/.claude/**)" "Write(//${REAL_HOME#/}/.claude/**)"
     "Edit(//${REAL_HOME#/}/.agents/**)" "Write(//${REAL_HOME#/}/.agents/**)"
-    "Edit(//${REAL_HOME#/}/.codex/**)" "Write(//${REAL_HOME#/}/.codex/**)"
+    "Edit(//${CODEX_HOME_REAL#/}/**)" "Write(//${CODEX_HOME_REAL#/}/**)"
     "Edit(//${OPENCODE_GLOBAL_SKILLS#/}/**)" "Write(//${OPENCODE_GLOBAL_SKILLS#/}/**)"
     "Edit(//${OPENCODE_GLOBAL_CONFIG#/}/**)" "Write(//${OPENCODE_GLOBAL_CONFIG#/}/**)"
-    "Edit(//${REPO#/}/.claude/skills/**)" "Write(//${REPO#/}/.claude/skills/**)"
+    "Edit(//${REPO_REAL#/}/.claude/skills/**)" "Write(//${REPO_REAL#/}/.claude/skills/**)"
   )
-  args=()
-  if [[ "$kind" != "probe-consent" ]]; then
-    deny+=("Bash(dynamic-skills save)" "Bash(dynamic-skills save *)")
+  local extra=()
+  if [[ "$kind" == "probe-consent" ]]; then
+    allow=("Bash(dynamic-skills save --session ${CONSENT_SESSION} --scope project --harness claude-code)" "${allow[@]}")
+    extra+=(--settings "$REPO_REAL/.claude/settings.json")
   else
-    # Load the project ask rules explicitly. `--settings <file>` is documented in the Claude Code
-    # spike's flag list; whether it applies a file from an untrusted project, and how it merges
-    # with the ask rules, is UNVERIFIED: if save runs instead of being denied, the consent rule
-    # is not being enforced in this configuration, which is the finding. The save here is
-    # --scope project in the temp repo, so it cannot write real config.
-    args+=(--settings "$REPO/.claude/settings.json")
+    allow=("Bash(dynamic-skills *)" "${allow[@]}")
+    deny+=("Bash(dynamic-skills save)" "Bash(dynamic-skills save *)")
   fi
-  [[ "$kind" == "main" ]] || args+=(--output-format json)
-  # With --native the native placement directory is added too.
-  args+=(--add-dir "$DYNAMIC_SKILLS_HOME")
+  [[ "$kind" == "main" ]] || extra+=(--output-format json)
+  extra+=(--add-dir "$DSH_REAL")
   if [[ "$NATIVE" == "1" ]]; then
-    mkdir -p "$DYNAMIC_SKILLS_HOME/native/claude-code"
-    args+=(--add-dir "$DYNAMIC_SKILLS_HOME/native/claude-code")
+    mkdir -p "$DSH_REAL/native/claude-code"
+    extra+=(--add-dir "$DSH_REAL/native/claude-code")
   fi
-  (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} claude -p "$prompt" --allowedTools "${allow[@]}" "${args[@]}" --disallowedTools "${deny[@]}") >"$out" 2>&1
+  echo "--allowedTools"
+  printf '%s\n' "${allow[@]}"
+  [[ ${#extra[@]} -eq 0 ]] || printf '%s\n' "${extra[@]}"
+  echo "--disallowedTools"
+  printf '%s\n' "${deny[@]}"
+}
+
+harness_run() {
+  local prompt="$1" out="$2" kind="${3:-main}" a
+  local args=()
+  while IFS= read -r a; do args+=("$a"); done < <(claude_args "$kind")
+  (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} claude -p "$prompt" "${args[@]}") >"$out" 2>&1
 }
 
 # The Claude Code result JSON lists refused tool calls in permission_denials (field name from
@@ -90,6 +102,7 @@ harness_probes() {
   echo "Probe expectations (no consent prompt can appear in print mode; a rule is enforced when the call is denied):"
   echo "  d6-save = denied by the ask rule loaded with --settings; d6-init = denied by the R40 command-line deny;"
   echo "  compound = allowed by Bash(dynamic-skills *); var-alias = whether the /var spelling of the session home is writable."
+  CONSENT_SESSION="$s"
   probe d6-save "Run exactly this command and report verbatim what happened, including any denial: dynamic-skills save --session $s --scope project --harness claude-code" probe-consent
   probe d6-init "Run exactly this command and report verbatim what happened, including any denial: dynamic-skills init --harness claude-code --scope project --repo $REPO --dry-run"
   probe compound "Run exactly this single compound command and report verbatim whether it ran or was denied: cd \"$REPO\" && dynamic-skills report perf"
@@ -126,4 +139,6 @@ CHECK
   scan "$TMP/out/main.txt" "Compound-command lines" 'cd .*&&.*dynamic-skills'
 }
 
-smoke_main claude-code claude "$MODE"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  smoke_main claude-code claude "$MODE"
+fi
