@@ -1,4 +1,13 @@
-import { appendFile, mkdir, realpath, stat, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { resolveSkillRoots } from "@dynamic-skills/bootstrapper";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -157,23 +166,18 @@ describe("native activation", () => {
     expect(r.out).toMatchObject({ ok: true, activated: true });
   });
 
-  it("removes the placement and skips when the bundle changed during placement (R14)", async () => {
+  it("removes a created placement when the bundle changed before it was copied (R14)", async () => {
     const real = await vi.importActual<typeof import("../src/native")>("../src/native");
     const id = await recorded();
-    vi.mocked(native.placeNative).mockImplementationOnce((input) =>
-      real.placeNative({
-        ...input,
-        testHooks: {
-          beforeCopy: async () => {
-            await appendFile(join(input.skillDir, "SKILL.md"), "\nUnevaluated addition.\n");
-          },
-        },
-      }),
-    );
+    vi.mocked(native.placeNative).mockImplementationOnce(async (input) => {
+      // After the pin check, before placeBundle reads the source: the copy is of unevaluated bytes.
+      await appendFile(join(input.skillDir, "SKILL.md"), "\nUnevaluated addition.\n");
+      return real.placeNative(input);
+    });
     const r = await activate(id);
     expect(r.exitCode).toBe(0);
     expect(r.out.native).toBeNull();
-    expect(r.out.limitations.join(" ")).toContain("Native registration skipped");
+    expect(r.out.limitations.join(" ")).toContain("changed after evaluation");
     expect(
       await stat(await placedDir()).then(
         () => true,
@@ -181,6 +185,62 @@ describe("native activation", () => {
       ),
     ).toBe(false);
     expect((await h.readJson(id, "session.json")).native).toBeUndefined();
+  });
+
+  it("never removes a reused placement when the re-pin fails (R14)", async () => {
+    const real = await vi.importActual<typeof import("../src/native")>("../src/native");
+    const first = await recorded();
+    await activate(first);
+    const dir = await placedDir();
+    const before = await hashTree(dir);
+    const second = await recorded(true);
+    vi.mocked(native.placeNative).mockImplementationOnce(async (input) => {
+      // The evaluated bytes differ from the first session's; the edit makes them identical.
+      await writeFile(join(input.skillDir, "SKILL.md"), await readFile(join(dir, "SKILL.md")));
+      return real.placeNative(input);
+    });
+    const r = await activate(second);
+    expect(r.out.native).toBeNull();
+    expect(r.out.limitations.join(" ")).toContain("changed after evaluation");
+    expect(await hashTree(dir)).toEqual(before);
+    expect((await h.readJson(first, "session.json")).native.dir).toBe(dir);
+  });
+
+  it("writes nothing through a symlinked native directory (R38)", async () => {
+    const outside = join(h.tmp, "outside");
+    await mkdir(outside);
+    await symlink(outside, join(await realpath(h.home), "native"));
+    const id = await recorded();
+    const r = await activate(id);
+    expect(r.exitCode).toBe(0);
+    expect(r.out.native).toBeNull();
+    expect(r.out.limitations.join(" ")).toContain("Native registration skipped");
+    expect(await readdir(outside)).toEqual([]);
+    expect((await h.readJson(id, "session.json")).native).toBeUndefined();
+  });
+
+  it("writes nothing through a symlinked directory inside native (outside project)", async () => {
+    const outside = join(h.tmp, "outside");
+    await mkdir(outside);
+    const root = join(await realpath(h.home), "native");
+    await mkdir(root);
+    await symlink(outside, join(root, "claude-code"));
+    const id = await recorded();
+    const r = await activate(id);
+    expect(r.out.native).toBeNull();
+    expect(r.out.limitations.join(" ")).toContain("outside the session home");
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("names a symlinked target in the limitation, not another session", async () => {
+    const root = join(await realpath(h.home), "native/claude-code/.claude/skills");
+    await mkdir(root, { recursive: true });
+    await symlink(h.tmp, join(root, "order-cache-specialist"));
+    const id = await recorded();
+    const r = await activate(id);
+    expect(r.out.native).toBeNull();
+    expect(r.out.limitations.join(" ")).toContain("symbolic link");
+    expect(r.out.limitations.join(" ")).not.toContain("another session");
   });
 
   it("does not place for a refused activation", async () => {

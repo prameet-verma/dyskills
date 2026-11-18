@@ -43,6 +43,10 @@ describe("selectExpiredPlacements", () => {
         ttlMs: 1000,
       }),
     ).toEqual([]));
+  it("lets the TTL remove an unreferenced placement with a far-future mtime", () =>
+    expect(run({ mtimeMs: T + 5 * H }, [], 1)).toEqual(["/n/a"]));
+  it("tolerates small clock skew on an unreferenced placement", () =>
+    expect(run({ mtimeMs: T + 60_000 }, [], 1)).toEqual([]));
   it("TTL is 24 hours", () => expect(NATIVE_PLACEMENT_TTL_MS).toBe(24 * H));
   it("keeps a fresh activated placement", () =>
     expect(run({ mtimeMs: 0 }, [ref(T - H, "activated")])).toEqual([]));

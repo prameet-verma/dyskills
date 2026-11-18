@@ -87,7 +87,8 @@ async function listPlacements(
  * @param home - Session home.
  * A placement whose mtime is younger than {@link NATIVE_PLACEMENT_GRACE_MS} on the real clock is
  * kept regardless of the policy (Ruling R39), and the sweep stops after a 2 s real-clock budget
- * or 2000 directories.
+ * or 2000 directories. The budget is not a hard bound: it is checked between steps, so reading
+ * the session files and hashing one placement before its removal can run past it.
  *
  * @param home - Session home.
  * @param now - Epoch ms used for the policy's age check (the invocation's clock).
@@ -113,6 +114,7 @@ export async function sweepNativePlacements(
   });
   if (placements.length === 0) return [];
   const { byDir, unparsable } = await readNativeReferences(realHome);
+  if (Date.now() >= deadline) return [];
   const mtimes = new Map(placements.map((p) => [p.dir, p.mtimeMs]));
   const wallNow = Date.now();
   const expired = selectExpiredPlacements({ placements, refs: byDir, unparsable, now }).filter(
@@ -134,6 +136,23 @@ export async function sweepNativePlacements(
     }
   }
   return removed;
+}
+
+/** The limitation for a `placeBundle` conflict, by its fixed reason. */
+function conflictLimitation(reason: string | undefined, name: string): string {
+  const head = "Native registration skipped:";
+  switch (reason) {
+    case "outside project":
+      return `${head} the native placement root resolves outside the session home.`;
+    case "symlink":
+      return `${head} ${name} in the native root is a symbolic link.`;
+    case "differs":
+    case "race":
+    case undefined:
+      return `${head} another session holds a different skill named ${name}.`;
+    default:
+      return `${head} the native placement root is unusable (${reason}).`;
+  }
 }
 
 /** Input of {@link placeNative}. */
@@ -200,6 +219,19 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
     if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
       return none("Native registration skipped: the native root is outside the session home.");
     }
+    // R38 for writes: `native` must be absent or a real directory, or the bundle would land
+    // wherever a symlink points and the sweep would refuse to clean it.
+    const nativeStat = await lstat(within).catch((e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT") return null;
+      throw e;
+    });
+    if (nativeStat !== null) {
+      if (!nativeStat.isDirectory() || (await realpath(within)) !== within) {
+        return none(
+          "Native registration skipped: the native directory of the session home is not a plain directory.",
+        );
+      }
+    }
     for (const r of await adapter.readRoots(env)) {
       if ((await lstat(join(r.dir, name)).catch(() => undefined)) !== undefined) {
         return none(
@@ -215,11 +247,7 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
       within,
       ...(input.testHooks === undefined ? {} : { testHooks: input.testHooks }),
     });
-    if (placed.action === "conflict") {
-      return none(
-        `Native registration skipped: another session holds a different skill named ${name}.`,
-      );
-    }
+    if (placed.action === "conflict") return none(conflictLimitation(placed.reason, name));
     if (placed.action === "unchanged") {
       // Reuse restarts the grace period; best effort.
       const t = new Date();

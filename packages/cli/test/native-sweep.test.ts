@@ -157,6 +157,7 @@ describe("native sweep safety", () => {
     await mkdir(join(outside, "a"), { recursive: true });
     await writeFile(join(outside, "a/SKILL.md"), "---\nname: a\n---\n");
     await mkdir(h.home, { recursive: true });
+    await utimes(join(outside, "a"), h.clock.t / 1000, h.clock.t / 1000);
     await symlink(outside, join(await realpath(h.home), "native"));
     await assess(h);
     expect(await exists(join(outside, "a/SKILL.md"))).toBe(true);
@@ -187,6 +188,7 @@ describe("native sweep safety", () => {
     const odd = join(root, "claude-code/.claude/skills/Bad_Name");
     await mkdir(odd, { recursive: true });
     await writeFile(join(odd, "SKILL.md"), "---\nname: bad\n---\n");
+    await utimes(odd, h.clock.t / 1000, h.clock.t / 1000);
     await assess(h);
     expect(await exists(join(odd, "SKILL.md"))).toBe(true);
   });
