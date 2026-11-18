@@ -11,6 +11,11 @@ numbered and never rewritten: a changed decision gets a new record that supersed
 | [0004](0004-hybrid-discovery-contracts.md)      | Hybrid discovery and versioned contracts                                      |
 | [0005](0005-sufficiency-and-augmentation.md)    | Sufficiency verdict, reuse and delta-only augmentation                        |
 | [0006](0006-bundle-pinning-and-reevaluation.md) | Bundle digest pinning and bounded re-evaluation                               |
+| [0007](0007-harness-adapter-interface.md)       | Pure adapter planners, one SDK executor, consent rules in every harness       |
+| [0008](0008-read-first-activation.md)           | Read-first activation, optional Claude Code placement with a 24 h sweep       |
+| [0009](0009-opencode-dual-line.md)              | One OpenCode adapter for 1.x and 2.x, writing V1-form config                  |
+| [0010](0010-structured-question-options.md)     | Optional question options, text fallback, `CONTRACT_VERSION` unchanged        |
+| [0011](0011-npm-distribution.md)                | Unscoped `dynamic-skills` package, bare binary, deferred augmentation save    |
 
 ## Template
 
