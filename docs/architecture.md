@@ -3,7 +3,7 @@
 Dynamic Skills is an **agent-driven CLI**. A deterministic TypeScript core owns state, gates and
 files; the host's root agent does every piece of LLM work (analysis, the sufficiency verdict, the
 skill text, behavioural judgement). The core makes no model call and no network call. Product
-requirements are in [PRD.md](../PRD.md); this page describes what is implemented in Phase 1.
+requirements are in [PRD.md](../PRD.md); this page describes what is implemented through Phase 2.
 Command-level detail is in the [CLI reference](cli-reference.md); decisions are in the
 [ADR index](adr/README.md).
 
@@ -26,7 +26,7 @@ PRD §13 names the components below. This table maps each to the code that imple
 | CLI and state machine   | [`cli`](../packages/cli/README.md)                                                                                                                              |
 | Lifecycle Manager       | Phase 3                                                                                                                                                         |
 | Freshness Validator     | Phase 3                                                                                                                                                         |
-| Harness Adapter         | Phase 2                                                                                                                                                         |
+| Harness Adapter         | [`adapter-sdk`](../packages/adapter-sdk/README.md) plus `adapters/*` (Claude Code, Codex, OpenCode); see [Adapter layer](#adapter-layer)                        |
 
 ## One session
 
@@ -77,12 +77,65 @@ sequenceDiagram
 A failed `evaluate` or a `fail` behavioural verdict returns the agent to editing the bundle and
 running `evaluate` again, bounded by `MAX_EVAL_ATTEMPTS` (ADR 0006).
 
+## Adapter layer
+
+Phase 2 adds installation, saving and native question mapping for three harnesses without
+changing the core contracts ([ADR 0007](adr/0007-harness-adapter-interface.md)).
+
+- **Composition root.** The CLI is the only place that wires harnesses in:
+  `packages/cli/src/adapters.ts` holds the registry (`ADAPTERS`). `init`, `save`, `activate` and
+  `clarify ask` look the adapter up there. Core packages and the bootstrap skill stay
+  harness-neutral.
+- **Pure planners.** Each `adapters/<id>` package detects its tool through an injected `HostProbe`
+  and returns an install plan, its save roots, the roots it reads, a native question plan and its
+  analyst agent text. It writes nothing itself. See the [authoring guide](adapters/authoring.md).
+- **One executor.** `@dynamic-skills/adapter-sdk` previews and applies every plan: idempotent,
+  atomic, symlink-refusing, contained and all-or-nothing on conflicts. It also places bundles for
+  `save` and native activation, byte-identically.
+- **The root registry.** `packages/bootstrapper/src/roots.ts` is the one table of every directory
+  each harness reads skills from. The skill scan, `readRoots` and the save-collision check all use
+  it, so `save` refuses a different skill of the same name that any selected harness can see.
+- **Compatibility suite.** `defineAdapterCompatSuite` runs the same cases against four targets:
+  claude-code, codex, opencode-v1 and opencode-v2 ([ADR 0009](adr/0009-opencode-dual-line.md)).
+  Pinned tested versions are exported per adapter; other versions are reported as untested.
+
+### Writes outside the session home
+
+The Phase 1 rule "write only inside the session directory" is amended. The CLI writes elsewhere
+only for:
+
+1. `init`, to the paths its plan lists (`--dry-run` writes nothing, not even the home);
+2. `save --scope project|personal`, to the skill roots its plan lists;
+3. `activate` native placement, only under `<realpath home>/native/`.
+
+Ephemeral skills never reach a permanent skill directory. Each such write is planned and reported
+before it happens, idempotent, atomic (a temp file or directory in the same parent, then `rename`),
+refuses a symlink at the final path and keeps an existing file's mode. Containment: each write
+declares `within`; the realpath of its parent must lie inside the realpath of the project root
+(project files) or of the session home (native directories). Symlinked parents are followed only
+for personal files. A write never overwrites a file it did not plan or that differs, and `--force`
+applies to installer file writes only, never to config merges, invalid JSON, saved skills or base
+skills.
+
+### Consent rules
+
+`init` makes every harness ask before `dynamic-skills save` and `dynamic-skills init`, even where
+`dynamic-skills` is otherwise allowed: Claude Code `permissions.ask` (ask beats allow), a Codex
+`prefix_rule` with `decision = "prompt"` (the strictest decision wins) and OpenCode `"ask"` entries
+placed after the allow (the last match wins). The harness's approval prompt is the user's consent
+to persist a skill (PRD §11.2). The CLI rejects any program option placed before the subcommand,
+so `dynamic-skills -V save` cannot slip past the rules. A headless run that must save runs the
+command in a terminal, or relaxes the rule as each adapter README describes. OpenCode matches raw
+command text, so a quoted subcommand is a known limit ([ADR 0007](adr/0007-harness-adapter-interface.md)).
+
 ## Session directory
 
-Phase 1 writes only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_SKILLS_HOME` or
+The session itself writes only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_SKILLS_HOME` or
 `<os tmpdir>/dynamic-skills-<uid>`, plus one archived metrics file per cleaned session,
-`<home>/reports/<id>.json` (Ruling R21). Nothing is written into any harness skill directory or
-into the repository, and existing skills and instruction files are only read.
+`<home>/reports/<id>.json` (Ruling R21). Ephemeral skills are never written into a harness skill directory
+or the repository, and existing skills and instruction files are only read. The only writes
+outside the home are the three listed under
+[Writes outside the session home](#writes-outside-the-session-home).
 
 The home is private to its user. Each command checks it and `<home>/sessions` before the first
 write: a symlink (also one written with a trailing slash, because the path is resolved before the
@@ -104,7 +157,16 @@ creates is mode 0700 and every file it writes is 0600.
 | `brief.md`              | `compile`                                                                                         | The compilation brief                                                                                                                                                                                 |
 | `skills/`               | the agent                                                                                         | The generated skill bundle (one directory)                                                                                                                                                            |
 | `evals/smoke.json`      | the agent                                                                                         | The smoke eval (scenario, assertions, rubric)                                                                                                                                                         |
+| `native/<harness>/`     | `activate` (native placement; Claude Code only, opt-in), swept by `assess` and `activate`         | A copy of the activated skill under `.claude/skills/<name>`, listed natively only when the session was launched with `--add-dir` on this directory; see below                                         |
 | `reports/`              | `evaluate`, `eval record`, `sufficiency submit` and `approve` (`sufficiency`), and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`; `clean` archives `performance` to `<home>/reports/<id>.json` before removing the session                                      |
+
+Native placements are ephemeral ([ADR 0008](adr/0008-read-first-activation.md)). Every `assess` and
+`activate` sweeps `<home>/native/`: a placement is removed when it is older than 24 h
+(`NATIVE_PLACEMENT_TTL_MS`), when no session references it, or when every session that references it
+ended without `activated` or `augmented`. An unparsable `session.json` counts as referencing every
+placement, so only the TTL removes it. A placement younger than ten minutes is kept (it may sit
+between placement and the session save), and nothing is removed unless `<realpath home>/native` is
+a real directory and the placement lies inside it.
 
 ## SLA clock model
 
@@ -180,6 +242,14 @@ archived reports, so no ended session disappears from the PRD §17 metrics.
   (everything under `skills/` plus `evals/smoke.json`, directories included). `eval record` and
   `activate` recompute it and refuse a changed bundle with `BUNDLE_INVALID`; nothing is saved
   (ADR 0006).
+- **Installer writes are planned, contained and consented.** Everything `init`, `save` and native
+  placement write goes through the SDK executor under the rules above, and the harness asks the user
+  before `save` and `init` run.
+- **The Codex allow rule is a trust decision.** With `--codex-allow-rule`, `init` lets every
+  `dynamic-skills` command except `save` and `init` run outside the Codex sandbox, trusting
+  whatever `dynamic-skills` resolves to on `PATH`. It gives `save` and `init` no sandbox escape,
+  because their prompt rules always apply and an approved prompt runs sandboxed. It is off by
+  default.
 - **Output hygiene.** Everything written to stderr has control characters removed, because session
   ids and option values are agent-controlled.
 
@@ -191,14 +261,16 @@ into `schemas/` carry `$id: "dynamic-skills/v1/<file>"`. A breaking change bumps
 and regenerates `schemas/` (see [CONTRIBUTING.md](../CONTRIBUTING.md)). Skill citations use one
 grammar shared by the compiler and the evals: one evidence key per tag, no commas.
 
-## Extension points planned for Phases 2 to 5
+## Extension points
 
 | Phase | Extension                                                                                                       |
 | ----- | --------------------------------------------------------------------------------------------------------------- |
-| 2     | A harness adapter contract: native activation, the installer and per-harness skill locations                    |
+| 2     | Done: the harness adapter contract, the installer, per-harness skill locations and optional native activation   |
 | 3     | A lifecycle manager and freshness validator: saved skills, versioning, caching                                  |
 | 4     | A fixture library, baseline-versus-skill benchmarks and regression tracking on top of the existing `EvalId` set |
 | 5     | An extension API for detectors and evals, more adapters and an optional headless model provider                 |
 
 Today the extension seams are the detector list in `discovery`, the eval list (`ALL_EVALS`) in
-`eval-engine` and the `COMMANDS` registry in `cli`.
+`eval-engine`, the `COMMANDS` registry in `cli` and the adapter registry in
+`packages/cli/src/adapters.ts`. Saving an augmentation and freshness checks before reuse are Phase 3
+([ADR 0011](adr/0011-npm-distribution.md)).
