@@ -18,7 +18,8 @@ export type CliCommand =
   | "status"
   | "clean"
   | "report perf"
-  | "init";
+  | "init"
+  | "save";
 
 /** Names appended to `SessionState.completedSteps` by a successful command (amends Ruling R2). */
 export type CompletedStep =
@@ -90,7 +91,8 @@ function invalid(message: string, expected: string[]): CliError {
  * unblocks the command).
  */
 export function assertCanRun(state: SessionState, command: CliCommand): void {
-  if (command === "status" || command === "clean") return;
+  // `save` checks its own state with `assertCanSave`: its scopes differ in what they need.
+  if (command === "status" || command === "clean" || command === "save") return;
   if (isTerminal(state)) {
     throw invalid(`The session has ended (status ${state.status}); "${command}" cannot run.`, []);
   }
@@ -117,5 +119,38 @@ export function assertCanRun(state: SessionState, command: CliCommand): void {
   }
   if (command === "sufficiency approve" && state.sufficiency?.approval !== "pending") {
     throw invalid("No approval is pending for this session.", []);
+  }
+}
+
+/**
+ * Checks that `save` may run with `scope` (D6, D8). `ephemeral` and `discard` are always allowed.
+ * `project` and `personal` need an ended session (`completed` or `warning`) whose last step is
+ * `activate` and whose outcome is `activated`.
+ *
+ * @param state - The loaded session.
+ * @param scope - The requested scope.
+ * @throws {CliError} `INVALID_STATE` with `expected: ["activate"]` before a successful activation,
+ * `SAVE_UNSUPPORTED` for an augmentation (D8).
+ */
+export function assertCanSave(
+  state: SessionState,
+  scope: "project" | "personal" | "ephemeral" | "discard",
+): void {
+  if (scope === "ephemeral" || scope === "discard") return;
+  const ended = state.status === "completed" || state.status === "warning";
+  if (!ended || state.completedSteps.at(-1) !== "activate") {
+    throw invalid('"save" needs a session that finished "activate".', ["activate"]);
+  }
+  if (state.metrics.outcome === "augmented") {
+    throw new CliError(
+      "SAVE_UNSUPPORTED",
+      "Saving an augmentation arrives with freshness checks in Phase 3; the base skill was not modified.",
+    );
+  }
+  if (state.metrics.outcome !== "activated") {
+    throw invalid(
+      `"save" needs an activated skill; the outcome is ${state.metrics.outcome ?? "unset"}.`,
+      ["activate"],
+    );
   }
 }

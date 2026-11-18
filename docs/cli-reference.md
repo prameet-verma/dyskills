@@ -61,7 +61,7 @@ admin skill root `/etc/codex/skills`. This applies to `assess`, `compile` and `e
 Every command except `assess` and `report perf` takes `--session <id>`. A command may run only when
 the session's last completed step is one of its allowed predecessors; otherwise it fails with
 `INVALID_STATE` and `expected` lists the allowed steps. A session that has ended (`completed`,
-`warning` or `failed`) accepts only `status` and `clean`. So does a `timeout` session: any other
+`warning` or `failed`) accepts only `status`, `clean` and `save`. So does a `timeout` session: any other
 command returns `TIMEOUT` again without saving.
 
 | Command                          | Allowed after (completed step)                                                                                                               |
@@ -78,6 +78,7 @@ command returns `TIMEOUT` again without saving.
 | `evaluate`                       | `compile`, `evaluate`, `eval-record`                                                                                                         |
 | `eval record`                    | `evaluate`                                                                                                                                   |
 | `activate`                       | `eval-record`                                                                                                                                |
+| `save`                           | any state (the scope decides: `project` and `personal` need a finished `activate`; see `save`)                                               |
 | `status`, `clean`, `report perf` | any state                                                                                                                                    |
 
 One verdict is allowed per session, so a second `sufficiency submit` is `INVALID_STATE`.
@@ -269,7 +270,70 @@ budget ran out is not counted as active time (a last command that itself ran pas
 keeps that overrun). Terminal reports are written, so abandoning a session still counts in
 `fallbackRate`. If the archive cannot be written the command fails and nothing is removed.
 
-stdout: `removed: true`, `archived` (whether a report was archived).
+stdout: `removed: true`, `archived` (whether a report was archived), `notes` (why a native
+placement was kept, if it was).
+
+If the session recorded a native placement, `clean` also removes that placement, unless another
+session references the same directory or any other `session.json` cannot be read (then it is kept,
+and the TTL sweep removes it later). The path comes from session state, so it is removed only when
+it is exactly `<realpath home>/native/<harness>/.claude/skills/<name>` and `<home>/native` is a
+plain directory, never a symlink (Ruling R38); a kept placement is explained in `notes`. Another
+session referencing the directory or anything inside it also keeps it.
+
+### `save --session <id> --scope project|personal|ephemeral|discard [--harness <list>] [--dry-run]`
+
+The only way a generated skill outlives its session. Saving asks for the user's consent: that is
+the host's job through the rules `init` writes (D6), and the CLI saves only when this command is
+run. Allowed on a finished session (like `status` and `clean`; it does not take the deadline into
+account and never changes `session.json`, `completedSteps` or the reports).
+
+- `ephemeral`: writes nothing. stdout: `scope`, `saved: []`, `sessionDir`, `notes` (the skill stays
+  in the session directory until `clean`). Always allowed.
+- `discard`: ends the session if it is still open (as `clean` does, writing terminal reports that
+  are then archived, Ruling R21), archives its report to
+  `<home>/reports/<id>.json` and removes the session directory and any unshared native placement.
+  stdout: `scope`, `removed: true`, `archived` (the archive path, or `null` when there was no valid
+  report) and `notes` (why a native placement was kept, if it was). Always allowed.
+- `project`, `personal`: copies the evaluated bundle to the skill root of each selected harness.
+  Needs a session with status `completed` or `warning`, last step `activate` and outcome
+  `activated`; otherwise `INVALID_STATE` with `expected: ["activate"]`. An augmentation is
+  `SAVE_UNSUPPORTED` (saving one arrives in Phase 3; the base skill is never modified).
+  `--harness` is a comma-separated list; without it `DYNAMIC_SKILLS_HARNESS` names the one harness,
+  else `USAGE`.
+
+For `project` and `personal` the command checks, in this order, that nothing it would write could
+mislead or collide, and keeps no skill file on any failure (an empty parent directory such as
+`.claude` that placeBundle created may remain):
+
+1. The bundle still matches the digest pinned by `evaluate` (`BUNDLE_INVALID` otherwise), so only
+   the evaluated bytes are saved. The saved copy is byte-identical (files 0644, directories 0755).
+2. For `project`, no bundle file may contain the session home, the user home or their unresolved
+   spellings (`SAVE_CONFLICT`, `reason: "machine path"`): a committed skill must not carry a path
+   from this machine.
+3. No root any selected harness reads (project and personal) may hold a different skill of the same
+   name (`SAVE_CONFLICT`, `reason: "name in use"`, `conflicts` lists the paths). An identical copy is
+   not a conflict; a same-named entry that cannot be read counts as in use.
+
+The fewest skill roots that every selected harness reads are then written, for example one
+`.claude/skills` entry for `claude-code,opencode` (its `covers` lists both). `project` writes must
+stay inside the repository: a `.claude` symlinked elsewhere is `SAVE_CONFLICT`
+(`reason: "outside project"`); `personal` follows symlinks. Writes are atomic and idempotent (an
+identical existing bundle is `unchanged`). A failure part-way removes every bundle this call
+created (and a skills root it created), so nothing is left half-written:
+
+- a placement conflict (`race`, `differs`, a symlink, a bad parent): `SAVE_CONFLICT` with `reason`
+  and `path`;
+- `EACCES`, `EPERM` or `EROFS`: `SAVE_DENIED` with `path`;
+- a bundle that changed or is over the caps while being copied: `BUNDLE_INVALID`.
+
+`--dry-run` runs every check and reports the plan without writing. Saved skills carry no freshness
+fingerprint (D8), so a later phase treats them as needing a relevance check.
+
+stdout: `scope`, `skill`, `manifestSha256`, `dryRun`, `saved` (`root`, `path`, `covers`, `action`
+of `create` or `unchanged`) and `notes` (each harness's own advice after a save).
+
+Run `save` through the host's consent prompt. Where the host cannot prompt (a headless run), run it
+yourself in a terminal; see the install guide for your host.
 
 ### `report perf`
 
@@ -337,10 +401,13 @@ that match `dynamic-skills init` cannot be bypassed.
 | `ANALYSIS_LIMIT`          | 1    | `context submit` or `context request` after 4 accepted analyses                                                | no        |
 | `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)                                            | yes       |
 | `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                                                   | yes       |
-| `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate`                                                 | see below |
+| `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate` (also at `save`)                                | see below |
 | `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (a 4th `evaluate`)                                                   | yes       |
 | `INIT_CONFLICT`           | 1    | `init` found a conflict or stopped mid-apply; `reason` is `conflict` or `apply-failed`, `harnesses` the report | no        |
 | `HARNESS_NOT_DETECTED`    | 1    | `init` without `--harness` found no supported harness                                                          | no        |
+| `SAVE_CONFLICT`           | 1    | `save` found a name in use, a machine path, or a placement conflict; `reason`, `conflicts` or `path`           | no        |
+| `SAVE_DENIED`             | 1    | The host or file system denied a `save` write (`EACCES`, `EPERM`, `EROFS`); `path`                             | no        |
+| `SAVE_UNSUPPORTED`        | 1    | `save` of an augmentation (Phase 3)                                                                            | no        |
 | `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                                             | yes       |
 | `INTERNAL`                | 1    | An unexpected failure                                                                                          | no        |
 
