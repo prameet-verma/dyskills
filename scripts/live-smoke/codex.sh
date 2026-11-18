@@ -74,7 +74,11 @@ harness_probes() {
   echo "the consent rule; they show only what the sandbox does. Trusting the repo needs the real"
   echo "config.toml, which this script will not touch."
   echo "Probe expectations: r32-save = SUCCEEDED or SANDBOX WRITE ERROR (exec cannot show escalation)."
-  probe r32-save "Run exactly this command and report verbatim whether it succeeded or failed on a sandbox write error: dynamic-skills save --session $s --scope project --harness codex"
+  if probe_save_ok; then
+    probe r32-save "Run exactly this command and report verbatim whether it succeeded or failed on a sandbox write error: dynamic-skills save --session $s --scope project --harness codex"
+  else
+    echo "(probe r32-save skipped: no session whose repo is the workspace repo)"
+  fi
   probe d6-init "Run exactly this command and report verbatim whether it ran or was rejected: dynamic-skills init --harness codex --scope project --repo $REPO --dry-run"
 }
 
@@ -89,11 +93,13 @@ harness_checklist() {
   [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 60 s Timing line, AC 24 and AC 28 above
   [ ] R31: '-V save' refused (R31 lines above)
 
+  Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: Codex runs it inside the workspace-write sandbox (no deny rule applies, since --ignore-rules is set); the sandbox is the only layer there. Codex can write the log, the wrapper's log under the temp out dir sits inside the repo-adjacent workspace only if writable_roots allowed it; treat cli-calls.log as agent-writable evidence and trust the jail report and AC 28 more.
+
   MANUAL R32 procedure (by hand, interactive):
     1. Decide whether to trust a copy of the repo: trusting it writes to your REAL ~/.codex/config.toml.
     2. In a trusted copy of the repo, with the project rules in place (dynamic-skills init --harness codex
        --scope project --repo <copy>), start the interactive Codex TUI: codex -a on-request
-       --sandbox workspace-write
+       --sandbox workspace-write   (the -a on-request flag is UNVERIFIED against 0.169.0: check codex --help first)
     3. Ask it to run: dynamic-skills save --session <id> --scope project --harness codex
     4. Approve the prompt and record: did it run sandboxed and fail to write, run with escalation and succeed,
        or need a terminal run? (Ruling R32: an approved prompt keeps the sandboxed permissions.)

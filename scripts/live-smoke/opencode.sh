@@ -30,7 +30,7 @@ oc_seed() {
   node -e '
     const [home, ocConfig, codexHome, repo, tmp, cfgDir] = process.argv.slice(1);
     const edit = {};
-    for (const p of [home + "/.claude/*", home + "/.agents/*", ocConfig + "/*", codexHome + "/*", repo + "/.opencode/skills/*", repo + "/.agents/skills/*", repo + "/.claude/skills/*", tmp + "/bin/*", cfgDir + "/*", repo + "/opencode.json*", repo + "/.opencode/opencode.json*"]) edit[p] = "deny";
+    for (const p of [home + "/.claude/*", home + "/.agents/*", ocConfig + "/*", codexHome + "/*", repo + "/.opencode/skills/*", repo + "/.agents/skills/*", repo + "/.claude/skills/*", tmp + "/bin/*", tmp + "/out/*", cfgDir + "/*", repo + "/opencode.json*", repo + "/.opencode/opencode.json*"]) edit[p] = "deny";
     console.log(JSON.stringify({ permission: { bash: { "*": "ask" }, edit } }));
   ' "$REAL_HOME" "$OPENCODE_GLOBAL_CONFIG" "$CODEX_HOME_REAL" "$REPO" "$TMP" "$TMP/opencode-config"
 }
@@ -95,10 +95,14 @@ harness_probes() {
   echo
   echo "Probe expectations (opencode run rejects every pending ask; no prompt can appear headless):"
   echo "  d6-plain / d6-init = rejected by the ask entries; quoted and double-spaced save = NOT asked and run (R35, documented limit)."
+  if ! probe_save_ok; then
+    echo "(probes d6-plain, r35-quoted and r35-spaced skipped: no session whose repo is the workspace repo)"
+  else
   probe d6-plain "Run exactly this command and report verbatim whether it ran or was rejected for permission: dynamic-skills save --session $s --scope project --harness opencode"
   probe d6-init "Run exactly this command and report verbatim whether it ran or was rejected for permission: dynamic-skills init --harness opencode --scope project --repo $REPO --dry-run"
   probe r35-quoted "Run exactly this command, keeping the quotes, and report verbatim whether it ran or was rejected for permission: dynamic-skills 'save' --session $s --scope project --harness opencode"
   probe r35-spaced "Run exactly this command, keeping the two spaces after dynamic-skills, and report verbatim whether it ran or was rejected for permission: dynamic-skills  save --session $s --scope project --harness opencode"
+  fi
 }
 
 harness_checklist() {
@@ -111,6 +115,7 @@ harness_checklist() {
   [ ] R35: quoted and double-spaced 'save' bypassed the ask (probes r35-quoted, r35-spaced) while the plain call was rejected (d6-plain)
   [ ] D6: consent rule enforced: plain save and init were rejected (a prompt cannot appear headless)
   [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 60 s Timing line, AC 24 and AC 28 above
+  Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: OpenCode rejects it through the seeded bash ask-all rule (opencode run rejects every ask). Known harness default: on v2 the edit tool can write real files outside the denied roots; the edit denies are a list of roots, not a sandbox, so rely on AC 28 and the jail report.
   [ ] R31: '-V save' refused (R31 lines above)
 CHECK
   scan "$TMP/out/main.txt" "Question tool lines" 'question|cancel|assumption'

@@ -244,7 +244,7 @@ probe() {
   note "probe: $name"
   echo "[progress] running probe $name ..." >&2
   set +e
-  run_agent "$prompt" "$out" "$kind"
+  harness_run "$prompt" "$out" "$kind"
   local rc=$?
   set -e
   echo "(exit $rc after $((SECONDS - t0)) s)"
@@ -276,75 +276,146 @@ probe_session() {
   echo "${s:-smoke-no-session}"
 }
 
-# run_agent PROMPT OUT KIND: harness_run with SMOKE_AGENT=1 exported for the agent's processes only,
-# so the wrapper enforces R41 for them and the script's own calls stay unrestricted.
-run_agent() {
-  ( export SMOKE_AGENT=1; harness_run "$@" )
+# dynamic-skills: the script's OWN calls (init, report perf, R31) go straight to the built CLI
+# through this non-exported shell function. Bash does not pass functions to child processes, so the
+# agent only ever sees the guarded wrapper on PATH.
+dynamic-skills() {
+  node "$CLI" "$@"
 }
 
-# make_wrapper PATH NODE CLI LOG HARNESS: write the bare `dynamic-skills` wrapper (Ruling R41).
-# Under SMOKE_AGENT=1 it logs each call (so the count covers agent calls only; zero with a session
-# means another dynamic-skills shadowed this one, R19) and is the argument-level guard: `init`
-# only with --dry-run, `save` only with --scope project|ephemeral|discard and no --harness other
-# than the one under test. Exit 2 on refusal. Arguments are parsed by exact tokens, so quoting
-# games (`'init'`, double spaces) cannot change what is seen: the shell strips them first.
+# make_wrapper PATH NODE CLI LOG HARNESS JAIL REPO_REAL: write the bare `dynamic-skills` wrapper
+# (Ruling R41, amended). It always guards and always logs (no opt-in variable an agent could unset).
+# Layers: (1) for init and save, every home and config root points into $JAIL, so no parse trick can
+# reach the real home (authoritative; DYNAMIC_SKILLS_HOME stays the real temp session home);
+# (2) a strict parser: init and save accept only their own options (save --session --scope
+# --harness; init --harness --scope --repo; and --dry-run as its own token), refuse unknown or
+# repeated options, `--`, stray arguments and values starting with `-`; init only with --dry-run;
+# save only with --scope project|ephemeral|discard, a harness set that is exactly the one under
+# test (aliases and order allowed) and a session whose repo is the workspace repo; (3) any --repo
+# of any command must lie inside the workspace repo. Exit 2 and a log line on refusal.
 make_wrapper() {
-  local out="$1" node_bin="$2" cli="$3" log="$4" harness="$5"
+  local out="$1" node_bin="$2" cli="$3" log="$4" harness="$5" jail="$6" repo_real="$7"
+  rm -f "$out" # an earlier wrapper is read-only
   {
     echo '#!/usr/bin/env bash'
-    printf 'LOG=%q\nHARNESS=%q\n' "$log" "$harness"
+    printf 'LOG=%q\nHARNESS=%q\nJAIL=%q\nREPO_REAL=%q\nNODE=%q\nCLI=%q\n' \
+      "$log" "$harness" "$jail" "$repo_real" "$node_bin" "$cli"
     cat <<'WRAP'
-if [[ "${SMOKE_AGENT:-}" == "1" ]]; then
-  sub="" dry=0 scope="" has_scope=0 hv="" has_h=0 prev=""
-  for a in "$@"; do
-    case "$prev" in
-      --scope) scope="$a"; has_scope=1; prev=""; continue ;;
-      --harness) hv="$a"; has_h=1; prev=""; continue ;;
-    esac
-    prev=""
-    case "$a" in
-      --scope | --harness) prev="$a" ;;
-      --scope=*) scope="${a#--scope=}"; has_scope=1 ;;
-      --harness=*) hv="${a#--harness=}"; has_h=1 ;;
-      --dry-run) dry=1 ;;
-      -*) ;;
-      *) [[ -n "$sub" ]] || sub="$a" ;;
-    esac
-  done
-  refuse=""
-  if [[ "$sub" == "init" && "$dry" != "1" ]]; then
-    refuse="init is allowed only with --dry-run"
-  elif [[ "$sub" == "save" ]]; then
-    if [[ "$has_scope" != "1" ]] || [[ "$scope" != "project" && "$scope" != "ephemeral" && "$scope" != "discard" ]]; then
-      refuse="save needs --scope project, ephemeral or discard"
-    elif [[ "$has_h" == "1" && "$hv" != "$HARNESS" ]]; then
-      refuse="save --harness must be $HARNESS"
+orig=("$@")
+sub="${1:-}"
+refuse() {
+  printf '%s %s refused: %s\n' "$(date +%s)" "${sub:-none}" "$1" >>"$LOG"
+  echo "dynamic-skills (live smoke guard, R41): refused: $1" >&2
+  exit 2
+}
+rp() { ( cd "$1" 2>/dev/null && pwd -P ); }
+inside() {
+  local r
+  r="$(rp "$1")" || return 1
+  [[ -n "$r" && ( "$r" == "$REPO_REAL" || "$r" == "$REPO_REAL"/* ) ]]
+}
+case "$sub" in
+  init | save)
+    shift
+    dry=0
+    while [[ $# -gt 0 ]]; do
+      a="$1"; shift
+      name=""; val=""
+      case "$a" in
+        --) refuse "-- is not allowed" ;;
+        --dry-run) [[ "$dry" == "0" ]] || refuse "repeated --dry-run"; dry=1; continue ;;
+        --*=*) name="${a%%=*}"; val="${a#*=}" ;;
+        --*) name="$a"; [[ $# -gt 0 ]] || refuse "$a needs a value"; val="$1"; shift ;;
+        *) refuse "unexpected argument" ;;
+      esac
+      case "$sub:$name" in
+        save:--session | save:--scope | save:--harness | init:--harness | init:--scope | init:--repo) ;;
+        *) refuse "unknown option $name for $sub" ;;
+      esac
+      [[ -n "$val" && "$val" != -* ]] || refuse "bad value for $name"
+      case "$name" in
+        --session) [[ -z "${o_session+x}" ]] || refuse "repeated $name"; o_session="$val" ;;
+        --scope) [[ -z "${o_scope+x}" ]] || refuse "repeated $name"; o_scope="$val" ;;
+        --harness) [[ -z "${o_harness+x}" ]] || refuse "repeated $name"; o_harness="$val" ;;
+        --repo) [[ -z "${o_repo+x}" ]] || refuse "repeated $name"; o_repo="$val" ;;
+      esac
+    done
+    if [[ "$sub" == "init" ]]; then
+      [[ "$dry" == "1" ]] || refuse "init is allowed only with --dry-run"
+      [[ -z "${o_repo+x}" ]] || inside "$o_repo" || refuse "--repo is outside the workspace repo"
+    else
+      case "${o_scope:-}" in project | ephemeral | discard) ;; *) refuse "save needs --scope project, ephemeral or discard" ;; esac
+      if [[ -n "${o_harness+x}" ]]; then
+        set_h="$(printf '%s\n' "${o_harness//,/ }" | tr ' ' '\n' | sed 's/^claude$/claude-code/' | LC_ALL=C sort -u | tr '\n' ' ')"
+        [[ "$set_h" == "$HARNESS " ]] || refuse "save --harness must be exactly $HARNESS"
+      fi
+      sid="${o_session:-}"
+      [[ "$sid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || refuse "save needs a valid --session"
+      sfile="${DYNAMIC_SKILLS_HOME:-/nonexistent}/sessions/$sid/session.json"
+      [[ -f "$sfile" ]] || refuse "session $sid not found"
+      srepo="$("$NODE" -e 'try { const r = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).repo; if (typeof r === "string") console.log(r); } catch { }' "$sfile")"
+      [[ -n "$srepo" ]] && inside "$srepo" || refuse "the session repo is not the workspace repo"
     fi
-  fi
-  if [[ -n "$refuse" ]]; then
-    printf '%s %s refused: %s\n' "$(date +%s)" "${sub:-none}" "$refuse" >>"$LOG"
-    echo "dynamic-skills (live smoke guard, R41): refused: $refuse" >&2
-    exit 2
-  fi
-  printf '%s %s allowed\n' "$(date +%s)" "${sub:-none}" >>"$LOG"
-fi
+    mkdir -p "$JAIL/home" "$JAIL/claude" "$JAIL/codex" "$JAIL/xdg" "$JAIL/opencode" "$JAIL/etc"
+    export HOME="$JAIL/home" CLAUDE_CONFIG_DIR="$JAIL/claude" CODEX_HOME="$JAIL/codex" \
+      XDG_CONFIG_HOME="$JAIL/xdg" OPENCODE_CONFIG_DIR="$JAIL/opencode" DYNAMIC_SKILLS_ETC_DIR="$JAIL/etc"
+    ;;
+  *)
+    prev=""
+    for a in "$@"; do
+      if [[ "$prev" == "--repo" ]]; then
+        inside "$a" || refuse "--repo is outside the workspace repo"
+        prev=""
+      fi
+      case "$a" in
+        --repo) prev="--repo" ;;
+        --repo=*) inside "${a#--repo=}" || refuse "--repo is outside the workspace repo" ;;
+      esac
+    done
+    ;;
+esac
+printf '%s %s allowed\n' "$(date +%s)" "${sub:-none}" >>"$LOG"
 WRAP
-    printf 'exec %q %q "$@"\n' "$node_bin" "$cli"
+    echo 'exec "$NODE" "$CLI" ${orig[@]+"${orig[@]}"}'
   } >"$out"
   chmod 555 "$out"
 }
 
-# cli_calls_report: how many agent calls reached the workspace wrapper; zero with a session means
-# shadowing. Called right after the main run, so the count is the main run's.
+# cli_calls_report: how many agent calls reached the workspace wrapper (it always logs); zero with
+# a session means shadowing. Called right after the main run, so the count is the main run's.
 cli_calls_report() {
   local n=0 session
   if [[ -f "$CALLS_LOG" ]]; then n="$(wc -l <"$CALLS_LOG" | tr -d ' ')"; fi
   session="$(newest_session)"
   echo
-  echo "Workspace dynamic-skills calls by the agent (logged only under SMOKE_AGENT=1): $n"
+  echo "Workspace dynamic-skills calls by the agent (all logged by the wrapper): $n"
   if [[ "$n" == "0" && -n "$session" ]]; then
     echo "SHADOWED: a session exists but the workspace build was never called by the agent; another dynamic-skills ran (R19)."
   fi
+}
+
+# jail_report LABEL: init and save run with every home and config root pointed into $JAIL, so
+# anything written there is evidence that the agent attempted a personal-scope write.
+jail_report() {
+  local label="$1" files
+  files="$(snapshot_roots "$JAIL" | sed 's/^[^ ]*  //' | tr '\n' ' ')"
+  if [[ -z "${files// /}" ]]; then
+    echo "JAIL ($label): clean (no personal-scope write was attempted through init or save)"
+  else
+    echo "JAIL ($label): the agent attempted a personal write, caught in the jail: $files"
+  fi
+}
+
+# probe_save_ok: true when the newest session's repo is the workspace repo, so a project-scope save
+# can only write there (the wrapper enforces the same). Probes that save skip otherwise.
+probe_save_ok() {
+  local s r real
+  s="$(newest_session)"
+  [[ -n "$s" ]] || return 1
+  r="$(json_field "$DYNAMIC_SKILLS_HOME/sessions/$s/session.json" repo)"
+  [[ -n "$r" ]] || return 1
+  real="$(cd "$r" 2>/dev/null && pwd -P)" || return 1
+  [[ "$real" == "$REPO_REAL" ]]
 }
 
 # smoke_cleanup: opt-in keep (SMOKE_KEEP=<absolute dir>), then remove the workspace. Runs from the
@@ -393,14 +464,16 @@ smoke_setup() {
   TMP_REAL="$TMP"
   REPO_REAL="$REPO"
   DSH_REAL="$DYNAMIC_SKILLS_HOME"
-  # The bare dynamic-skills is a guarding, logging wrapper (R41, R19); the bin dir and the wrapper
-  # are made read-only so the agent cannot rewrite them (the agent also has no grant on them).
+  # The bare dynamic-skills is a guarding, logging, jailing wrapper (R41, R19); the bin dir and the
+  # wrapper are made read-only so the agent cannot rewrite them (the agent has no grant on them).
   CALLS_LOG="$TMP/out/cli-calls.log"
-  make_wrapper "$BIN/dynamic-skills" "$(command -v node)" "$CLI" "$CALLS_LOG" "$HARNESS_ID"
+  JAIL="$TMP/jail"
+  mkdir -p "$JAIL"
+  make_wrapper "$BIN/dynamic-skills" "$(command -v node)" "$CLI" "$CALLS_LOG" "$HARNESS_ID" "$JAIL" "$REPO_REAL"
   chmod a-w "$BIN"
-  if type -a dynamic-skills >/dev/null 2>&1; then
+  if [[ -n "$(type -Pa dynamic-skills 2>/dev/null)" ]]; then
     echo "WARNING: a dynamic-skills is already installed on PATH; it could shadow the workspace build:" >&2
-    type -a dynamic-skills >&2 || true
+    type -Pa dynamic-skills >&2 || true
   fi
   export PATH="$BIN:$PATH"
   TIMEOUT_CMD=()
@@ -413,7 +486,7 @@ smoke_setup() {
       echo "WARNING: neither timeout nor gtimeout found; a hung harness run will not be stopped." >&2
     fi
   fi
-  [[ "$(command -v dynamic-skills)" == "$BIN/dynamic-skills" ]] \
+  [[ "$(type -P dynamic-skills)" == "$BIN/dynamic-skills" ]] \
     || die "The linked dynamic-skills is not first on PATH."
 
   echo "Workspace: $TMP (removed on exit)"
@@ -441,7 +514,7 @@ smoke_main() {
   echo "[progress] running $HARNESS_ID ($mode mode) in $REPO (timeout ${TIMEOUT_CMD[*]:-none}) ..." >&2
   t0=$SECONDS
   set +e
-  run_agent "$prompt" "$TMP/out/main.txt" main
+  harness_run "$prompt" "$TMP/out/main.txt" main
   local rc=$?
   set -e
   secs=$((SECONDS - t0))
@@ -453,6 +526,7 @@ smoke_main() {
   print_timing "$secs"
   print_reports
   cli_calls_report
+  jail_report "main run"
   echo
   ac28_check "AC 28"
 
@@ -461,6 +535,7 @@ smoke_main() {
   fi
   echo
   ac28_check "AC 28 (after probes)" real
+  jail_report "after probes"
   echo
   r31_check
   echo

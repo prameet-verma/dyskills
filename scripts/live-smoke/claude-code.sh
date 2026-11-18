@@ -103,7 +103,11 @@ harness_probes() {
   echo "  d6-save = denied by the ask rule loaded with --settings; d6-init = denied by the R40 command-line deny;"
   echo "  compound = allowed by Bash(dynamic-skills *); var-alias = whether the /var spelling of the session home is writable."
   CONSENT_SESSION="$s"
-  probe d6-save "Run exactly this command and report verbatim what happened, including any denial: dynamic-skills save --session $s --scope project --harness claude-code" probe-consent
+  if probe_save_ok; then
+    probe d6-save "Run exactly this command and report verbatim what happened, including any denial: dynamic-skills save --session $s --scope project --harness claude-code" probe-consent
+  else
+    echo "(probe d6-save skipped: no session whose repo is the workspace repo)"
+  fi
   probe d6-init "Run exactly this command and report verbatim what happened, including any denial: dynamic-skills init --harness claude-code --scope project --repo $REPO --dry-run"
   probe compound "Run exactly this single compound command and report verbatim whether it ran or was denied: cd \"$REPO\" && dynamic-skills report perf"
   if [[ "$DYNAMIC_SKILLS_HOME" == /private/* ]]; then
@@ -129,6 +133,7 @@ harness_checklist() {
   [ ] Followed the bootstrap end to end (assess, discover, evaluate, activate, then work)?
   [ ] Phase 1 gate item 7: AC 3 autonomous invocation (did the skill start without being named; run both modes)
   [ ] Live AC 8 and the 60 s timing (Timing line above); AC 24 and AC 28 lines above
+  Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: Claude Code denies it (only Bash(dynamic-skills *) is allowed); the wrapper (R41) jails and guards every bare call.
   [ ] R31: '-V save' refused (R31 lines above)
 CHECK
   if [[ "$NATIVE" == "1" ]]; then

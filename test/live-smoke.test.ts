@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -205,89 +206,197 @@ describe("fix round 2", () => {
     return r.stdout.split("\n").filter((l) => l !== "");
   }
 
-  describe("R41 wrapper", () => {
+  describe("R41 wrapper (always on, jailed)", () => {
+    const H = ["--harness", "claude-code"];
+    /** Build the wrapper around a fake CLI and run it with the given args. */
     function wrapperRun(
       args: string[],
-      agent: boolean,
-    ): { code: number; out: string; calls: string } {
+      opts: { cliBody?: string; sessions?: Record<string, string> } = {},
+    ) {
       const bin = join(dir, "bin");
+      const repo = join(dir, "repo");
+      const dsh = join(dir, "sessions-home");
       mkdirSync(bin, { recursive: true });
+      mkdirSync(repo, { recursive: true });
+      const repoReal = realpathSync(repo);
+      const sessions = { S1: repoReal, S2: realpathSync(tmpdir()), ...opts.sessions };
+      for (const [id, r] of Object.entries(sessions)) {
+        mkdirSync(join(dsh, "sessions", id), { recursive: true });
+        writeFileSync(join(dsh, "sessions", id, "session.json"), JSON.stringify({ id, repo: r }));
+      }
       const cli = join(dir, "fake-cli.js");
-      writeFileSync(cli, 'console.log("ran: " + process.argv.slice(2).join(" "));\n');
+      writeFileSync(
+        cli,
+        opts.cliBody ?? 'console.log("ran: " + process.argv.slice(2).join(" "));\n',
+      );
       const log = join(dir, "calls.log");
+      const jail = join(dir, "jail");
       const w = join(bin, "dynamic-skills");
       const r0 = bash(
-        `${src("scripts/live-smoke/lib.sh")}; make_wrapper ${JSON.stringify(w)} "$(command -v node)" ${JSON.stringify(cli)} ${JSON.stringify(log)} claude-code`,
+        `${src("scripts/live-smoke/lib.sh")}; make_wrapper ${JSON.stringify(w)} "$(command -v node)" ${JSON.stringify(cli)} ${JSON.stringify(log)} claude-code ${JSON.stringify(jail)} ${JSON.stringify(repoReal)}`,
       );
       expect(r0.stderr).toBe("");
-      const env: Record<string, string> = agent ? { SMOKE_AGENT: "1" } : {};
-      const r = spawnSync(w, args, {
-        encoding: "utf8",
-        env: { ...process.env, ...env, SMOKE_AGENT: agent ? "1" : "" },
-      });
+      const env = { ...process.env, DYNAMIC_SKILLS_HOME: dsh, HOME: join(dir, "home") };
+      mkdirSync(env.HOME, { recursive: true });
+      const r = spawnSync(w, args, { encoding: "utf8", env });
       const calls = existsSync(log) ? readFileSync(log, "utf8") : "";
-      return { code: r.status ?? -1, out: r.stdout, calls };
+      return {
+        code: r.status ?? -1,
+        out: r.stdout,
+        err: r.stderr,
+        calls,
+        repoReal,
+        jail,
+        home: env.HOME,
+      };
     }
-    const H = ["--harness", "claude-code"];
+    const S = ["--session", "S1"];
 
     it.each([
       ["init without --dry-run", ["init", ...H, "--scope", "project", "--repo", "/x"]],
       [
+        "init hiding --dry-run as the value of --repo",
+        ["init", ...H, "--scope", "personal", "--repo", "--dry-run"],
+      ],
+      [
         "init for another harness without --dry-run",
         ["init", "--harness", "codex", "--scope", "personal"],
       ],
-      ["save --scope personal", ["save", "--session", "s", "--scope", "personal", ...H]],
-      ["save --scope=personal", ["save", "--session", "s", "--scope=personal", ...H]],
       [
-        "save with another harness",
-        ["save", "--session", "s", "--scope", "project", "--harness", "codex"],
+        "init --dry-run with a repo outside the workspace",
+        ["init", ...H, "--repo", "/", "--dry-run"],
+      ],
+      ["init --dry-run=1", ["init", ...H, "--dry-run=1"]],
+      ["save --scope personal", ["save", ...S, "--scope", "personal", ...H]],
+      ["save --scope=personal", ["save", ...S, "--scope=personal", ...H]],
+      [
+        "save hiding a scope inside --session",
+        ["save", "--scope", "personal", "--session", "--scope=project", "--session", "S1"],
       ],
       [
-        "save with --harness=codex",
-        ["save", "--session", "s", "--scope", "project", "--harness=codex"],
+        "save hiding a harness inside --session",
+        ["save", "--scope", "project", "--session", "--harness=opencode", "--session", "S1"],
       ],
+      ["save with a repeated option", ["save", ...S, ...S, "--scope", "project"]],
+      ["save with an unknown option", ["save", ...S, "--scope", "project", "--force"]],
+      ["save with --", ["save", ...S, "--scope", "project", "--"]],
+      ["save with a stray positional", ["save", ...S, "--scope", "project", "extra"]],
+      ["save with another harness", ["save", ...S, "--scope", "project", "--harness", "codex"]],
+      ["save with --harness=codex", ["save", ...S, "--scope", "project", "--harness=codex"]],
       [
         "save with a harness list",
-        ["save", "--session", "s", "--scope", "project", "--harness", "claude-code,codex"],
+        ["save", ...S, "--scope", "project", "--harness", "claude-code,codex"],
       ],
-      ["save without --scope", ["save", "--session", "s", ...H]],
-    ])("refuses %s under SMOKE_AGENT=1 with exit 2 and a log line", (_n, args) => {
-      const r = wrapperRun(args, true);
+      ["save without --scope", ["save", ...S, ...H]],
+      ["save without --session", ["save", "--scope", "project", ...H]],
+      [
+        "save of a session whose repo is elsewhere",
+        ["save", "--session", "S2", "--scope", "project", ...H],
+      ],
+      [
+        "save of a session that does not exist",
+        ["save", "--session", "nope", "--scope", "project", ...H],
+      ],
+      ["save with a path-like session", ["save", "--session", "../S1", "--scope", "project", ...H]],
+      ["assess with a repo outside the workspace", ["assess", "--repo", "/"]],
+      ["report with --repo=<outside>", ["report", "perf", "--repo=/"]],
+    ])("refuses %s with exit 2 and a log line", (_n, args) => {
+      const r = wrapperRun(args);
       expect(r.code).toBe(2);
       expect(r.out).not.toContain("ran:");
       expect(r.calls).toMatch(/refused/);
     });
 
     it.each([
-      ["init --dry-run", ["init", ...H, "--scope", "personal", "--dry-run"]],
-      ["save --scope project", ["save", "--session", "s", "--scope", "project", ...H]],
       [
-        "save --scope=project",
-        ["save", "--session", "s", "--scope=project", "--harness=claude-code"],
+        "init --dry-run",
+        (r: string) => ["init", ...H, "--scope", "personal", "--repo", r, "--dry-run"],
       ],
-      ["save --scope ephemeral", ["save", "--session", "s", "--scope", "ephemeral", ...H]],
-      ["save --scope discard", ["save", "--session", "s", "--scope", "discard", ...H]],
-      ["report perf", ["report", "perf"]],
-    ])("passes %s through under SMOKE_AGENT=1 and logs it", (_n, args) => {
-      const r = wrapperRun(args, true);
+      ["init --harness=x --dry-run", () => ["init", "--harness=codex", "--dry-run"]],
+      ["save --scope project", () => ["save", ...S, "--scope", "project", ...H]],
+      [
+        "save with = forms",
+        () => ["save", "--session=S1", "--scope=project", "--harness=claude-code"],
+      ],
+      [
+        "save with the claude alias",
+        () => ["save", ...S, "--scope", "project", "--harness", "claude"],
+      ],
+      [
+        "save with an aliased list in any order",
+        () => ["save", ...S, "--scope", "project", "--harness", "claude,claude-code"],
+      ],
+      ["save --scope ephemeral", () => ["save", ...S, "--scope", "ephemeral", ...H]],
+      [
+        "save --scope discard --dry-run",
+        () => ["save", ...S, "--scope", "discard", ...H, "--dry-run"],
+      ],
+      ["report perf", () => ["report", "perf"]],
+      ["assess with a repo inside", (r: string) => ["assess", "--repo", r]],
+    ])("passes %s through and logs an allowed line", (_n, mk) => {
+      mkdirSync(join(dir, "repo"), { recursive: true });
+      const args = mk(realpathSync(join(dir, "repo")));
+      const r = wrapperRun(args);
+      expect(r.err).toBe("");
       expect(r.code).toBe(0);
       expect(r.out).toContain("ran: " + args.join(" "));
       expect(r.calls.trim().split("\n")).toHaveLength(1);
+      expect(r.calls).toMatch(/allowed/);
       expect(r.calls).not.toMatch(/refused/);
     });
 
-    it("guards nothing and logs nothing without SMOKE_AGENT", () => {
-      const r = wrapperRun(["save", "--session", "s", "--scope", "personal", ...H], false);
-      expect(r.code).toBe(0);
-      expect(r.out).toContain("ran: save");
-      expect(r.calls).toBe("");
+    it("guards with no special environment set (no opt-in variable)", () => {
+      const r = wrapperRun(["save", ...S, "--scope", "personal", ...H]);
+      expect(r.code).toBe(2);
     });
 
-    it("sets SMOKE_AGENT only around the agent run and makes the wrapper read-only", () => {
+    it("runs init and save with every home and config root jailed inside the workspace", () => {
+      const body = [
+        'const fs = require("node:fs"); const path = require("node:path");',
+        'fs.mkdirSync(path.join(process.env.HOME, ".claude"), { recursive: true });',
+        'fs.writeFileSync(path.join(process.env.HOME, ".claude", "x"), "w");',
+        'console.log(["HOME","CLAUDE_CONFIG_DIR","CODEX_HOME","XDG_CONFIG_HOME","OPENCODE_CONFIG_DIR","DYNAMIC_SKILLS_ETC_DIR","DYNAMIC_SKILLS_HOME"].map((k) => k + "=" + process.env[k]).join("\\n"));',
+      ].join("\n");
+      const r = wrapperRun(["save", ...S, "--scope", "project", ...H], { cliBody: body });
+      expect(r.code).toBe(0);
+      expect(existsSync(join(r.home, ".claude", "x"))).toBe(false);
+      expect(existsSync(join(r.jail, "home", ".claude", "x"))).toBe(true);
+      for (const k of [
+        "HOME",
+        "CLAUDE_CONFIG_DIR",
+        "CODEX_HOME",
+        "XDG_CONFIG_HOME",
+        "OPENCODE_CONFIG_DIR",
+        "DYNAMIC_SKILLS_ETC_DIR",
+      ]) {
+        expect(r.out, k).toMatch(
+          new RegExp(`${k}=${r.jail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`),
+        );
+      }
+      expect(r.out).toContain("DYNAMIC_SKILLS_HOME=" + join(dir, "sessions-home"));
+    });
+
+    it("does not jail other commands", () => {
+      const r = wrapperRun(["report", "perf"], {
+        cliBody: 'console.log("HOME=" + process.env.HOME);',
+      });
+      expect(r.out).toContain("HOME=" + join(dir, "home"));
+    });
+
+    it("has no opt-in variable and bypasses the guard only through a non-exported function", () => {
       const lib = code("scripts/live-smoke/lib.sh");
-      expect(lib).toMatch(/export SMOKE_AGENT=1/);
+      for (const f of [
+        "scripts/live-smoke/claude-code.sh",
+        "scripts/live-smoke/codex.sh",
+        "scripts/live-smoke/opencode.sh",
+      ]) {
+        expect(code(f)).not.toContain("SMOKE_AGENT");
+      }
+      expect(lib).not.toContain("SMOKE_AGENT");
+      expect(lib).toMatch(/^dynamic-skills\(\) \{/m);
+      expect(lib).not.toMatch(/export -f/);
+      expect(lib).toContain("type -P");
       expect(lib).toContain("chmod a-w");
-      expect(lib).not.toMatch(/^export SMOKE_AGENT/m);
     });
   });
 
@@ -378,6 +487,7 @@ describe("fix round 2", () => {
         join(dir, "repo", ".agents", "skills") + "/*",
         join(dir, "bin") + "/*",
         join(dir, "opencode-config") + "/*",
+        join(dir, "out") + "/*",
         join(dir, "repo", "opencode.json") + "*",
         join(dir, "repo", ".opencode", "opencode.json") + "*",
       ]) {
@@ -469,5 +579,111 @@ describe("fix round 2", () => {
       expect(lib).toContain(f);
     expect(lib).not.toContain("lastStep");
     expect(lib).not.toContain("read -r -a");
+  });
+});
+
+describe("fix round 3", () => {
+  let dir = "";
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "smoke-r3-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("exports OPENCODE_CONFIG_CONTENT to the harness process", () => {
+    const shim = join(dir, "shim");
+    mkdirSync(shim);
+    writeFileSync(
+      join(shim, "opencode"),
+      '#!/usr/bin/env bash\necho "CONTENT=$OPENCODE_CONFIG_CONTENT"\n',
+      { mode: 0o755 },
+    );
+    const repo = join(dir, "repo");
+    mkdirSync(repo);
+    const script = [
+      `export HOME=${JSON.stringify(join(dir, "home"))} PATH=${JSON.stringify(shim)}:$PATH`,
+      `REAL_HOME=$HOME; TMP=${JSON.stringify(dir)}; REPO=${JSON.stringify(repo)}; DSH_REAL=$TMP/s; HARNESS_ID=opencode`,
+      "OPENCODE_GLOBAL_CONFIG=$HOME/.config/opencode; CODEX_HOME_REAL=$HOME/.codex; MODE=main; VARIANT=v1; TIMEOUT_CMD=()",
+      src("scripts/live-smoke/opencode.sh"),
+      'harness_run "p" "$TMP/o.txt" main',
+    ].join("\n");
+    expect(bash(script).status).toBe(0);
+    const out = readFileSync(join(dir, "o.txt"), "utf8");
+    expect(out).toContain('"dynamic-skills init *":"deny"');
+    expect(out).toContain('"dynamic-skills save *":"deny"');
+  });
+
+  it("smoke_main always runs the after-probe AC 28 check, even with probes skipped", () => {
+    for (const skip of ["0", "1"]) {
+      const script = [
+        src("scripts/live-smoke/lib.sh"),
+        "smoke_setup() { REPO=/r; TMP=/t; DYNAMIC_SKILLS_HOME=/h; TIMEOUT_CMD=(); }",
+        "harness_version_check() { :; }; real_skill_roots() { REAL_ROOTS=(); }; repo_skill_roots() { REPO_ROOTS=(); }",
+        "snapshot_roots() { :; }; harness_install() { :; }; harness_prompt() { echo p; }",
+        "harness_run() { :; }; print_timing() { :; }; print_reports() { :; }; cli_calls_report() { :; }",
+        'jail_report() { echo JAIL "$*"; }; r31_check() { echo R31; }; harness_checklist() { :; }',
+        'harness_probes() { echo PROBES; }; ac28_check() { echo "AC28 $*"; }',
+        `SMOKE_SKIP_PROBES=${skip}; smoke_main h b autonomous`,
+      ].join("\n");
+      const r = bash(script);
+      const out = r.stdout.split("\n");
+      const after = out.indexOf("AC28 AC 28 (after probes) real");
+      expect(after, skip).toBeGreaterThan(out.indexOf("AC28 AC 28"));
+      if (skip === "0") expect(out.indexOf("PROBES")).toBeLessThan(after);
+      else expect(out).not.toContain("PROBES");
+      expect(out.some((l) => l.startsWith("JAIL"))).toBe(true);
+    }
+  });
+
+  it("reports the jail contents as evidence and SHADOWED on zero logged calls", () => {
+    const jail = join(dir, "jail", "home", ".claude");
+    mkdirSync(jail, { recursive: true });
+    writeFileSync(join(jail, "settings.json"), "{}");
+    const r = bash(
+      `${src("scripts/live-smoke/lib.sh")}; JAIL=${JSON.stringify(join(dir, "jail"))}; jail_report "main run"`,
+    );
+    expect(r.stdout).toMatch(
+      /JAIL \(main run\): the agent attempted a personal write.*settings\.json/,
+    );
+    const empty = bash(
+      `${src("scripts/live-smoke/lib.sh")}; mkdir -p ${JSON.stringify(join(dir, "j2"))}; JAIL=${JSON.stringify(join(dir, "j2"))}; jail_report x`,
+    );
+    expect(empty.stdout).toMatch(/JAIL \(x\): clean/);
+    const dsh = join(dir, "dsh");
+    mkdirSync(join(dsh, "sessions", "S1"), { recursive: true });
+    const sh = bash(
+      `${src("scripts/live-smoke/lib.sh")}; DYNAMIC_SKILLS_HOME=${JSON.stringify(dsh)}; CALLS_LOG=${JSON.stringify(join(dir, "none.log"))}; cli_calls_report`,
+    );
+    expect(sh.stdout).toContain("SHADOWED");
+  });
+
+  it("skips save probes unless the newest session belongs to the workspace repo", () => {
+    const dsh = join(dir, "dsh");
+    mkdirSync(join(dsh, "sessions", "S1"), { recursive: true });
+    writeFileSync(
+      join(dsh, "sessions", "S1", "session.json"),
+      JSON.stringify({ repo: "/elsewhere" }),
+    );
+    const run = (repo: string) =>
+      bash(
+        `${src("scripts/live-smoke/lib.sh")}; DYNAMIC_SKILLS_HOME=${JSON.stringify(dsh)}; REPO_REAL=${JSON.stringify(repo)}; probe_save_ok && echo OK || echo SKIP`,
+      ).stdout.trim();
+    expect(run(dir)).toBe("SKIP");
+    writeFileSync(
+      join(dsh, "sessions", "S1", "session.json"),
+      JSON.stringify({ repo: realpathSync(dir) }),
+    );
+    expect(run(realpathSync(dir))).toBe("OK");
+  });
+
+  it("documents the layers per harness, the unverified -a flag and the writable log", () => {
+    const claude = read("scripts/live-smoke/claude-code.sh");
+    const codex = read("scripts/live-smoke/codex.sh");
+    const oc = read("scripts/live-smoke/opencode.sh");
+    expect(claude).toMatch(/absolute .*dist\/index\.js.*denied/is);
+    expect(oc).toMatch(/absolute .*dist\/index\.js.*ask/is);
+    expect(codex).toMatch(/absolute .*dist\/index\.js.*sandbox/is);
+    expect(codex).toMatch(/on-request.*UNVERIFIED/is);
+    expect(codex).toMatch(/can write the log/i);
+    expect(oc).toMatch(/v2.*edit tool.*outside the denied roots/is);
   });
 });
