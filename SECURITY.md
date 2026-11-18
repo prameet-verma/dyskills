@@ -100,9 +100,11 @@ treat as instructions. The design assumes both inputs can be hostile.
 
 ## Known limitations
 
-- Session artifact writes refuse symlinked components and re-check the parent's real path, but a
-  small window remains between that re-check and the `rename`, exploitable only by the same user
-  (the session directory is 0700). See the residual windows in
+- Session artifact writes (`writeSessionFile`) refuse symlinked components and re-check the
+  parent's real path, but a small window remains between that re-check and the `rename`.
+  `session.json` (written through a fixed `.tmp` name) and the `skills/` and `evals/` directories
+  are created without that check. All of these need write access to the 0700 session directory,
+  so only the same user can exploit them. See the residual windows in
   [architecture.md](docs/architecture.md#trust-boundaries).
 - Owner and permission checks need uids. On a platform without them (Windows) the home is
   checked only for being a real directory; use a private `DYNAMIC_SKILLS_HOME` there.

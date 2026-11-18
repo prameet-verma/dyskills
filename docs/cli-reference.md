@@ -399,9 +399,12 @@ stdout: `count`, `p50ActiveMs`, `p95ActiveMs`, `maxActiveMs`, `timeoutRate`, `fa
 `reuseRate`, `augmentationRate`, `cacheHitRate`, `avgClarificationRounds`, `avgContextRequests`.
 Percentiles are `null` when there are no sessions.
 
-### `init [--harness <list>] [--scope project|personal] [--repo <path>] [--dry-run] [--force]
+### `init`
 
-[--native] [--codex-allow-rule]`
+```text
+dynamic-skills init [--harness <list>] [--scope project|personal] [--repo <path>]
+  [--dry-run] [--force] [--native] [--codex-allow-rule]
+```
 
 Needs no session. Installs the bootstrap skill, the consent rules (D6) and each harness's own
 configuration. What each harness gets is listed in its guide

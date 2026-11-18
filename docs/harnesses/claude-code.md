@@ -135,7 +135,7 @@ later phase treats it as needing a relevance check. Saving an augmentation is no
 - **`/var` and `/private/var`.** Allow rules must match both the requested and the resolved path, so
   `init` writes realpaths. If you moved the session home, rerun `init`.
 - **`--add-dir` and native mode.** The directory must be the one `init` reported
-  (`<session home>/native/claude-code`) (`init --native` creates it); a directory added after start
+  (`<session home>/native/claude-code`, which `init --native` creates); a directory added after start
   needs `/add-dir`. Without it, the skill is still activated by reading `loadOrder`.
 - **`settings.local.json` in git.** It holds machine paths and must stay out of version control.
 - **Env-prefixed commands.** A command written as `FOO=1 dynamic-skills ...` does not match the

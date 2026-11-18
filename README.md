@@ -90,24 +90,24 @@ Sessions live in a private per-user home (`DYNAMIC_SKILLS_HOME`, default
 `<os tmpdir>/dynamic-skills-<uid>`).
 Full detail is in the [CLI README](packages/cli/README.md).
 
-| Command                                                             | Purpose                                                                  |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `assess --task <t> [--repo <p>] [--mode m] [--explicit]`            | Start a session and apply the invocation-mode gate.                      |
-| `discover --session <id>`                                           | Programmatic discovery and the Context Packet.                           |
-| `context request --session <id> --file <f>`                         | Ask for more repository files (3 rounds, safe-read rules).               |
-| `context submit --session <id> --file <f>`                          | Submit the agent's analysis (strictly validated).                        |
-| `sufficiency submit --session <id> --file <f>`                      | Record the reuse, augment or generate verdict.                           |
-| `sufficiency approve --session <id> --decision approve\|decline`    | Suggest mode: answer the approval prompt.                                |
-| `clarify ask` / `clarify answer --session <id> --file <f>`          | Ask material questions (clock paused) and apply the answers.             |
-| `compile --session <id>`                                            | Write the compilation brief and prepare the session `skills/` directory. |
-| `evaluate --session <id>`                                           | Run the generation evals and pin the evaluated bundle.                   |
-| `eval record --session <id> --output <f> --verdict pass\|fail`      | Record the behavioural smoke-eval result.                                |
-| `activate --session <id>`                                           | Gated activation: returns the skill, or refuses with a fallback.         |
-| `status --session <id>`                                             | Print the status block as plain text on stdout.                          |
-| `clean --session <id>`                                              | Archive the performance report, then remove the session directory.       |
-| `init [--harness l] [--scope s] [--dry-run] [--native]`             | Install the bootstrap skill and consent rules into each harness.         |
-| `save --session <id> --scope project\|personal\|ephemeral\|discard` | Persist the evaluated skill after the host asks you.                     |
-| `report perf`                                                       | Aggregate performance over all sessions (no session needed, read-only).  |
+| Command                                                             | Purpose                                                                   |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `assess --task <t> [--repo <p>] [--mode m] [--explicit]`            | Start a session and apply the invocation-mode gate.                       |
+| `discover --session <id>`                                           | Programmatic discovery and the Context Packet.                            |
+| `context request --session <id> --file <f>`                         | Ask for more repository files (3 rounds, safe-read rules).                |
+| `context submit --session <id> --file <f>`                          | Submit the agent's analysis (strictly validated).                         |
+| `sufficiency submit --session <id> --file <f>`                      | Record the reuse, augment or generate verdict.                            |
+| `sufficiency approve --session <id> --decision approve\|decline`    | Suggest mode: answer the approval prompt.                                 |
+| `clarify ask` / `clarify answer --session <id> --file <f>`          | Ask material questions (clock paused) and apply the answers.              |
+| `compile --session <id>`                                            | Write the compilation brief and prepare the session `skills/` directory.  |
+| `evaluate --session <id>`                                           | Run the generation evals and pin the evaluated bundle.                    |
+| `eval record --session <id> --output <f> --verdict pass\|fail`      | Record the behavioural smoke-eval result.                                 |
+| `activate --session <id>`                                           | Gated activation: returns the skill, or refuses with a fallback.          |
+| `status --session <id>`                                             | Print the status block as plain text on stdout.                           |
+| `clean --session <id>`                                              | Archive the performance report, then remove the session directory.        |
+| `init [--harness l] [--scope s] [--dry-run] [--native]`             | Install the bootstrap skill and consent rules into each harness.          |
+| `save --session <id> --scope project\|personal\|ephemeral\|discard` | Save (project/personal, after the host asks), keep ephemeral, or discard. |
+| `report perf`                                                       | Aggregate performance over all sessions (no session needed, read-only).   |
 
 ## Current limitations
 
@@ -202,7 +202,7 @@ versions.
    discovery, gap analysis, clarification, evals, activation gating, CLI and bootstrap skill.
 2. **Phase 2, Harness Integrations:** adapter contract and adapters, native activation, installer
    (implemented; gate pending).
-3. **Phase 3, Persistence and Lifecycle:** freshness, versioning, saving augmentations.
+3. **Phase 3, Persistence and Lifecycle:** freshness, versioning, saving augmentations, caching.
 4. **Phase 4, Evaluation Maturity:** eval fixture library, baseline-vs-skill benchmarks, regressions.
 5. **Phase 5, Ecosystem Expansion:** extension API, more adapters, optional headless LLM provider.
 
