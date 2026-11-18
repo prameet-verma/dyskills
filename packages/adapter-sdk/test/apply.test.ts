@@ -79,8 +79,9 @@ describe("applyPlan", () => {
       file(join(project, "c.txt"), "3"),
     ]);
     const r = await applyPlan(p, opts);
-    expect(r.map((w) => w.action)).toEqual(["create", "conflict", "create"]);
-    expect(r[1]?.reason).toBe("differs");
+    // Nothing was written, so no entry may claim a create or update.
+    expect(r.map((w) => w.action)).toEqual(["conflict", "conflict", "conflict"]);
+    expect(r.map((w) => w.reason)).toEqual(["not applied", "differs", "not applied"]);
     expect(await readdir(project)).toEqual(["b.txt"]);
   });
   it("force updates a differing file only", async () => {

@@ -115,6 +115,20 @@ const init = (args: string[], probe: FakeOpts, env: Record<string, unknown> = {}
 
 const names = (out: any): string[] => out.harnesses.map((x: any) => x.harness);
 
+/** Every path reported create/update exists; every path reported conflict was not created. */
+async function expectReportMatchesDisk(out: any): Promise<void> {
+  for (const x of out.harnesses) {
+    for (const w of x.writes) {
+      const there = await stat(w.path).then(
+        () => true,
+        () => false,
+      );
+      if (w.action === "create" || w.action === "update") expect(there, w.path).toBe(true);
+      if (w.action === "conflict" && w.reason === "not applied") expect(there, w.path).toBe(false);
+    }
+  }
+}
+
 describe("init: harness selection", () => {
   it("--dry-run writes nothing, not even the session home", async () => {
     const home = join(h.tmp, "missing-home");
@@ -231,6 +245,7 @@ describe("init: idempotency and conflicts", () => {
     expect(r.out.reason).toBe("conflict");
     expect(r.out.message).toContain("env.DYNAMIC_SKILLS_HOME");
     expect(r.out.message).toMatch(/edit or remove/i);
+    expect(r.out.message).toContain("No harness file was written");
     const conflict = r.out.harnesses[0].writes.find((w: any) => w.action === "conflict");
     expect(conflict.reason).toContain("env.DYNAMIC_SKILLS_HOME");
   });
@@ -247,7 +262,10 @@ describe("init: idempotency and conflicts", () => {
       expect(r.out.error).toBe("INIT_CONFLICT");
       expect(r.out.reason).toBe("apply-failed");
       const first = r.out.harnesses.find((x: any) => x.harness === "claude-code");
-      expect(first.writes.filter((w: any) => w.action === "create").length).toBeGreaterThan(0);
+      expect(first.writes.filter((w: any) => w.action === "create").length).toBe(3);
+      // 3 for claude-code plus the one codex write made before the failing one.
+      expect(r.out.message).toContain("4 write(s) applied so far (including codex)");
+      await expectReportMatchesDisk(r.out);
       await expect(stat(join(h.userHome, ".claude/settings.json"))).resolves.toBeTruthy();
     } finally {
       await chmod(dot, 0o700);
@@ -269,7 +287,14 @@ describe("init: idempotency and conflicts", () => {
     const claude = r.out.harnesses.find((x: any) => x.harness === "claude-code");
     expect(claude.writes.some((w: any) => w.action === "conflict")).toBe(true);
     expect(JSON.parse(await readFile(settings, "utf8")).env.DYNAMIC_SKILLS_HARNESS).toBe("other");
-    expect(r.out.message).toMatch(/\d+ write\(s\) applied/);
+    // Only codex's three files were written; claude-code's entries are "not applied".
+    expect(r.out.message).toContain("3 write(s) applied so far (including claude-code)");
+    for (const w of claude.writes) {
+      if (w.action === "conflict")
+        expect(["not applied", "conflicts"].some((x) => w.reason.includes(x))).toBe(true);
+      expect(w.action).not.toBe("create");
+    }
+    await expectReportMatchesDisk(r.out);
   });
 });
 
@@ -396,6 +421,18 @@ describe("init: git warning and verification", () => {
     }
   });
 
+  it("runs git without the repository's fsmonitor", async () => {
+    const calls: string[] = [];
+    const r = await init(["--harness", "claude-code", "--scope", "project"], {
+      bins: ALL,
+      calls,
+    });
+    expect(r.exitCode).toBe(0);
+    const git = calls.filter((c) => c.startsWith("git "));
+    expect(git.length).toBeGreaterThan(0);
+    for (const c of git) expect(c).toContain("-c core.fsmonitor=false");
+  });
+
   it("reports a verification failure without failing the command", async () => {
     const r = await init(["--harness", "codex"], { bins: ALL, codexPolicy: "allow" });
     expect(r.exitCode).toBe(0);
@@ -416,23 +453,33 @@ describe("program-level options before the subcommand (Ruling R31)", () => {
     ["--version", "init", "--harness", "codex"],
     ["--help", "init"],
     ["-V", "status", "--session", "x"],
+    ["-Vsave", "--session", "x"],
+    ["--version=1", "init", "--harness", "codex"],
   ]) {
     it(`rejects ${argv.slice(0, 2).join(" ")}`, async () => {
       const calls: string[] = [];
       const before = await hashTree(h.userHome);
       const r = await h.runWith(argv, { probe: fakeProbe({ bins: ALL, calls }) });
-      if (argv[0] === "--help") {
-        // Either help or USAGE is acceptable; init must never run.
-        expect(r.out.error === "USAGE" || r.out.help === true).toBe(true);
-      } else {
-        expect(r.exitCode).toBe(1);
-        expect(r.out.error).toBe("USAGE");
-      }
+      expect(r.exitCode).toBe(1);
+      expect(r.out.error).toBe("USAGE");
       expect(calls).toEqual([]);
       expect(await hashTree(h.userHome)).toEqual(before);
       await expect(stat(join(h.userHome, ".claude"))).rejects.toMatchObject({ code: "ENOENT" });
     });
   }
+
+  it("accepts `help init --harness codex` as help only", async () => {
+    const calls: string[] = [];
+    const before = await hashTree(h.userHome);
+    const r = await h.runWith(["help", "init", "--harness", "codex"], {
+      probe: fakeProbe({ bins: ALL, calls }),
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.out.help).toBe(true);
+    expect(calls).toEqual([]);
+    expect(await hashTree(h.userHome)).toEqual(before);
+    await expect(stat(join(h.userHome, ".codex"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
 
   it("rejects any argument before the subcommand, not only options", async () => {
     const r = await h.run(["junk", "init"]);

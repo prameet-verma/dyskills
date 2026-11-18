@@ -79,7 +79,7 @@ function conflictAdvice(reports: HarnessReport[]): string {
       .filter((w) => w.action === "conflict")
       .map((w) => `${w.path}: ${w.reason ?? "conflict"}`),
   );
-  const parts = [`Nothing was written. Conflicts: ${conflicts.join("; ")}.`];
+  const parts = [`No harness file was written. Conflicts: ${conflicts.join("; ")}.`];
   if (conflicts.some((c) => c.includes("env.DYNAMIC_SKILLS_HOME"))) {
     parts.push(
       "The settings already pin a different DYNAMIC_SKILLS_HOME at env.DYNAMIC_SKILLS_HOME; init never overwrites it, so edit or remove that key by hand, or keep using the session home it names, then run init again.",
@@ -224,7 +224,7 @@ function applyFailed(planned: Planned[], results: AppliedWrite[][], why: string)
   const last = planned[results.length - 1] as Planned;
   return new CliError(
     "INIT_CONFLICT",
-    `Install stopped at ${last.harness} (${why}); ${applied} write(s) applied before it and not rolled back. Fix the cause and run init again; it is idempotent.`,
+    `Install stopped at ${last.harness} (${why}); ${applied} write(s) applied so far (including ${last.harness}) and not rolled back. Fix the cause and run init again; it is idempotent.`,
     { reason: "apply-failed", harnesses: reports },
   );
 }
@@ -234,7 +234,16 @@ async function ignoreWarnings(plan: InstallPlan, probe: HostEnvProbe): Promise<s
   const out: string[] = [];
   for (const w of plan.writes) {
     if (w.mustBeIgnored !== true) continue;
-    const r = await probe.run("git", ["-C", plan.projectRoot, "check-ignore", "-q", w.path]);
+    const r = await probe.run("git", [
+      // A repository can configure code to run (`core.fsmonitor`); never let a project do that.
+      "-c",
+      "core.fsmonitor=false",
+      "-C",
+      plan.projectRoot,
+      "check-ignore",
+      "-q",
+      w.path,
+    ]);
     // Exit 1 means "not ignored"; 128 (not a repository) and a missing git say nothing.
     if (r.code === 1) out.push(`${w.path} is not ignored by git; keep it out of version control`);
   }

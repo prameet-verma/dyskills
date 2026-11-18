@@ -297,7 +297,7 @@ ignore it.
 
 Every harness is previewed first. Any conflict (a differing installer file, a merge conflict, a
 symlink, invalid JSON) makes the command fail with `INIT_CONFLICT` (`reason: "conflict"`) and
-**nothing is written for any harness**. `--force` replaces differing installer files only; a merge
+**no harness file is written for any harness** (only the session home may have been created). `--force` replaces differing installer files only; a merge
 conflict is never forced. In particular, running `init` again after `DYNAMIC_SKILLS_HOME` changed
 conflicts at `env.DYNAMIC_SKILLS_HOME` in the Claude Code settings: edit or remove that key by hand,
 then run `init` again. `--dry-run` reports the plan and creates nothing, not even the session home.
@@ -318,7 +318,7 @@ stdout: `dryRun`, `scope`, `sessionHome` (a realpath) and `harnesses`, one entry
 `INIT_CONFLICT` carries `reason` and the same `harnesses` report.
 
 Nothing may precede the subcommand: `dynamic-skills -V init ...` and every other leading option or
-word is `USAGE` (only a lone `-V`, `--version`, `-h` or `--help` is accepted), so permission rules
+word is `USAGE` (only a lone `-V`, `--version`, `-h` or `--help` is accepted, and `help <command>`, which only prints help), so permission rules
 that match `dynamic-skills init` cannot be bypassed.
 
 ## Error codes

@@ -53,7 +53,7 @@ newline) removed, because session ids and option values are agent-controlled.
   `assumptions`). To add a command, append a definition to `COMMANDS` and a name to
   `CliCommand`. A definition's `kind` is `session` (loaded under the lock), `create` (`assess`)
   or `global` (no session, no lock, no state machine: `report perf`, `init`). `runCli` rejects any
-  argument before the subcommand (Ruling R31) except a lone `-V`/`--version`/`-h`/`--help`.
+  argument before the subcommand (Ruling R31) except a lone `-V`/`--version`/`-h`/`--help` and `help <command>` (which only prints help).
 
 - **`bundleDigest(sessionDir)`, `assertBundlePinned(state, sessionDir)`, `MAX_BUNDLE_BYTES`**
   (internal, `src/commands/bundle.ts`): the bundle pin. `bundleDigest` hashes everything under
