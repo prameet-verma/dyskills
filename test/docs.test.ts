@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMMANDS } from "../packages/cli/src/commands/index";
 
@@ -17,12 +17,20 @@ function markdownFiles(dir: string): string[] {
   });
 }
 
+/** Adapter directories under `adapters/`. */
+function adapterDirs(): string[] {
+  return readdirSync(join(ROOT, "adapters")).filter((d) =>
+    statSync(join(ROOT, "adapters", d)).isDirectory(),
+  );
+}
+
 /** Relative link targets (fragment removed) in a markdown text; external and anchor links skipped. */
 function relativeLinks(markdown: string): string[] {
   // Links inside fenced code blocks and inline code spans are examples, not links.
   const text = markdown
     .replace(/^( {0,3})(```|~~~)[^\n]*\n[\s\S]*?^\1?\2[^\n]*$/gm, "")
-    .replace(/`[^`\n]*`/g, "");
+    // A span may wrap onto following lines (never across a blank line).
+    .replace(/`[^`\n]*(?:\n[^`\n]+)*`/g, "");
   const targets: string[] = [];
   for (const m of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
     const target = m[1] as string;
@@ -43,6 +51,22 @@ describe("documentation set", () => {
       const readme = join(ROOT, "packages", dir, "README.md");
       expect(existsSync(readme), `${dir} README`).toBe(true);
       expect(readFileSync(readme, "utf8"), `${dir} API heading`).toMatch(/^## API\s*$/m);
+    }
+  });
+
+  it("gives every adapter a README with an API section", () => {
+    const dirs = adapterDirs();
+    expect(dirs.length).toBeGreaterThanOrEqual(3);
+    for (const dir of dirs) {
+      const readme = join(ROOT, "adapters", dir, "README.md");
+      expect(existsSync(readme), `${dir} README`).toBe(true);
+      expect(readFileSync(readme, "utf8"), `${dir} API heading`).toMatch(/^## API\s*$/m);
+    }
+  });
+
+  it("ships a guide for every adapter", () => {
+    for (const dir of adapterDirs()) {
+      expect(existsSync(join(ROOT, "docs/harnesses", `${dir}.md`)), `${dir} guide`).toBe(true);
     }
   });
 
@@ -69,6 +93,7 @@ describe("documentation set", () => {
       ),
       ...markdownFiles(join(ROOT, "docs")),
       ...readdirSync(join(ROOT, "packages")).map((d) => join(ROOT, "packages", d, "README.md")),
+      ...adapterDirs().map((d) => join(ROOT, "adapters", d, "README.md")),
     ];
     const broken: string[] = [];
     for (const file of files) {
@@ -91,13 +116,18 @@ describe("documentation set", () => {
       "skills/dynamic-skill-bootstrap/SKILL.md",
       "scripts/live-smoke.sh",
       "README.md",
+      "CHANGELOG.md",
       "CONTRIBUTING.md",
       "SECURITY.md",
       "docs/superpowers/plans/2026-11-14-phase-1-jit-core-engine.md",
-      ...readdirSync(join(ROOT, "docs"))
-        .filter((f) => f.endsWith(".md"))
-        .map((f) => `docs/${f}`),
+      ...markdownFiles(join(ROOT, "docs"))
+        .map((f) => relative(ROOT, f))
+        .filter((f) => !f.startsWith(`docs${sep}superpowers${sep}`)),
       ...readdirSync(join(ROOT, "packages")).map((d) => `packages/${d}/README.md`),
+      ...adapterDirs().map((d) => `adapters/${d}/README.md`),
+      ...readdirSync(join(ROOT, "scripts/live-smoke"))
+        .filter((f) => f.endsWith(".sh"))
+        .map((f) => `scripts/live-smoke/${f}`),
     ];
     for (const f of files) {
       const text = readFileSync(join(ROOT, f), "utf8");
@@ -105,5 +135,10 @@ describe("documentation set", () => {
         /\b(?:npx|pnpx|bunx|pnpm\s+dlx|yarn\s+dlx|npm\s+exec)\s+dynamic-skills\b/,
       );
     }
+  });
+
+  it("keeps a code span that wraps a line from hiding a prose link", () => {
+    const text = "Use `a\nb` then [guide](docs/x.md) and `c` and [other](y.md).";
+    expect(relativeLinks(text)).toEqual(["docs/x.md", "y.md"]);
   });
 });

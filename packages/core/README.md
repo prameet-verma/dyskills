@@ -54,6 +54,13 @@ network access or harness-specific logic; its only I/O is the ephemeral session 
   `PRIVATE_DIR_MODE` (0700) and files `PRIVATE_FILE_MODE` (0600). Also `recordStage`,
   `enforceDeadline` (marks `timeout` and stops the clock), `hasEnded` and `stopClock` (freezes the
   SLA of an ended session).
+- **`writeSessionFile(sessionDir, rel, content)`** (`session.ts`): the one atomic writer of session
+  artifacts, also behind `SessionStore.writeArtifact`. `rel` must stay inside `sessionDir`; no
+  existing component of it may be a symlink or a non-directory (`UnsafeHomeError`, `HOME_UNSAFE`);
+  missing directories are created 0700; the file is written to a temp file in its directory (0600)
+  and renamed into place, with the parent's real path re-checked just before the rename. It returns
+  the absolute path. Only the same user can race the small window between that check and the
+  rename.
 - **`renderStatus(state, now)`** (`status.ts`): the user-visible status blocks (PRD §10.5),
   including waiting-for-approval and "Approval: Received" after `sufficiency-approve`; an ended
   session prints `Processing SLA: STOPPED`.

@@ -247,13 +247,13 @@ archived reports, so no ended session disappears from the PRD §17 metrics.
 - **Installer writes are planned, contained and consented.** Everything `init`, `save` and native
   placement write goes through the SDK (`applyPlan` or `placeBundle`) under the rules above, and the harness asks the user
   before `save` and `init` run.
-- **The Codex allow rule is a trust decision.** With `--codex-allow-rule`, `init` lets every
-  `dynamic-skills` command except `save` and `init` run outside the Codex sandbox, trusting
-  whatever `dynamic-skills` resolves to on `PATH`. It gives `save` and `init` no sandbox escape,
-  because their prompt rules always apply and an approved prompt runs with the session's current
-  permissions. Saving into `.agents/skills` from inside the sandbox may need an escalation request
-  or a terminal run; that is to be verified by the phase-gate live smoke and is still pending. The
-  rule is off by default.
+- **The Codex allow rule lets most `dynamic-skills` commands run unsandboxed.** With
+  `--codex-allow-rule`, every `dynamic-skills` command except `save` and `init` runs outside the
+  Codex sandbox without a prompt, trusting whatever `dynamic-skills` resolves to on `PATH`. `save`
+  and `init` keep their prompt rules; an approved prompt runs with the session's current permissions
+  (sandboxed unless the session itself is not), so the allow rule gives them no sandbox escape.
+  Whether `save` from inside Codex needs an escalation or a terminal run is pending live
+  verification (R32). The rule is off by default.
 - **Known residual windows.** Each needs write access to a parent directory: for the session home,
   only its owner; for project writes (`init` project scope, `save --scope project`), anyone who can
   write the repository's directories.

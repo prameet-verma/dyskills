@@ -115,7 +115,7 @@ export const codexAdapter: HarnessAdapter = {
     ];
     const notes = [
       "Restart Codex to load the rules.",
-      "`dynamic-skills save` and `init` ask for approval (a prompt rule); `codex exec` cannot approve and an allow rule cannot override a prompt rule (strictest wins); a non-interactive save means running `dynamic-skills save` outside Codex, or removing the prompt rule from `dynamic-skills.rules`.",
+      "`dynamic-skills save` and `init` ask for approval (a prompt rule); `codex exec` cannot approve and an allow rule cannot override a prompt rule (strictest wins); a non-interactive save means running `dynamic-skills save` in a terminal outside Codex (removing the prompt rule only lets it run in the exec sandbox, which most likely blocks writing `.agents/`, or without consent if the allow rule is on).",
     ];
     if (!opts.allowRule) {
       notes.push(

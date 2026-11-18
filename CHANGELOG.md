@@ -8,6 +8,39 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+Phase 2, Harness Integrations:
+
+- `dynamic-skills init`: installs the `dynamic-skill-bootstrap` skill, the permission and consent
+  rules and a read-only analyst agent for Claude Code, Codex and OpenCode (1.x and 2.x), planned
+  and previewed first, idempotent, and written only when no harness has a conflict. `--dry-run`,
+  `--force` (installer files only), `--scope project|personal`, `--native` and the opt-in
+  `--codex-allow-rule` (a trust decision: it runs `dynamic-skills` outside the Codex sandbox).
+- Consent rules in every harness: the harness asks before `dynamic-skills save` and
+  `dynamic-skills init`. Program options before the subcommand are rejected, so they cannot bypass
+  the rules. On OpenCode a quoted or extra-spaced subcommand is a known bypass.
+- `dynamic-skills save --scope project|personal|ephemeral|discard`: copies the evaluated bundle
+  byte for byte to the fewest skill roots the selected harnesses read, refusing a name already in
+  use, a machine path in a committed skill, or a path outside the project. Saved skills carry no
+  context fingerprint until Phase 3, and saving an augmentation is `SAVE_UNSUPPORTED` until then.
+- Optional native activation on Claude Code: `activate` also returns `native` (`{ name, path }` or
+  `null`), a placement under `<home>/native/` that a session started with `--add-dir` lists. Expired
+  placements are swept at every `assess` and `activate` (24 hour TTL, 10 minute grace, 2 second
+  budget).
+- Structured clarification questions (`options`, `multiSelect`) and `clarify ask --harness`, which
+  returns `native`, the plan for the harness's question tool (`AskUserQuestion`,
+  `request_user_input`, `question`); `CONTRACT_VERSION` stays `"1"`.
+- `@dynamic-skills/adapter-sdk` and the adapters `adapter-claude-code`, `adapter-codex` and
+  `adapter-opencode`, with a compatibility suite over four targets (claude-code, codex,
+  opencode-v1, opencode-v2); tested versions Claude Code `2.1.325`, Codex `0.169.0`, OpenCode
+  `1.19.5` and `2.3.0`.
+- Environment variables `DYNAMIC_SKILLS_HARNESS`, `DYNAMIC_SKILLS_NATIVE` and
+  `DYNAMIC_SKILLS_ETC_DIR`; error codes `INIT_CONFLICT`, `HARNESS_NOT_DETECTED`, `SAVE_CONFLICT`,
+  `SAVE_DENIED` and `SAVE_UNSUPPORTED`.
+- Harness guides under `docs/harnesses/`, an adapter authoring guide, ADRs 0007 to 0011 and a
+  release checklist; the live smoke scripts per harness (manual, never in CI).
+- The CLI is published as the unscoped package `dynamic-skills` (`npm i -g dynamic-skills`); it is
+  not yet published, and the license and repository URL are pending.
+
 Phase 1, the JIT Core Engine:
 
 - Versioned contracts (`CONTRACT_VERSION` 1) with generated JSON Schemas, an active-time SLA clock
@@ -28,6 +61,10 @@ Phase 1, the JIT Core Engine:
 
 ### Changed
 
+- The CLI package is renamed from `@dynamic-skills/cli` to `dynamic-skills`.
+- The "writes only inside the session directory" rule is amended: `init`, `save` and native
+  placement also write, each planned, contained and reported (see `SECURITY.md`).
+- A refused `activate` carries `native: null`.
 - Sessions that can no longer progress end terminally with reports and a `fallback`: a
   `clarify answer` that leaves a blocking question unresolved ends as completed/skipped, and
   `compile`'s `BASE_CHANGED` is a saved failed/failed outcome (still exit 1).
@@ -60,6 +97,12 @@ Phase 1, the JIT Core Engine:
 
 ### Security
 
+- Writes outside the session directory go through one executor that is idempotent, atomic,
+  symlink-refusing and contained in the project root or the realpath session home; `--force`
+  never applies to config merges, saved skills or base skills. Residual windows are listed in
+  `docs/architecture.md`.
+- The Codex allow rule, when opted into, runs `dynamic-skills` outside the sandbox and trusts
+  whatever resolves on `PATH`; it gives `save` and `init` no escape from the prompt rules.
 - One shared safe file reader in core (`readSafeFile`) now serves the CLI base read, activation's
   base read, `fingerprintFile` and discovery's readers: a FIFO, device symlink or oversize base can
   no longer hang or bloat `activate`, `evaluate` or `sufficiency submit`. `sufficiency submit`

@@ -18,14 +18,16 @@ pnpm check         # run before every commit
 
 ## Repo layout
 
-- `packages/` - one workspace package per directory, named `@dynamic-skills/<dir>`
+- `packages/` - one workspace package per directory, named `@dynamic-skills/<dir>` (the CLI in
+  `packages/cli` is the published package `dynamic-skills`)
+- `adapters/` - one package per harness, named `@dynamic-skills/adapter-<id>`
 - `fixtures/repos/` - small sample repositories used by tests
 - `schemas/` - generated JSON Schemas; do not edit by hand, run `pnpm gen:schemas`
 - `scripts/` - repository tooling (for example `gen-schemas.ts`)
 - `skills/` - the `dynamic-skill-bootstrap` routing skill
 - `test/` - repository-level tests (`docs.test.ts`) and the end-to-end suite (`test/e2e`)
-- `docs/` - [architecture](docs/architecture.md), [CLI reference](docs/cli-reference.md) and
-  [decision records](docs/adr/README.md)
+- `docs/` - [architecture](docs/architecture.md), [CLI reference](docs/cli-reference.md),
+  [harness guides](docs/harnesses/claude-code.md) and [decision records](docs/adr/README.md)
 - `docs/superpowers/plans/` - the roadmap and per-phase implementation plans
 - `PRD.md` - the product requirements that code and comments cite
 
@@ -73,6 +75,18 @@ A contract is any document a command reads or writes, or a stdout object. Change
 2. Run `pnpm gen:schemas` and commit the updated `schemas/` (CI compares the output).
 3. Add or update an ADR in `docs/adr/` and mention the change in `CHANGELOG.md`.
 4. Update the [CLI reference](docs/cli-reference.md) and affected package READMEs.
+
+## Adding an adapter
+
+An adapter teaches Dynamic Skills one harness: detection, the `init` plan, save roots, the roots it
+reads, question mapping and native placement. Follow the
+[adapter authoring guide](docs/adapters/authoring.md): create `adapters/<id>` as
+`@dynamic-skills/adapter-<id>` with a README that has a `## API` section, implement
+`HarnessAdapter`, register it in `packages/cli/src/adapters.ts` (the only CLI file that names
+harnesses), run the shared compatibility suite, pin its tested versions, and write
+`docs/harnesses/<id>.md`. A test requires both the README and the guide. Harness names stay out
+of core packages and the bootstrap skill. Docs and scripts call the bare `dynamic-skills` command,
+never a package runner; `test/docs.test.ts` enforces it.
 
 ## Changelog and decision records
 

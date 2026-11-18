@@ -36,14 +36,54 @@ treat as instructions. The design assumes both inputs can be hostile.
   guarantee. The evaluated bundle is pinned by digest, so an edit after evaluation is refused.
 - **Agent-written regular expressions are bounded.** They run in a worker thread under a total time
   budget and are terminated on timeout.
-- **No automatic installation, no package runner.** Nothing is installed into any agent or skill
-  directory. The bootstrap skill runs the bare `dynamic-skills` command and never a package runner,
-  which could fetch and run an unrelated registry package of the same name without a prompt
-  (Ruling R19); when the command is missing, the agent stops and asks the user to install it.
-- **Writes stay in the session directory in Phase 1.** Session artifact paths are lexically
-  confined to the session directory; agent-written bundle trees and performance reports are
-  walked or read without following symlinks; repository reads resolve real paths and re-check the
-  secret and excluded rules.
+- **No automatic installation, no package runner.** Nothing is installed or saved unless you run
+  `dynamic-skills init` or `save`, which the harness asks you to approve. The bootstrap skill runs
+  the bare `dynamic-skills` command and never a package runner, which could fetch and run an
+  unrelated registry package of the same name without a prompt (Ruling R19); when the command is
+  missing, the agent stops and asks the user to install it.
+- **Where Dynamic Skills writes.** A session writes inside its session directory. Session artifact
+  paths are lexically confined to it; agent-written bundle trees and performance reports are walked
+  or read without following symlinks; repository reads resolve real paths and re-check the secret
+  and excluded rules. Three other writes exist, each planned and reported through the SDK
+  (`applyPlan` for `init`, `placeBundle` for `save` and native placement) before it happens,
+  idempotent, atomic (a temp file or directory, then `rename`), refusing a symlink at the final path
+  and never overwriting a file it did not plan:
+  - **`init`** writes the bootstrap skill, an analyst agent and the harness's permission and
+    consent rules, only to the paths its plan lists (`--dry-run` writes nothing). It merges into
+    your settings and keeps every other key, comment and file mode; it writes nothing for any
+    harness when one has a conflict, and `--force` replaces only installer files, never config.
+  - **`save`** copies the evaluated bundle to the skill roots its plan lists, only after the
+    harness asks you (the consent rules below), and refuses a name already in use, a machine path
+    in a committed skill, and a project path that leaves the repository.
+  - **Native placement** (Claude Code, opt-in) writes only under `<realpath home>/native/`: the real
+    path of the target's parent must lie inside the realpath session home, and a pre-check
+    restricts it to `native/`. The placement is swept after 24 hours, when no session references
+    it, or when its sessions ended without activating; never within 10 minutes of being placed.
+
+  Ephemeral skills never reach a permanent skill directory. Project files must stay inside the
+  realpath of the project root; symlinked parents are followed only for personal files. The
+  residual windows (a parent swapped between the executor's last check and the `rename`, by someone
+  with write access to that directory) are listed in
+  [architecture.md](docs/architecture.md#trust-boundaries). The CLI is still not a privilege
+  boundary.
+
+- **Consent rules.** `init` makes the harness ask before `dynamic-skills save` and
+  `dynamic-skills init`, even where `dynamic-skills` is otherwise allowed: Claude Code
+  `permissions.ask` (ask beats allow), a Codex `prefix_rule` with `decision = "prompt"` (the
+  strictest wins) and OpenCode `"ask"` entries after the allow (the last match wins). The CLI
+  rejects any option placed before the subcommand so `dynamic-skills -V save` cannot slip past
+  them. **Limit:** OpenCode matches the raw command text, so a quoted or extra-spaced subcommand
+  (`dynamic-skills 'save' ...`) is not asked; the ask rules are a prompt for ordinary calls, not an
+  enforcement boundary. A headless run cannot answer a prompt, so a save there is a terminal run
+  of `dynamic-skills save` or a relaxed rule, as each [harness guide](docs/harnesses/claude-code.md)
+  describes.
+- **The Codex allow rule lets most `dynamic-skills` commands run unsandboxed.** With
+  `--codex-allow-rule`, every `dynamic-skills` command except `save` and `init` runs outside the
+  Codex sandbox without a prompt, trusting whatever `dynamic-skills` resolves to on `PATH`. `save`
+  and `init` keep their prompt rules; an approved prompt runs with the session's current permissions
+  (sandboxed unless the session itself is not), so the allow rule gives them no sandbox escape.
+  Whether `save` from inside Codex needs an escalation or a terminal run is pending live
+  verification (R32). The rule is off by default.
 - **The session home is private.** The default home is per user,
   `<os tmpdir>/dynamic-skills-<uid>`. Before writing, the CLI refuses a home (or its `sessions/`)
   that is a symlink (including a trailing-slash spelling), not a directory, or owned by another
@@ -60,9 +100,12 @@ treat as instructions. The design assumes both inputs can be hostile.
 
 ## Known limitations
 
-- A symlinked session directory or subdirectory can redirect internal session writes. The CLI
-  rejects a symlinked `sessions/<id>` at lookup, but internal artifact writes are not
-  symlink-checked.
+- Session artifact writes (`writeSessionFile`) refuse symlinked components and re-check the
+  parent's real path, but a small window remains between that re-check and the `rename`.
+  `session.json` (written through a fixed `.tmp` name) and the `skills/` and `evals/` directories
+  are created without that check. All of these need write access to the 0700 session directory,
+  so only the same user can exploit them. See the residual windows in
+  [architecture.md](docs/architecture.md#trust-boundaries).
 - Owner and permission checks need uids. On a platform without them (Windows) the home is
   checked only for being a real directory; use a private `DYNAMIC_SKILLS_HOME` there.
 - Reuse and activation content is returned unfenced, so a hostile existing skill reaches the agent
