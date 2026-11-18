@@ -239,7 +239,8 @@ r31_check() {
 # probe-consent), timed. Prints the tool's own denial evidence (not just the model's account) and
 # any trust warnings. The human judges the outcome against the expectation printed by the caller.
 probe() {
-  local name="$1" prompt="$2" kind="${3:-probe}" out="$TMP/out/probe-$1.txt" t0=$SECONDS
+  local name="$1" prompt="$2" kind="${3:-probe}" out="$TMP/out/probe-$1.txt" t0=$SECONDS before=0
+  if [[ -f "${CALLS_LOG:-}" ]]; then before="$(wc -l <"$CALLS_LOG" | tr -d ' ')"; fi
   echo
   note "probe: $name"
   echo "[progress] running probe $name ..." >&2
@@ -248,6 +249,8 @@ probe() {
   local rc=$?
   set -e
   echo "(exit $rc after $((SECONDS - t0)) s)"
+  echo "-- wrapper log lines for this probe (a 'refused' line is the live smoke guard, exit 2, not a harness consent denial) --"
+  if [[ -f "${CALLS_LOG:-}" ]]; then tail -n +"$((before + 1))" "$CALLS_LOG"; fi
   echo "-- denial evidence from the structured output --"
   harness_evidence "$out"
   scan "$out" "Trust warnings" 'untrusted|not trusted|trust this|trust the'
@@ -283,7 +286,7 @@ dynamic-skills() {
   node "$CLI" "$@"
 }
 
-# make_wrapper PATH NODE CLI LOG HARNESS JAIL REPO_REAL: write the bare `dynamic-skills` wrapper
+# make_wrapper PATH NODE CLI LOG HARNESS JAIL REPO_REAL DSH: write the bare `dynamic-skills` wrapper
 # (Ruling R41, amended). It always guards and always logs (no opt-in variable an agent could unset).
 # Layers: (1) for init and save, every home and config root points into $JAIL, so no parse trick can
 # reach the real home (authoritative; DYNAMIC_SKILLS_HOME stays the real temp session home);
@@ -294,13 +297,15 @@ dynamic-skills() {
 # test (aliases and order allowed) and a session whose repo is the workspace repo; (3) any --repo
 # of any command must lie inside the workspace repo. Exit 2 and a log line on refusal.
 make_wrapper() {
-  local out="$1" node_bin="$2" cli="$3" log="$4" harness="$5" jail="$6" repo_real="$7"
+  local out="$1" node_bin="$2" cli="$3" log="$4" harness="$5" jail="$6" repo_real="$7" dsh="$8"
   rm -f "$out" # an earlier wrapper is read-only
   {
     echo '#!/usr/bin/env bash'
-    printf 'LOG=%q\nHARNESS=%q\nJAIL=%q\nREPO_REAL=%q\nNODE=%q\nCLI=%q\n' \
-      "$log" "$harness" "$jail" "$repo_real" "$node_bin" "$cli"
+    printf 'LOG=%q\nHARNESS=%q\nJAIL=%q\nREPO_REAL=%q\nNODE=%q\nCLI=%q\nDSH=%q\n' \
+      "$log" "$harness" "$jail" "$repo_real" "$node_bin" "$cli" "$dsh"
     cat <<'WRAP'
+unset CDPATH # a CDPATH must not change what `cd` resolves in the --repo checks
+export DYNAMIC_SKILLS_HOME="$DSH" # pinned for every subcommand
 orig=("$@")
 sub="${1:-}"
 refuse() {
@@ -436,6 +441,28 @@ smoke_cleanup() {
   rm -rf "$TMP"
 }
 
+# check_no_global_install: a global dynamic-skills on PATH could shadow the wrapper and so bypass
+# the guard and the jail; abort unless SMOKE_ALLOW_GLOBAL=1.
+check_no_global_install() {
+  local found
+  found="$(type -Pa dynamic-skills 2>/dev/null || true)"
+  [[ -n "$found" ]] || return 0
+  if [[ "${SMOKE_ALLOW_GLOBAL:-}" == "1" ]]; then
+    echo "WARNING: a global dynamic-skills is installed (SMOKE_ALLOW_GLOBAL=1): it can bypass the guard and the jail:" >&2
+    echo "$found" >&2
+    return 0
+  fi
+  echo "ABORT: a dynamic-skills is already installed on PATH and could shadow the workspace wrapper, bypassing the guard and the jail:" >&2
+  echo "$found" >&2
+  echo "Uninstall it or run with SMOKE_ALLOW_GLOBAL=1 to accept the risk." >&2
+  return 1
+}
+
+# jail_note: printed with the checklist.
+jail_note() {
+  echo "  NOTE: init and save run with HOME and the config roots jailed, so save's machine-path and personal-name-collision checks run against the jail. A real run can give SAVE_CONFLICT where this smoke run did not."
+}
+
 # smoke_setup: temp workspace, fixture repo, CLI on PATH, isolation variables.
 smoke_setup() {
   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -469,12 +496,9 @@ smoke_setup() {
   CALLS_LOG="$TMP/out/cli-calls.log"
   JAIL="$TMP/jail"
   mkdir -p "$JAIL"
-  make_wrapper "$BIN/dynamic-skills" "$(command -v node)" "$CLI" "$CALLS_LOG" "$HARNESS_ID" "$JAIL" "$REPO_REAL"
+  make_wrapper "$BIN/dynamic-skills" "$(command -v node)" "$CLI" "$CALLS_LOG" "$HARNESS_ID" "$JAIL" "$REPO_REAL" "$DSH_REAL"
   chmod a-w "$BIN"
-  if [[ -n "$(type -Pa dynamic-skills 2>/dev/null)" ]]; then
-    echo "WARNING: a dynamic-skills is already installed on PATH; it could shadow the workspace build:" >&2
-    type -Pa dynamic-skills >&2 || true
-  fi
+  check_no_global_install
   export PATH="$BIN:$PATH"
   TIMEOUT_CMD=()
   if [[ "${SMOKE_TIMEOUT_SECS:-600}" != "0" ]]; then
@@ -541,6 +565,7 @@ smoke_main() {
   echo
   note "checklist for the human"
   harness_checklist
+  jail_note
   echo
   echo "Re-run with SMOKE_SKIP_PROBES=1 to skip the extra probes (D6, R32/R35, compound, alias)."
 }

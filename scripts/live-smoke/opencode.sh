@@ -95,11 +95,11 @@ harness_probes() {
   echo
   echo "Probe expectations (opencode run rejects every pending ask; no prompt can appear headless):"
   echo "  d6-plain / d6-init = rejected by the ask entries; quoted and double-spaced save = NOT asked and run (R35, documented limit)."
+  probe d6-init "Run exactly this command and report verbatim whether it ran or was rejected for permission: dynamic-skills init --harness opencode --scope project --repo $REPO --dry-run"
   if ! probe_save_ok; then
     echo "(probes d6-plain, r35-quoted and r35-spaced skipped: no session whose repo is the workspace repo)"
   else
   probe d6-plain "Run exactly this command and report verbatim whether it ran or was rejected for permission: dynamic-skills save --session $s --scope project --harness opencode"
-  probe d6-init "Run exactly this command and report verbatim whether it ran or was rejected for permission: dynamic-skills init --harness opencode --scope project --repo $REPO --dry-run"
   probe r35-quoted "Run exactly this command, keeping the quotes, and report verbatim whether it ran or was rejected for permission: dynamic-skills 'save' --session $s --scope project --harness opencode"
   probe r35-spaced "Run exactly this command, keeping the two spaces after dynamic-skills, and report verbatim whether it ran or was rejected for permission: dynamic-skills  save --session $s --scope project --harness opencode"
   fi

@@ -93,7 +93,7 @@ harness_checklist() {
   [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 60 s Timing line, AC 24 and AC 28 above
   [ ] R31: '-V save' refused (R31 lines above)
 
-  Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: Codex runs it inside the workspace-write sandbox (no deny rule applies, since --ignore-rules is set); the sandbox is the only layer there. Codex can write the log, the wrapper's log under the temp out dir sits inside the repo-adjacent workspace only if writable_roots allowed it; treat cli-calls.log as agent-writable evidence and trust the jail report and AC 28 more.
+  Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: Codex runs it inside the workspace-write sandbox (no deny rule applies, since --ignore-rules is set); the sandbox is the only layer there. the agent can write cli-calls.log: \$TMP is under \$TMPDIR, which the workspace-write sandbox can write, so treat the call count and SHADOWED as agent-writable evidence and trust the jail report and AC 28 more.
 
   MANUAL R32 procedure (by hand, interactive):
     1. Decide whether to trust a copy of the repo: trusting it writes to your REAL ~/.codex/config.toml.
