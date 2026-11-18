@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { checkRelease } from "../../scripts/check-release";
 import { ROOT } from "./harness";
 
@@ -40,9 +41,43 @@ beforeAll(() => {
 
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
+/** Fake harness binaries and a `dynamic-skills` shim; PATH is only this directory. */
+function writeFakeBins(binDir: string, entry: string): void {
+  mkdirSync(binDir, { recursive: true });
+  const fakes: Record<string, string> = {
+    claude: "2.1.325 (Claude Code)",
+    codex: "codex-cli 0.169.0",
+    opencode: "1.19.5",
+  };
+  const put = (name: string, body: string) => {
+    writeFileSync(join(binDir, name), `#!/bin/sh\n${body}\n`);
+    chmodSync(join(binDir, name), 0o755);
+  };
+  for (const [name, v] of Object.entries(fakes)) {
+    put(name, `if [ "$1" = "--version" ]; then echo '${v}'; fi\nexit 0`);
+  }
+  put("dynamic-skills", `exec '${process.execPath}' '${entry}' "$@"`);
+}
+
+/**
+ * Drops only the two known pre-publish gaps (no `license`, no `repository` field), and only when
+ * the field is really absent; every other `checkRelease` problem is kept.
+ */
+export function openReleaseGaps(pkg: Record<string, unknown>, problems: string[]): string[] {
+  return problems.filter(
+    (p) =>
+      !(
+        (pkg.license === undefined &&
+          p === "package.json has no license field (choose a license and add LICENSE)") ||
+        (pkg.repository === undefined && p === "package.json has no repository field with a url")
+      ),
+  );
+}
+
 /** Runs the packed binary with a minimal environment (nothing of the real user's reaches it). */
 function runPacked(argv: string[]): { code: number; stdout: string } {
   const home = join(tmp, "home");
+  writeFakeBins(join(tmp, "bin"), join(pkgDir, "dist/index.js"));
   execFileSync("mkdir", ["-p", home, join(tmp, "dshome"), join(tmp, "etc"), join(tmp, "repo")]);
   try {
     const stdout = execFileSync(process.execPath, [join(pkgDir, "dist/index.js"), ...argv], {
@@ -50,7 +85,7 @@ function runPacked(argv: string[]): { code: number; stdout: string } {
       encoding: "utf8",
       timeout: 90_000,
       env: {
-        PATH: dirname(process.execPath),
+        PATH: join(tmp, "bin"),
         HOME: home,
         TMPDIR: tmp,
         DYNAMIC_SKILLS_HOME: join(tmp, "dshome"),
@@ -64,15 +99,44 @@ function runPacked(argv: string[]): { code: number; stdout: string } {
   }
 }
 
+describe("release gap filter", () => {
+  it("keeps a stray LICENSE.txt and any other real problem", () => {
+    const p = { name: "dynamic-skills" } as Record<string, unknown>;
+    const problems = checkRelease({
+      pkg: p,
+      packFiles: [
+        "dist/index.js",
+        "skills/dynamic-skill-bootstrap/SKILL.md",
+        "package.json",
+        "README.md",
+        "LICENSE.txt",
+      ],
+    });
+    const kept = openReleaseGaps(p, problems);
+    expect(kept).toContain("tarball contains unexpected file LICENSE.txt");
+    expect(kept.some((m) => m.includes("no license field"))).toBe(false);
+    // A present-but-empty field is a real problem, not an open gap.
+    const empty = { ...p, license: "" };
+    expect(
+      openReleaseGaps(empty, checkRelease({ pkg: empty, packFiles: [] })).some((m) =>
+        m.includes("no license field"),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("packed package", () => {
+  it("packs a dist built by this run's global setup", () => {
+    // Slack for coarse file-system timestamps.
+    const built = statSync(join(CLI, "dist/index.js")).mtimeMs;
+    expect(built).toBeGreaterThanOrEqual(inject("buildStartedAt") - 2000);
+  });
+
   it("satisfies the release allow-list and includes the bootstrap skill", () => {
     expect(packFiles).toContain("skills/dynamic-skill-bootstrap/SKILL.md");
     // The license and repository fields are open pre-publish decisions (the release workflow
     // enforces them); everything else `checkRelease` checks must already hold.
-    const problems = checkRelease({ pkg, packFiles }).filter(
-      (p) => !/license|LICENSE|repository/.test(p),
-    );
-    expect(problems).toEqual([]);
+    expect(openReleaseGaps(pkg, checkRelease({ pkg, packFiles }))).toEqual([]);
   });
 
   it("ships a bootstrap skill byte-identical to the source", () => {
@@ -85,7 +149,7 @@ describe("packed package", () => {
     const code = readFileSync(join(pkgDir, "dist/index.js"), "utf8");
     const specs = new Set<string>();
     const found = [
-      ...code.matchAll(/^\s*(?:import|export)\b[^;"'\n]*?\bfrom\s*["']([^"']+)["']/gm),
+      ...code.matchAll(/^\s*(?:import|export)\b[^;"']*?\bfrom\s*["']([^"']+)["']/gm),
       ...code.matchAll(/^\s*import\s*["']([^"']+)["']/gm),
       ...code.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g),
     ];

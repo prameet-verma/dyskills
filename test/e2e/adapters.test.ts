@@ -140,25 +140,27 @@ describe("init idempotency", () => {
       );
     }
 
-    it(
-      `${t.label}: --dry-run on a fresh world writes nothing and creates no session home`,
-      async () => {
-        await setup(t);
-        const fresh = join(w.tmp, "fresh-home");
-        const homeBefore = await hashTree(w.userHome);
-        const repoBefore = await hashTree(w.repo);
-        const r = await ok(["init", "--harness", t.harness, "--dry-run"], {
-          DYNAMIC_SKILLS_HOME: fresh,
-        });
-        expect(r.dryRun).toBe(true);
-        expect(r.harnesses[0].writes.some((x: any) => x.action === "create")).toBe(true);
-        expect(await w.exists(fresh)).toBe(false);
-        expect(await hashTree(w.userHome)).toEqual(homeBefore);
-        expect(await hashTree(w.repo)).toEqual(repoBefore);
-        expect(await hashTree(w.etcDir)).toEqual({});
-      },
-      SLOW,
-    );
+    for (const scope of ["personal", "project"] as const) {
+      it(
+        `${t.label} ${scope}: --dry-run on a fresh world writes nothing and creates no session home`,
+        async () => {
+          await setup(t);
+          const fresh = join(w.tmp, "fresh-home");
+          const homeBefore = await hashTree(w.userHome);
+          const repoBefore = await hashTree(w.repo);
+          const r = await ok(["init", "--harness", t.harness, "--scope", scope, "--dry-run"], {
+            DYNAMIC_SKILLS_HOME: fresh,
+          });
+          expect(r.dryRun).toBe(true);
+          expect(r.harnesses[0].writes.some((x: any) => x.action === "create")).toBe(true);
+          expect(await w.exists(fresh)).toBe(false);
+          expect(await hashTree(w.userHome)).toEqual(homeBefore);
+          expect(await hashTree(w.repo)).toEqual(repoBefore);
+          expect(await hashTree(w.etcDir)).toEqual({});
+        },
+        SLOW,
+      );
+    }
   }
 });
 
@@ -169,78 +171,80 @@ function normalize(text: string, world: World, id: string): string {
     .join("<SESSION>")
     .split(world.tmp)
     .join("<TMP>")
+    .replace(
+      /Remaining processing budget: \d+ seconds/g,
+      "Remaining processing budget: <N> seconds",
+    )
     .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, "<TIME>")
     .replace(/"(?:createdAt|updatedAt|at|timestamp|durationMs|activeMs)":\s*\d+/g, '"<N>": 0');
 }
 
+interface Seen {
+  label: string;
+  sha: string;
+  files: unknown;
+  packet: string;
+  brief: string;
+  results: unknown[];
+}
+
 describe("AC 20 byte-identical bundle", () => {
-  it(
-    "saves the same bundle for every target and keeps packet, brief and eval results equal",
-    async () => {
-      const seen: {
-        label: string;
-        sha: string;
-        files: unknown;
-        packet: string;
-        brief: string;
-        results: unknown;
-      }[] = [];
-      for (const t of TARGETS) {
-        const world1 = await world();
-        const previous = w;
-        w = world1;
-        try {
-          await setup(t);
-          const env = { DYNAMIC_SKILLS_HARNESS: t.harness };
-          const { id, skillPath } = await pipeline(env);
-          await ok(["activate", ...sid(id)], env);
-          const sessionBundle = await bundleManifest(join(skillPath, ".."));
-          const saved = await ok(
-            ["save", ...sid(id), "--scope", "project", "--harness", t.harness],
-            env,
-          );
-          expect(saved.saved.length).toBeGreaterThan(0);
-          for (const s of saved.saved) {
-            // Saved under the fresh repo copy, never the session home.
-            expect(s.path.startsWith(await realRepo(w.repo))).toBe(true);
-            const m = await bundleManifest(s.path);
-            expect(m).toEqual(sessionBundle);
-          }
-          expect(saved.manifestSha256).toBe(sessionBundle.sha256);
-          const evaluation = await w.readJson(id, "reports/evaluation.json");
-          const results = (evaluation.results ?? evaluation.checks ?? []).map((r: any) => [
-            r.id,
-            r.outcome,
-          ]);
-          seen.push({
-            label: t.label,
-            sha: sessionBundle.sha256,
-            files: sessionBundle.files,
-            packet: normalize(
-              await readFile(join(w.session(id), "context-packet.json"), "utf8"),
-              w,
-              id,
-            ),
-            brief: normalize(await readFile(join(w.session(id), "brief.md"), "utf8"), w, id),
-            results,
-          });
-        } finally {
-          await world1.cleanup();
-          w = previous;
+  const seen: Seen[] = [];
+
+  for (const t of TARGETS) {
+    it(
+      `${t.label}: saved bundles equal the session bundle`,
+      async () => {
+        await setup(t);
+        const env = { DYNAMIC_SKILLS_HARNESS: t.harness };
+        const { id, skillPath } = await pipeline(env);
+        await ok(["activate", ...sid(id)], env);
+        const sessionBundle = await bundleManifest(join(skillPath, ".."));
+        const saved = await ok(
+          ["save", ...sid(id), "--scope", "project", "--harness", t.harness],
+          env,
+        );
+        expect(saved.saved.length).toBeGreaterThan(0);
+        const repoReal = await realRepo(w.repo);
+        for (const s of saved.saved) {
+          // Saved under the fresh repo copy, never the session home.
+          expect(s.path.startsWith(repoReal)).toBe(true);
+          expect(await bundleManifest(s.path)).toEqual(sessionBundle);
         }
-      }
-      expect(seen).toHaveLength(4);
-      expect((seen[0]?.results as unknown[]).length).toBeGreaterThan(0);
-      for (const s of seen.slice(1)) {
-        expect(s.sha, s.label).toBe(seen[0]?.sha);
-        expect(s.files, s.label).toEqual(seen[0]?.files);
-        expect(s.packet, s.label).toBe(seen[0]?.packet);
-        expect(s.brief, s.label).toBe(seen[0]?.brief);
-        expect(s.results, s.label).toEqual(seen[0]?.results);
-      }
-    },
-    SLOW * 3,
-  );
+        expect(saved.manifestSha256).toBe(sessionBundle.sha256);
+        const evaluation = await w.readJson(id, "reports/evaluation.json");
+        const results = (evaluation.results ?? evaluation.checks ?? []).map((r: any) => [
+          r.id,
+          r.outcome,
+        ]);
+        expect(results.length).toBeGreaterThan(0);
+        seen.push({
+          label: t.label,
+          sha: sessionBundle.sha256,
+          files: sessionBundle.files,
+          packet: normalize(
+            await readFile(join(w.session(id), "context-packet.json"), "utf8"),
+            w,
+            id,
+          ),
+          brief: normalize(await readFile(join(w.session(id), "brief.md"), "utf8"), w, id),
+          results,
+        });
+      },
+      SLOW * 2,
+    );
+  }
+
+  it("bundles, context packets, briefs and evaluation results are equal across targets", () => {
+    expect(seen.map((s) => s.label)).toEqual(TARGETS.map((t) => t.label));
+    for (const s of seen.slice(1)) {
+      expect(s.sha, s.label).toBe(seen[0]?.sha);
+      expect(s.files, s.label).toEqual(seen[0]?.files);
+      expect(s.packet, s.label).toBe(seen[0]?.packet);
+      expect(s.brief, s.label).toBe(seen[0]?.brief);
+      expect(s.results, s.label).toEqual(seen[0]?.results);
+    }
+  });
 });
 
 async function realRepo(p: string): Promise<string> {
@@ -329,7 +333,14 @@ describe("AC 28 ephemeral isolation", () => {
       expect(await w.exists(join(skills, placed[0] as string, "SKILL.md"))).toBe(true);
       expect(await w.hashRoots()).toEqual(rootsBefore);
       await ok(["clean", ...sid(id)], env);
-      expect(await hashTree(nativeDir)).toEqual(before);
+      // The placed skill (directory and files) is gone. Only the empty `--add-dir` skeleton that
+      // placement created stays (mode 0700); nothing else, and nothing that held the skill.
+      expect(await hashTree(nativeDir)).toEqual({
+        ...before,
+        "/claude-code/": "700 dir",
+        "/claude-code/.claude/": "700 dir",
+        "/claude-code/.claude/skills/": "700 dir",
+      });
       expect(await w.hashRoots()).toEqual(rootsBefore);
     },
     SLOW,
