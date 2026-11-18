@@ -5,6 +5,7 @@ import { BOOTSTRAP_SKILL_NAME, CONTRACT_VERSION, InvocationModeSchema } from "@d
 import type { SkillsScan } from "@dynamic-skills/core";
 import { getRepoRevision } from "@dynamic-skills/evidence-registry";
 import { CliError, toJson } from "../io";
+import { sweepNativePlacements } from "../native";
 import type { CreateCommandDef } from "./types";
 
 /** Reads `DYNAMIC_SKILLS_BUDGET_MS`; unset means the default budget. */
@@ -42,6 +43,8 @@ export const assessCommand: CreateCommandDef = {
   step: "assess",
   stage: "assessment",
   async run(ctx) {
+    // Best effort, before the session exists: a sweep failure never fails the command.
+    await sweepNativePlacements(ctx.store.home, ctx.now()).catch(() => undefined);
     const task = String(ctx.opts.task ?? "").trim();
     if (task === "") throw new CliError("USAGE", "--task must not be empty.");
     const mode = InvocationModeSchema.parse(ctx.opts.mode ?? "auto");

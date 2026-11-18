@@ -3,7 +3,13 @@ import type { ActivationResult } from "@dynamic-skills/activation";
 import type { RefusalReason } from "@dynamic-skills/activation";
 import { ContextPacketSchema, EvaluationReportSchema } from "@dynamic-skills/core";
 import { BundleError, parseSkillBundle } from "@dynamic-skills/skill-compiler";
-import type { GeneratedSkill } from "@dynamic-skills/core";
+import type { GeneratedSkill, SessionState, SessionStore } from "@dynamic-skills/core";
+import type { HostProbe } from "@dynamic-skills/adapter-sdk";
+import type { PlaceNativeResult } from "../native";
+import { dirname, basename } from "node:path";
+import { ADAPTERS, currentHarness } from "../adapters";
+import { buildHostEnv } from "../host";
+import { placeNative, sweepNativePlacements } from "../native";
 import { readArtifactJson, readEvidence, requireArtifactJson } from "../io";
 import { assertBundlePinned, sessionPaths } from "./bundle";
 import type { CommandResult, SessionCommandDef } from "./types";
@@ -56,6 +62,51 @@ function toResult(result: ActivationResult): CommandResult {
 }
 
 /**
+ * Places the activated skill natively for the current harness (D2). Unknown harness or native mode
+ * off yields no placement and no limitation; any failure, host environment errors included,
+ * becomes a skipped placement with a limitation, because activation never fails over it.
+ */
+async function placeForHarness(input: {
+  state: SessionState;
+  store: SessionStore;
+  userHome: string;
+  vars: Readonly<Record<string, string | undefined>>;
+  probe: HostProbe;
+  etcDir: string;
+  result: Extract<ActivationResult, { activated: true }>;
+  now: () => number;
+}): Promise<PlaceNativeResult> {
+  const { state, store, userHome, vars, probe, etcDir, result } = input;
+  const harness = currentHarness(undefined, vars);
+  if (harness === null) return { native: null, placement: null, limitation: null };
+  try {
+    const env = await buildHostEnv({
+      repo: state.repo,
+      userHome,
+      home: store.home,
+      vars,
+      probe,
+      etcDir,
+    });
+    const skillDir = dirname(result.skillPath);
+    return await placeNative({
+      env,
+      adapter: ADAPTERS[harness],
+      skillDir,
+      name: basename(skillDir),
+      now: input.now(),
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "unexpected error";
+    return {
+      native: null,
+      placement: null,
+      limitation: `Native registration skipped: ${message}.`,
+    };
+  }
+}
+
+/**
  * `activate`: the final, gated step (PRD §5.5, §9.4, §11.1). It hands the evaluated skill (and, for
  * an augmentation, the unchanged base) to the agent for ephemeral use, or refuses with a fallback.
  * `activate()` mutates the session and writes the reports; the wrapper saves the state afterwards,
@@ -69,7 +120,9 @@ export const activateCommand: SessionCommandDef = {
   options: [],
   step: "activate",
   stage: "activation",
-  async run({ store, state, now }) {
+  async run({ store, state, now, userHome, vars, probe, etcDir }) {
+    // Best effort: an expired placement left behind never matters more than this activation.
+    await sweepNativePlacements(store.home, now()).catch(() => undefined);
     const sessionDir = store.dir(state.id);
     await assertBundlePinned(state, sessionDir);
     let skill: GeneratedSkill | null = null;
@@ -101,6 +154,27 @@ export const activateCommand: SessionCommandDef = {
       evidence: await readEvidence(store, state.id),
       now: now(),
     });
-    return toResult(result);
+    const out = toResult(result);
+    if (!result.activated) return out;
+    const placed = await placeForHarness({
+      state,
+      store,
+      userHome,
+      vars,
+      probe,
+      etcDir,
+      result,
+      now,
+    });
+    if (placed.placement) state.native = placed.placement;
+    else delete state.native;
+    return {
+      ...out,
+      data: {
+        ...out.data,
+        limitations: [...result.limitations, ...(placed.limitation ? [placed.limitation] : [])],
+        native: placed.native,
+      },
+    };
   },
 };

@@ -2,6 +2,7 @@ import { ClarificationManager } from "@dynamic-skills/clarification-manager";
 import { recomputeGaps } from "@dynamic-skills/context-analyzer";
 import { ClarificationRequestSchema, ClarificationResponseSchema } from "@dynamic-skills/core";
 import { EvidenceRegistry } from "@dynamic-skills/evidence-registry";
+import { ADAPTERS, HARNESS_IDS, currentHarness } from "../adapters";
 import {
   CliError,
   FALLBACK,
@@ -21,10 +22,20 @@ export const clarifyAskCommand: SessionCommandDef = {
   name: "clarify ask",
   kind: "session",
   description: "Ask the user clarification questions (pauses the SLA).",
-  options: [{ flags: "--file <path>", description: "Clarification request JSON.", required: true }],
+  options: [
+    { flags: "--file <path>", description: "Clarification request JSON.", required: true },
+    {
+      flags: "--harness <h>",
+      description: `Harness whose native question tool the plan targets (${HARNESS_IDS.join(", ")}); default: DYNAMIC_SKILLS_HARNESS.`,
+    },
+  ],
   step: "clarify-ask",
   stage: "clarification",
-  async run({ store, state, opts, cwd, now }) {
+  async run({ store, state, opts, cwd, now, vars }) {
+    const harness = currentHarness(
+      typeof opts.harness === "string" ? opts.harness : undefined,
+      vars,
+    );
     const request = parseDocument(
       ClarificationRequestSchema,
       await readInputFile(cwd, String(opts.file)),
@@ -33,7 +44,22 @@ export const clarifyAskCommand: SessionCommandDef = {
     const result = new ClarificationManager(state, registry).ask(request.questions, now());
     return {
       recordStep: result.accepted.length > 0,
-      data: { round: result.round, accepted: result.accepted, rejected: result.rejected },
+      data: {
+        round: result.round,
+        accepted: result.accepted,
+        rejected: result.rejected,
+        native:
+          harness !== null && result.accepted.length > 0
+            ? ADAPTERS[harness].questions(
+                result.accepted.map((a) => ({
+                  id: a.id,
+                  text: a.text,
+                  ...(a.options ? { options: a.options } : {}),
+                  ...(a.multiSelect === undefined ? {} : { multiSelect: a.multiSelect }),
+                })),
+              )
+            : null,
+      },
     };
   },
 };
