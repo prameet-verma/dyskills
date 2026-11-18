@@ -9,6 +9,7 @@ import { evaluateCommand } from "./evaluate";
 import { initCommand } from "./init";
 import { evalRecordCommand } from "./record";
 import { reportPerfCommand } from "./report";
+import { saveCommand } from "./save";
 import { statusCommand } from "./status";
 import { sufficiencyApproveCommand, sufficiencySubmitCommand } from "./sufficiency";
 import type { CommandDef } from "./types";
@@ -34,4 +35,5 @@ export const COMMANDS: CommandDef[] = [
   cleanCommand,
   reportPerfCommand,
   initCommand,
+  saveCommand,
 ];

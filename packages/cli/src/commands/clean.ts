@@ -1,6 +1,69 @@
-import { SlaClock, archivePerformanceReport, hasEnded, stopClock } from "@dynamic-skills/core";
+import { realpath } from "node:fs/promises";
+import { join } from "node:path";
+import { removePlacedBundle } from "@dynamic-skills/adapter-sdk";
+import {
+  SlaClock,
+  archivePerformanceReport,
+  hasEnded,
+  readNativeReferences,
+  stopClock,
+} from "@dynamic-skills/core";
+import type { SessionState, SessionStore } from "@dynamic-skills/core";
 import { writeTerminalReports } from "../io";
 import type { SessionCommandDef } from "./types";
+
+/**
+ * Ends a session that is still open so abandoning it is counted (Ruling R22): `timeout` when its
+ * budget has run out, otherwise `failed`. Idle time after the budget ran out is not active time.
+ * A session that already ended is left alone.
+ * @param store - Session store.
+ * @param state - The loaded session (mutated, not saved: the session is about to be removed).
+ * @param at - Current time (epoch ms).
+ */
+export async function endAbandonedSession(
+  store: SessionStore,
+  state: SessionState,
+  at: number,
+): Promise<void> {
+  if (hasEnded(state)) return;
+  const clock = SlaClock.from(state.sla);
+  const outcome = clock.isExpired(at) ? "timeout" : "failed";
+  state.status = outcome;
+  state.metrics.outcome = outcome;
+  stopClock(state, at - Math.max(0, clock.activeMs(at) - clock.snapshot(at).budgetMs));
+  await writeTerminalReports(store, state, at);
+}
+
+/**
+ * Discards a session: archives its performance report (Ruling R21), removes its native placement
+ * when nothing else uses it, then removes the session directory. A failed archive write throws
+ * before anything is removed.
+ *
+ * The placement is kept when another session references the same directory, or when any other
+ * `session.json` cannot be read (it may reference it; fail safe, D5). Its path comes from session
+ * state, so it is removed only through `removePlacedBundle` bound to `<realpath home>/native`
+ * (Ruling R29): a tampered path outside that root, or one using `..` or a symlink, removes nothing.
+ * @param store - Session store.
+ * @param state - The session to discard.
+ * @returns `archived`: the archive path, or `null` when the session had no valid report.
+ */
+export async function discardSession(
+  store: SessionStore,
+  state: SessionState,
+): Promise<{ archived: string | null }> {
+  const archived = (await archivePerformanceReport(store.home, state.id))
+    ? join(store.home, "reports", `${state.id}.json`)
+    : null;
+  if (state.native !== undefined) {
+    const refs = await readNativeReferences(store.home, { exclude: state.id });
+    if (refs.unparsable === 0 && !refs.byDir.has(state.native.dir)) {
+      const within = join(await realpath(store.home).catch(() => store.home), "native");
+      await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
+    }
+  }
+  await store.remove(state.id);
+  return { archived };
+}
 
 /**
  * `clean`: archives the session's `reports/performance.json` (when the session has ended with a
@@ -20,21 +83,9 @@ export const cleanCommand: SessionCommandDef = {
   stage: null,
   bypassDeadline: true,
   async run({ store, state, now }) {
-    // Catch-all (Ruling R22): a session abandoned before it ended is counted, so `report perf`
-    // does not under-count. Idle time after the budget ran out is not active time: the clock
-    // stops where the budget ended, and an expired session is a `timeout`.
-    if (!hasEnded(state)) {
-      const at = now();
-      const clock = SlaClock.from(state.sla);
-      const expired = clock.isExpired(at);
-      const outcome = expired ? "timeout" : "failed";
-      state.status = outcome;
-      state.metrics.outcome = outcome;
-      stopClock(state, at - Math.max(0, clock.activeMs(at) - clock.snapshot(at).budgetMs));
-      await writeTerminalReports(store, state, at);
-    }
-    const archived = await archivePerformanceReport(store.home, state.id);
-    await store.remove(state.id);
-    return { data: { removed: true, archived }, save: false, recordStep: false };
+    // Catch-all (Ruling R22): a session abandoned before it ended is counted.
+    await endAbandonedSession(store, state, now());
+    const { archived } = await discardSession(store, state);
+    return { data: { removed: true, archived: archived !== null }, save: false, recordStep: false };
   },
 };
