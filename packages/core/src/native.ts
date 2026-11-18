@@ -76,8 +76,11 @@ export async function readNativeReferences(
   return { byDir, unparsable };
 }
 
-/** How far ahead of `now` an unreferenced placement's mtime may be before it is distrusted (1 h). */
-const FUTURE_SKEW_MS = 3_600_000;
+/**
+ * How far ahead of `now` a placement's mtime may be before it is distrusted (1 h): the clock-skew
+ * tolerance shared by the sweep policy and the CLI's grace period.
+ */
+export const NATIVE_FUTURE_SKEW_MS = 3_600_000;
 
 /**
  * Pure sweep policy for native placements. A placement's age starts at the newest `placedAt`
@@ -104,7 +107,7 @@ export function selectExpiredPlacements(input: {
     let start = refs.length > 0 ? Math.max(...refs.map((r) => r.placedAt)) : p.mtimeMs;
     // A far-future mtime (clock skew or tampering) must not pin a placement past the TTL: only the
     // TTL can remove it when a session file is unparsable, and it would start at that future time.
-    if (refs.length === 0 && start - input.now > FUTURE_SKEW_MS) start = input.now - ttl - 1;
+    if (refs.length === 0 && start - input.now > NATIVE_FUTURE_SKEW_MS) start = input.now - ttl - 1;
     if (input.now - start > ttl) {
       expired.push(p.dir);
       continue;

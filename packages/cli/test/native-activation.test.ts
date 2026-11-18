@@ -232,6 +232,28 @@ describe("native activation", () => {
     expect(await readdir(outside)).toEqual([]);
   });
 
+  it("writes nothing when native is swapped for a symlink after the check (TOCTOU)", async () => {
+    const real = await vi.importActual<typeof import("../src/native")>("../src/native");
+    const outside = join(h.tmp, "outside");
+    await mkdir(outside);
+    const id = await recorded();
+    const nativeDir = join(await realpath(h.home), "native");
+    vi.mocked(native.placeNative).mockImplementationOnce((input) => {
+      const adapter = Object.create(input.adapter) as typeof input.adapter;
+      adapter.readRoots = async (env) => {
+        // Runs after the plain-directory check and before placeBundle.
+        await symlink(outside, nativeDir);
+        return input.adapter.readRoots(env);
+      };
+      return real.placeNative({ ...input, adapter });
+    });
+    const r = await activate(id);
+    expect(r.exitCode).toBe(0);
+    expect(r.out.native).toBeNull();
+    expect(r.out.limitations.join(" ")).toContain("Native registration skipped");
+    expect(await readdir(outside)).toEqual([]);
+  });
+
   it("names a symlinked target in the limitation, not another session", async () => {
     const root = join(await realpath(h.home), "native/claude-code/.claude/skills");
     await mkdir(root, { recursive: true });

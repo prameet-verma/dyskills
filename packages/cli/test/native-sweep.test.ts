@@ -221,6 +221,19 @@ describe("native sweep grace, home safety and limits", () => {
     expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([fresh]);
   });
 
+  it("keeps a fresh placement whose mtime is slightly ahead (clock skew)", async () => {
+    const root = await nativeRoot();
+    const fresh = join(root, "claude-code/.claude/skills/skewed-skill");
+    await mkdir(fresh, { recursive: true });
+    await writeFile(join(fresh, "SKILL.md"), "---\nname: skewed-skill\n---\n");
+    const ahead = new Date(Date.now() + 5_000);
+    await utimes(fresh, ahead, ahead);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([]);
+    const far = new Date(Date.now() + 2 * HOUR);
+    await utimes(fresh, far, far);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([fresh]);
+  });
+
   it("survives a sweep that runs between placement and save", async () => {
     const real = await vi.importActual<typeof import("../src/native")>("../src/native");
     const id = await recorded();

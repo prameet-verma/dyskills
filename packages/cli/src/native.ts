@@ -2,7 +2,11 @@ import { lstat, readdir, realpath, utimes } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { bundleManifest, placeBundle, removePlacedBundle } from "@dynamic-skills/adapter-sdk";
 import type { HarnessAdapter, HostEnv, PlaceInput } from "@dynamic-skills/adapter-sdk";
-import { readNativeReferences, selectExpiredPlacements } from "@dynamic-skills/core";
+import {
+  NATIVE_FUTURE_SKEW_MS,
+  readNativeReferences,
+  selectExpiredPlacements,
+} from "@dynamic-skills/core";
 import type { NativePlacement } from "@dynamic-skills/core";
 
 /** Deepest directory level (below `<home>/native`) at which a placement is looked for. */
@@ -17,8 +21,9 @@ const SWEEP_BUDGET_MS = 2_000;
 /**
  * Grace period (10 min, real clock) for a fresh placement (Ruling R39). A session's placement is
  * unreferenced between `placeNative` and its save, so a sweep in another process must not take a
- * directory whose mtime is younger than this. Only `0 <= age < grace` counts: a future-dated
- * mtime gets no grace, so it cannot keep a placement forever.
+ * directory whose mtime is younger than this. Ages from `-NATIVE_FUTURE_SKEW_MS` (small forward
+ * clock skew) up to the grace count; a mtime further ahead gets no grace, so it cannot keep a
+ * placement forever.
  */
 export const NATIVE_PLACEMENT_GRACE_MS = 600_000;
 
@@ -121,7 +126,7 @@ export async function sweepNativePlacements(
     (dir) => {
       // mtime has sub-millisecond digits that `Date.now()` lacks; floor so "just now" is age 0.
       const age = wallNow - Math.floor(mtimes.get(dir) ?? 0);
-      return !(age >= 0 && age < NATIVE_PLACEMENT_GRACE_MS);
+      return !(age >= -NATIVE_FUTURE_SKEW_MS && age < NATIVE_PLACEMENT_GRACE_MS);
     },
   );
   const removed: string[] = [];
@@ -244,7 +249,9 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
       destRoot: root,
       name,
       mode: "native",
-      within,
+      // The realpath fixed when the host environment was built: `placeBundle` re-resolves its
+      // `within`, so a `native` swapped for a symlink after the check above still lands outside.
+      within: env.sessionHome,
       ...(input.testHooks === undefined ? {} : { testHooks: input.testHooks }),
     });
     if (placed.action === "conflict") return none(conflictLimitation(placed.reason, name));
