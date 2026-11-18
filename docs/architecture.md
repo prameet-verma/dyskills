@@ -99,7 +99,7 @@ changing the core contracts ([ADR 0007](adr/0007-harness-adapter-interface.md)).
   claude-code, codex, opencode-v1 and opencode-v2 ([ADR 0009](adr/0009-opencode-dual-line.md)).
   Pinned tested versions are exported per adapter; other versions are reported as untested.
 
-### Writes outside the session home
+### Writes outside the session directory
 
 The Phase 1 rule "write only inside the session directory" is amended. The CLI writes elsewhere
 only for:
@@ -136,7 +136,7 @@ Session state is written only inside `<home>/sessions/<id>/`, where `<home>` is 
 `<home>/reports/<id>.json` (Ruling R21). Ephemeral skills are never written into a harness skill directory
 or the repository, and existing skills and instruction files are only read. Writes outside the session
 directory (`init`, `save` and native placement under `<home>/native/`) are listed under
-[Writes outside the session home](#writes-outside-the-session-home).
+[Writes outside the session directory](#writes-outside-the-session-directory).
 
 The home is private to its user. Each command checks it and `<home>/sessions` before the first
 write: a symlink (also one written with a trailing slash, because the path is resolved before the
@@ -254,10 +254,17 @@ archived reports, so no ended session disappears from the PRD §17 metrics.
   permissions. Saving into `.agents/skills` from inside the sandbox may need an escalation request
   or a terminal run; that is to be verified by the phase-gate live smoke and is still pending. The
   rule is off by default.
-- **Known residual windows (same user only).** `placeBundle` can lose a race if a parent directory
-  is swapped between its second check and the `rename`; `applyPlan` loses a concurrent edit that
-  lands between its last check and the `rename` (never merging into it); `removePlacedBundle` can
-  be affected by a parent swap just before `rm`.
+- **Known residual windows.** Each needs write access to a parent directory: for the session home,
+  only its owner; for project writes (`init` project scope, `save --scope project`), anyone who can
+  write the repository's directories.
+  - A parent swap after `placeBundle`'s second check can redirect the copy and the `rename` through
+    the swapped ancestor.
+  - A `native` directory swapped for a symlink between the CLI's `native/` pre-check and
+    `placeBundle` can redirect the placement elsewhere inside the session home.
+  - `applyPlan` loses a concurrent edit that lands between its last check and the `rename`; it is
+    never merged into.
+  - A parent swap before `removePlacedBundle`'s `rm` removes the directory at that path through the
+    new parent.
 - **Output hygiene.** Everything written to stderr has control characters removed, because session
   ids and option values are agent-controlled.
 

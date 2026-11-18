@@ -46,7 +46,7 @@ design"; risks 1, 5 and 15). The core packages may not name harnesses.
 - Adding a harness is a package, a `Harness` enum entry with regenerated schemas, a registry line,
   root-registry entries, a dependency in the CLI package, a fixture home and a compat test file;
   [the authoring guide](../adapters/authoring.md) lists them.
-- Idempotency, dry run and containment are proven once in the SDK and per target by the testkit.
+- Idempotency, dry run and containment are tested once in the SDK and per target by the testkit.
 - A harness quirk that cannot be planned (OpenCode quoted commands) stays a documented limit, not
   hidden code.
 - The SDK executor is on the trust path of every write; its tests are the main safeguard. Known

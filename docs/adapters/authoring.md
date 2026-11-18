@@ -128,8 +128,10 @@ Create a fixture home under `fixtures/harness-homes/<target>/home` (one director
 version line) and one test file:
 
 ```ts
+import { join } from "node:path";
 import { scanExistingSkills } from "@dynamic-skills/bootstrapper";
 import { REPO_ROOT, defineAdapterCompatSuite } from "@dynamic-skills/adapter-sdk/testkit";
+import { adapter } from "../src/index"; // your HarnessAdapter
 
 defineAdapterCompatSuite({
   name: "<id>",
