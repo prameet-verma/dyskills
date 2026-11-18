@@ -6,6 +6,8 @@ Accepted.
 
 ## Context
 
+Source: the [Phase 2 synthesis](../superpowers/research/2026-11-15-phase-2-synthesis.md).
+
 Native question tools take options (Claude Code `AskUserQuestion`, Codex `request_user_input`,
 OpenCode `question`) but are absent in headless runs and, on Codex, outside Plan mode. Their
 limits differ: 1-4 questions with 2-4 options, 1-3 questions with 2-3 options, and no documented

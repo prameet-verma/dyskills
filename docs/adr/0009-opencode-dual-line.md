@@ -6,6 +6,8 @@ Accepted.
 
 ## Context
 
+Source: the [Phase 2 synthesis](../superpowers/research/2026-11-15-phase-2-synthesis.md).
+
 OpenCode ships two incompatible lines, 1.x (tested 1.19.5) and 2.x (tested 2.3.0). V1 throws on a
 top-level V2 `permissions` key, while V2 migrates V1-form `permission` config on load
 (synthesis, decision D3; risk 6). Maintaining two adapters would duplicate nearly everything.

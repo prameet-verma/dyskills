@@ -6,6 +6,8 @@ Accepted. Publishing itself is still a human step, and the license and repositor
 
 ## Context
 
+Source: the [Phase 2 synthesis](../superpowers/research/2026-11-15-phase-2-synthesis.md).
+
 Harness permission rules match the command text, so a package runner cannot be allowed safely
 (R19). Phase 2 also introduces `save`, which raises the question of augmentations and freshness
 (synthesis decisions D1 and D8; risk 13).
@@ -18,8 +20,9 @@ Harness permission rules match the command text, so a package runner cannot be a
   enforces this.
 - Workspace packages stay private. The CLI tarball must carry the bootstrap skill and no
   `workspace:` or `@dynamic-skills/*` runtime dependency; `scripts/check-release.ts` checks this.
-- A tag push `v<major>.<minor>.<patch>` runs the release workflow in the `npm` environment, with
-  required reviewers; a manual run can only dry-run. The semver policy and checklist are in
+- A tag push `v<major>.<minor>.<patch>` runs the release workflow in the `npm` GitHub environment; a manual
+  run can only dry-run. Configuring that environment's required reviewers and token is a pending
+  checklist step. The semver policy and checklist are in
   [releasing.md](../releasing.md): before 1.0 a breaking change bumps the minor, and any
   `CONTRACT_VERSION` bump is breaking.
 - D8: saving an augmentation is not supported in Phase 2 (`SAVE_UNSUPPORTED`). Skills saved in

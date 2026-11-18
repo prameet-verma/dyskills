@@ -91,7 +91,7 @@ changing the core contracts ([ADR 0007](adr/0007-harness-adapter-interface.md)).
   analyst agent text. It writes nothing itself. See the [authoring guide](adapters/authoring.md).
 - **One executor.** `@dynamic-skills/adapter-sdk` previews and applies every plan: idempotent,
   atomic, symlink-refusing, contained and all-or-nothing on conflicts. It also places bundles for
-  `save` and native activation, byte-identically.
+  `save` and native activation, byte-identically (`placeBundle`).
 - **The root registry.** `packages/bootstrapper/src/roots.ts` is the one table of every directory
   each harness reads skills from. The skill scan, `readRoots` and the save-collision check all use
   it, so `save` refuses a different skill of the same name that any selected harness can see.
@@ -106,7 +106,8 @@ only for:
 
 1. `init`, to the paths its plan lists (`--dry-run` writes nothing, not even the home);
 2. `save --scope project|personal`, to the skill roots its plan lists;
-3. `activate` native placement, only under `<realpath home>/native/`.
+3. `activate` native placement, inside the realpath session home (`placeBundle` with
+   `within: env.sessionHome`; an R38 pre-check restricts it to `native/`).
 
 Ephemeral skills never reach a permanent skill directory. Each such write is planned and reported
 before it happens, idempotent, atomic (a temp file or directory in the same parent, then `rename`),
@@ -130,11 +131,11 @@ command text, so a quoted subcommand is a known limit ([ADR 0007](adr/0007-harne
 
 ## Session directory
 
-The session itself writes only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_SKILLS_HOME` or
+Session state is written only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_SKILLS_HOME` or
 `<os tmpdir>/dynamic-skills-<uid>`, plus one archived metrics file per cleaned session,
 `<home>/reports/<id>.json` (Ruling R21). Ephemeral skills are never written into a harness skill directory
-or the repository, and existing skills and instruction files are only read. The only writes
-outside the home are the three listed under
+or the repository, and existing skills and instruction files are only read. Writes outside the session
+directory (`init`, `save` and native placement under `<home>/native/`) are listed under
 [Writes outside the session home](#writes-outside-the-session-home).
 
 The home is private to its user. Each command checks it and `<home>/sessions` before the first
@@ -163,7 +164,8 @@ creates is mode 0700 and every file it writes is 0600.
 Native placements are ephemeral ([ADR 0008](adr/0008-read-first-activation.md)). Every `assess` and
 `activate` sweeps `<home>/native/`: a placement is removed when it is older than 24 h
 (`NATIVE_PLACEMENT_TTL_MS`), when no session references it, or when every session that references it
-ended without `activated` or `augmented`. An unparsable `session.json` counts as referencing every
+ended without `activated` or `augmented`. `clean` and `save --scope discard` also remove the
+session's placement when no other session shares it. An unparsable `session.json` counts as referencing every
 placement, so only the TTL removes it. A placement younger than ten minutes is kept (it may sit
 between placement and the session save), and nothing is removed unless `<realpath home>/native` is
 a real directory and the placement lies inside it.
@@ -243,13 +245,19 @@ archived reports, so no ended session disappears from the PRD §17 metrics.
   `activate` recompute it and refuse a changed bundle with `BUNDLE_INVALID`; nothing is saved
   (ADR 0006).
 - **Installer writes are planned, contained and consented.** Everything `init`, `save` and native
-  placement write goes through the SDK executor under the rules above, and the harness asks the user
+  placement write goes through the SDK (`applyPlan` or `placeBundle`) under the rules above, and the harness asks the user
   before `save` and `init` run.
 - **The Codex allow rule is a trust decision.** With `--codex-allow-rule`, `init` lets every
   `dynamic-skills` command except `save` and `init` run outside the Codex sandbox, trusting
   whatever `dynamic-skills` resolves to on `PATH`. It gives `save` and `init` no sandbox escape,
-  because their prompt rules always apply and an approved prompt runs sandboxed. It is off by
-  default.
+  because their prompt rules always apply and an approved prompt runs with the session's current
+  permissions. Saving into `.agents/skills` from inside the sandbox may need an escalation request
+  or a terminal run; that is to be verified by the phase-gate live smoke and is still pending. The
+  rule is off by default.
+- **Known residual windows (same user only).** `placeBundle` can lose a race if a parent directory
+  is swapped between its second check and the `rename`; `applyPlan` loses a concurrent edit that
+  lands between its last check and the `rename` (never merging into it); `removePlacedBundle` can
+  be affected by a parent swap just before `rm`.
 - **Output hygiene.** Everything written to stderr has control characters removed, because session
   ids and option values are agent-controlled.
 

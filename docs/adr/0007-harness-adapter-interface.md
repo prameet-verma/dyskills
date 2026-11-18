@@ -6,6 +6,8 @@ Accepted.
 
 ## Context
 
+Source: the [Phase 2 synthesis](../superpowers/research/2026-11-15-phase-2-synthesis.md).
+
 Phase 2 makes Dynamic Skills install into and save for three harnesses (Claude Code, Codex,
 OpenCode). Each has its own skill directories, permission file format and question tool. Writing
 outside the session home was forbidden in Phase 1, so every new write needs one place where
@@ -17,11 +19,13 @@ design"; risks 1, 5 and 15). The core packages may not name harnesses.
 - `@dynamic-skills/adapter-sdk` defines `HarnessAdapter` and names no harness. An adapter in
   `adapters/<id>` is a pure planner: it detects its tool through an injected `HostProbe`, returns
   an `InstallPlan` (a list of `PlannedWrite` values and notes), names its save root and read roots,
-  maps questions onto its native tool and supplies its analyst agent text. It performs no I/O of
-  its own beyond reading config it plans to merge.
+  maps questions onto its native tool and supplies its analyst agent text (the SDK's
+  `ANALYST_INSTRUCTIONS`, wrapped in the harness's format). It may read harness config and stat
+  directories, but writes nothing.
 - The SDK holds the only executor: `previewPlan` and `applyPlan`, plus `placeBundle`. Every write
   is planned, reported, idempotent, atomic, refuses a symlink at the target and declares a
-  `within` root its parent must stay inside. A conflict anywhere stops the whole apply.
+  `within` root its parent must stay inside (`applyPlan` for installer writes, `placeBundle` for
+  bundles). A conflict anywhere stops the whole apply.
 - The CLI (`packages/cli/src/adapters.ts`) is the composition root and the only CLI file that
   names harnesses. The bootstrapper's `roots.ts` is the single root registry; adapters derive
   `readRoots` from it. Every adapter runs the shared `defineAdapterCompatSuite` against its own
@@ -39,8 +43,11 @@ design"; risks 1, 5 and 15). The core packages may not name harnesses.
 
 ## Consequences
 
-- Adding a harness is one package, one registry line and one compat test file.
+- Adding a harness is a package, a `Harness` enum entry with regenerated schemas, a registry line,
+  root-registry entries, a dependency in the CLI package, a fixture home and a compat test file;
+  [the authoring guide](../adapters/authoring.md) lists them.
 - Idempotency, dry run and containment are proven once in the SDK and per target by the testkit.
 - A harness quirk that cannot be planned (OpenCode quoted commands) stays a documented limit, not
   hidden code.
-- The SDK executor is on the trust path of every write; its tests are the main safeguard.
+- The SDK executor is on the trust path of every write; its tests are the main safeguard. Known
+  residual windows are listed in the architecture's trust boundaries.

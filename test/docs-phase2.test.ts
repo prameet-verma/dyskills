@@ -13,6 +13,16 @@ const ADRS = [
 ];
 const GUIDE = "docs/adapters/authoring.md";
 
+/** A markdown text with fenced code blocks removed, so a heading inside a fence does not count. */
+function withoutFences(markdown: string): string {
+  return markdown.replace(/^( {0,3})(```|~~~)[^\n]*\n[\s\S]*?^\1?\2[^\n]*$/gm, "");
+}
+
+/** Whether `markdown` has a level-2 `heading` outside fenced code. */
+function hasHeading(markdown: string, heading: string): boolean {
+  return new RegExp(`^## ${heading}\\s*$`, "m").test(withoutFences(markdown));
+}
+
 describe("Phase 2 documentation", () => {
   it("ships ADRs 0007 to 0011 and the adapter authoring guide", () => {
     for (const f of [...ADRS, GUIDE]) expect(existsSync(join(ROOT, f)), f).toBe(true);
@@ -22,9 +32,15 @@ describe("Phase 2 documentation", () => {
     for (const f of ADRS) {
       const text = readFileSync(join(ROOT, f), "utf8");
       for (const heading of ["Status", "Context", "Decision", "Consequences"]) {
-        expect(text, `${f} ${heading}`).toMatch(new RegExp(`^## ${heading}\\s*$`, "m"));
+        expect(hasHeading(text, heading), `${f} ${heading}`).toBe(true);
       }
     }
+  });
+
+  it("does not count a heading that appears only inside a fenced block", () => {
+    const text = "# T\n\n```md\n## Status\n```\n";
+    expect(hasHeading(text, "Status")).toBe(false);
+    expect(hasHeading(`${text}\n## Status\n`, "Status")).toBe(true);
   });
 
   it("never invokes the CLI through a package runner in the new files (Ruling R19)", () => {
