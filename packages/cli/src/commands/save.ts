@@ -32,6 +32,8 @@ const OS_JUNK: ReadonlySet<string> = new Set([".DS_Store", "Thumbs.db", "desktop
 interface Created {
   root: string;
   path: string;
+  /** Manifest of what was actually placed (it may differ from the evaluated one if the source changed). */
+  sha256: string;
   /** The root did not exist before this call, so an empty root is removed again on rollback. */
   rootWasNew: boolean;
 }
@@ -86,9 +88,9 @@ async function findMachinePath(
 }
 
 /** Takes back every bundle this call created, newest first; never throws. */
-async function rollback(created: Created[], sha256: string): Promise<void> {
+async function rollback(created: Created[]): Promise<void> {
   for (const c of [...created].reverse()) {
-    await removePlacedBundle(c.path, sha256, c.root);
+    await removePlacedBundle(c.path, c.sha256, c.root);
     if (c.rootWasNew) await rmdir(c.root).catch(() => undefined);
   }
 }
@@ -145,8 +147,8 @@ export const saveCommand: SessionCommandDef = {
     }
     if (scope === "discard") {
       await endAbandonedSession(store, state, now());
-      const { archived } = await discardSession(store, state);
-      return { data: { scope, removed: true, archived }, save: false, recordStep: false };
+      const { archived, notes } = await discardSession(store, state);
+      return { data: { scope, removed: true, archived, notes }, save: false, recordStep: false };
     }
 
     let harnesses: Harness[];
@@ -249,7 +251,12 @@ export const saveCommand: SessionCommandDef = {
           );
         }
         if (placed.action === "create" && !dryRun) {
-          created.push({ root: t.root, path: placed.path, rootWasNew });
+          created.push({
+            root: t.root,
+            path: placed.path,
+            sha256: placed.manifest.sha256,
+            rootWasNew,
+          });
         }
         // AC 20: what was written is what was evaluated.
         if (placed.manifest.sha256 !== manifest.sha256) throw bundleChanged();
@@ -258,7 +265,7 @@ export const saveCommand: SessionCommandDef = {
       // The bundle may have been edited while it was being copied.
       if (!dryRun) await assertBundlePinned(state, sessionDir);
     } catch (e) {
-      await rollback(created, manifest.sha256);
+      await rollback(created);
       if (e instanceof BundleLayoutError) throw new CliError("BUNDLE_INVALID", e.message);
       const code = (e as NodeJS.ErrnoException).code;
       if (typeof code === "string" && DENIED_CODES.has(code)) {

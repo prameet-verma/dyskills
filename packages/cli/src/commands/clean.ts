@@ -1,5 +1,6 @@
-import { realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import type { HostEnv } from "@dynamic-skills/adapter-sdk";
 import { removePlacedBundle } from "@dynamic-skills/adapter-sdk";
 import {
   SlaClock,
@@ -9,6 +10,7 @@ import {
   stopClock,
 } from "@dynamic-skills/core";
 import type { SessionState, SessionStore } from "@dynamic-skills/core";
+import { ADAPTERS } from "../adapters";
 import { writeTerminalReports } from "../io";
 import type { SessionCommandDef } from "./types";
 
@@ -35,34 +37,76 @@ export async function endAbandonedSession(
 }
 
 /**
+ * Decides whether the native placement of `state` may be removed, and why not (Ruling R38).
+ * The native root must be a real directory under the real home (never a symlink, which could
+ * lead to a user's own skills); the target must sit exactly at the adapter's
+ * placement path; no other session may reference it (or anything
+ * inside it); and no other `session.json` may be unreadable (fail safe, D5).
+ */
+async function nativeRemovalBlocker(
+  store: SessionStore,
+  state: SessionState & { native: NonNullable<SessionState["native"]> },
+  within: string,
+): Promise<string | null> {
+  const info = await lstat(within).catch(() => null);
+  if (info === null) return null; // nothing there; removal is a no-op
+  if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(within)) !== within) {
+    return "the native placement root is not a plain directory; the placement was not removed";
+  }
+  const { dir, harness } = state.native;
+  // The adapter owns its placement layout: the recorded path must be exactly what it plans.
+  const root = ADAPTERS[harness].nativeSessionRoot({
+    sessionHome: dirname(within),
+    vars: { DYNAMIC_SKILLS_NATIVE: "1" },
+  } as unknown as HostEnv);
+  if (root === null || dir !== join(root, basename(dir))) {
+    return "the recorded native placement is not at its expected location; it was not removed";
+  }
+  const refs = await readNativeReferences(store.home, { exclude: state.id });
+  if (refs.unparsable > 0) {
+    return "another session could not be read; the native placement was kept";
+  }
+  const target = resolve(dir);
+  for (const other of refs.byDir.keys()) {
+    const o = resolve(other);
+    if (o === target || o.startsWith(`${target}${sep}`)) {
+      return "another session still uses the native placement; it was kept";
+    }
+  }
+  return null;
+}
+
+/**
  * Discards a session: archives its performance report (Ruling R21), removes its native placement
  * when nothing else uses it, then removes the session directory. A failed archive write throws
  * before anything is removed.
  *
- * The placement is kept when another session references the same directory, or when any other
- * `session.json` cannot be read (it may reference it; fail safe, D5). Its path comes from session
- * state, so it is removed only through `removePlacedBundle` bound to `<realpath home>/native`
- * (Ruling R29): a tampered path outside that root, or one using `..` or a symlink, removes nothing.
+ * The placement path comes from session state, so it is removed only when `<realpath home>/native`
+ * is a plain directory, the path is exactly the adapter's planned placement, and
+ * `removePlacedBundle` (bound to that root, Ruling R29) accepts it; otherwise it is kept and a
+ * note says why. It is also kept while another session references it or any other `session.json`
+ * cannot be read (D5).
  * @param store - Session store.
  * @param state - The session to discard.
- * @returns `archived`: the archive path, or `null` when the session had no valid report.
+ * @returns `archived`: the archive path, or `null` when the session had no valid report; `notes`:
+ * why a native placement was kept, when it was.
  */
 export async function discardSession(
   store: SessionStore,
   state: SessionState,
-): Promise<{ archived: string | null }> {
+): Promise<{ archived: string | null; notes: string[] }> {
   const archived = (await archivePerformanceReport(store.home, state.id))
     ? join(store.home, "reports", `${state.id}.json`)
     : null;
+  const notes: string[] = [];
   if (state.native !== undefined) {
-    const refs = await readNativeReferences(store.home, { exclude: state.id });
-    if (refs.unparsable === 0 && !refs.byDir.has(state.native.dir)) {
-      const within = join(await realpath(store.home).catch(() => store.home), "native");
-      await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
-    }
+    const within = join(await realpath(store.home).catch(() => store.home), "native");
+    const why = await nativeRemovalBlocker(store, { ...state, native: state.native }, within);
+    if (why !== null) notes.push(why);
+    else await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
   }
   await store.remove(state.id);
-  return { archived };
+  return { archived, notes };
 }
 
 /**
@@ -85,7 +129,11 @@ export const cleanCommand: SessionCommandDef = {
   async run({ store, state, now }) {
     // Catch-all (Ruling R22): a session abandoned before it ended is counted.
     await endAbandonedSession(store, state, now());
-    const { archived } = await discardSession(store, state);
-    return { data: { removed: true, archived: archived !== null }, save: false, recordStep: false };
+    const { archived, notes } = await discardSession(store, state);
+    return {
+      data: { removed: true, archived: archived !== null, notes },
+      save: false,
+      recordStep: false,
+    };
   },
 };

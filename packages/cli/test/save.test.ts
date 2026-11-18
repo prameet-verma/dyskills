@@ -17,7 +17,9 @@ import type { HostProbe } from "@dynamic-skills/adapter-sdk";
 import { scanExistingSkills } from "@dynamic-skills/bootstrapper";
 import { SessionStore } from "@dynamic-skills/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SessionState } from "@dynamic-skills/core";
 import { discardSession } from "../src/commands/clean";
+import { assertCanSave } from "../src/state-machine";
 import { bundleDigest } from "../src/commands/bundle";
 import { ROOT, harness, hashTree, installGolden, ready, record } from "./helpers";
 import type { Harness as Env } from "./helpers";
@@ -446,10 +448,22 @@ describe("save: placement failures roll back what this call created", () => {
     expect(await readdir(join(h.repo, ".claude/skills")).catch(() => [])).toEqual([]);
   });
 
-  it("is BUNDLE_INVALID when what was placed is not the manifest that was evaluated", async () => {
+  it("takes back a bundle whose source was edited before it was placed (one root)", async () => {
+    const id = await activated();
+    hooks.calls = 0;
+    hooks.place = async (input, real) => {
+      await appendFile(join(input.srcDir, "SKILL.md"), "\nEdited before copy.\n");
+      return real(input);
+    };
+    const r = await save(id, ["--scope", "project", "--harness", "claude-code"]);
+    expect(r.out.error).toBe("BUNDLE_INVALID");
+    expect(await readdir(join(h.repo, ".claude/skills")).catch(() => [])).toEqual([]);
+  });
+
+  it("takes back both bundles when the source is edited before the second placement", async () => {
     const r = await twoRoots(async (input, real) => {
-      const placed = await real(input);
-      return { ...placed, manifest: { ...placed.manifest, sha256: "0".repeat(64) } };
+      await appendFile(join(input.srcDir, "SKILL.md"), "\nEdited before copy.\n");
+      return real(input);
     });
     expect(r.out.error).toBe("BUNDLE_INVALID");
     await none();
@@ -509,7 +523,7 @@ describe("discardSession", () => {
 
   it("removes an unreferenced placement, archives and removes the session", async () => {
     const id = await ready(h);
-    const dir = join(native, "claude-code", NAME);
+    const dir = join(native, "claude-code", ".claude/skills", NAME);
     await reference(id, dir, await place(dir));
     const r = await h.run(["clean", "--session", id]);
     expect(r.exitCode).toBe(0);
@@ -527,7 +541,7 @@ describe("discardSession", () => {
   it("keeps a placement another session references", async () => {
     const a = await ready(h);
     const b = await ready(h);
-    const dir = join(native, "claude-code", NAME);
+    const dir = join(native, "claude-code", ".claude/skills", NAME);
     const sha = await place(dir);
     await reference(a, dir, sha);
     await reference(b, dir, sha);
@@ -540,7 +554,7 @@ describe("discardSession", () => {
   it("keeps a placement while another session.json is corrupt (fail safe)", async () => {
     const a = await ready(h);
     const b = await ready(h);
-    const dir = join(native, "claude-code", NAME);
+    const dir = join(native, "claude-code", ".claude/skills", NAME);
     await reference(a, dir, await place(dir));
     await writeFile(join(h.home, "sessions", b, "session.json"), "{ not json");
     await discard(a);
@@ -578,11 +592,208 @@ describe("discardSession", () => {
     const id = await ready(h);
     const target = join(h.tmp, "elsewhere", NAME);
     const sha = await place(target);
-    const dir = join(native, "claude-code", NAME);
+    const dir = join(native, "claude-code", ".claude/skills", NAME);
     await mkdir(join(dir, ".."), { recursive: true });
     await symlink(target, dir);
     await reference(id, dir, sha);
     await discard(id);
     expect(await exists(join(target, "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("discardSession: native root safety (Ruling R38)", () => {
+  const exists = (p: string) =>
+    stat(p).then(
+      () => true,
+      () => false,
+    );
+  const sha = async (dir: string) => (await bundleManifest(dir)).sha256;
+  async function reference(id: string, dir: string, digest: string): Promise<void> {
+    const file = join(h.home, "sessions", id, "session.json");
+    const state = JSON.parse(await readFile(file, "utf8"));
+    state.native = {
+      harness: "claude-code",
+      dir,
+      manifestSha256: digest,
+      placedAt: new Date(1_700_000_000_000).toISOString(),
+    };
+    await writeFile(file, JSON.stringify(state));
+  }
+  const seed = async (dest: string) => {
+    await mkdir(join(dest, ".."), { recursive: true });
+    await cp(join(ROOT, "fixtures/skills/valid", NAME), dest, { recursive: true });
+    return sha(dest);
+  };
+
+  it("never removes a user's skill when <home>/native is a symlink", async () => {
+    const id = await ready(h);
+    const userSkills = join(h.tmp, "fake-user", ".claude", "skills");
+    const mine = join(userSkills, NAME);
+    const digest = await seed(mine);
+    await symlink(userSkills, join(await realpath(h.home), "native"));
+    // The recorded dir reads like a placement but resolves into the user's skills directory.
+    const dir = join(await realpath(h.home), "native", NAME);
+    await reference(id, dir, digest);
+    const r = await h.run(["clean", "--session", id]);
+    expect(r.exitCode).toBe(0);
+    expect(await exists(join(mine, "SKILL.md"))).toBe(true);
+    expect(r.out.notes.length).toBe(1);
+    // The same with the exact placement shape, where the symlink target holds a look-alike.
+    const id2 = await ready(h);
+    const lookalike = join(userSkills, "claude-code/.claude/skills", NAME);
+    const digest2 = await seed(lookalike);
+    await reference(
+      id2,
+      join(await realpath(h.home), "native/claude-code/.claude/skills", NAME),
+      digest2,
+    );
+    await h.run(["clean", "--session", id2]);
+    expect(await exists(join(lookalike, "SKILL.md"))).toBe(true);
+  });
+
+  it("does not remove a path spelled differently from the placement shape", async () => {
+    const native = join(await realpath(h.home), "native");
+    const real = join(native, "claude-code/.claude/skills", NAME);
+    const digest = await seed(real);
+    const a = await ready(h);
+    const b = await ready(h);
+    await reference(b, real, digest);
+    await reference(a, join(native, "claude-code/.claude/skills/", `/${NAME}`), digest);
+    await h.run(["clean", "--session", a]);
+    expect(await exists(join(real, "SKILL.md"))).toBe(true);
+  });
+
+  it("does not remove an ancestor of the placement shape", async () => {
+    const native = join(await realpath(h.home), "native");
+    const real = join(native, "claude-code/.claude/skills", NAME);
+    await seed(real);
+    const a = await ready(h);
+    const skillsDir = join(native, "claude-code/.claude/skills");
+    await reference(a, skillsDir, await sha(skillsDir).catch(() => "0".repeat(64)));
+    await h.run(["clean", "--session", a]);
+    expect(await exists(join(real, "SKILL.md"))).toBe(true);
+  });
+
+  it("keeps a placement when another session references something inside it", async () => {
+    const native = join(await realpath(h.home), "native");
+    const real = join(native, "claude-code/.claude/skills", NAME);
+    const digest = await seed(real);
+    const a = await ready(h);
+    const b = await ready(h);
+    await reference(a, real, digest);
+    await reference(b, join(real, "sub"), digest);
+    await h.run(["clean", "--session", a]);
+    expect(await exists(join(real, "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("assertCanSave branches", () => {
+  const base = {
+    status: "completed",
+    completedSteps: ["activate"],
+    metrics: { outcome: "activated" },
+  } as unknown as SessionState;
+  const with_ = (over: Record<string, unknown>) =>
+    ({
+      ...base,
+      ...over,
+      metrics: { ...base.metrics, ...((over.metrics as object) ?? {}) },
+    }) as SessionState;
+  const code = (fn: () => void) => {
+    try {
+      fn();
+    } catch (e) {
+      return (e as { code?: string }).code;
+    }
+    return "none";
+  };
+
+  it("accepts completed and warning with activate and activated", () => {
+    expect(code(() => assertCanSave(base, "project"))).toBe("none");
+    expect(code(() => assertCanSave(with_({ status: "warning" }), "personal"))).toBe("none");
+  });
+  it("refuses a wrong status on its own", () => {
+    for (const status of ["failed", "timeout", "running"]) {
+      expect(code(() => assertCanSave(with_({ status }), "project"))).toBe("INVALID_STATE");
+    }
+  });
+  it("refuses a wrong last step on its own", () => {
+    expect(code(() => assertCanSave(with_({ completedSteps: ["eval-record"] }), "project"))).toBe(
+      "INVALID_STATE",
+    );
+    expect(code(() => assertCanSave(with_({ completedSteps: [] }), "project"))).toBe(
+      "INVALID_STATE",
+    );
+  });
+  it("refuses a wrong outcome on its own", () => {
+    expect(code(() => assertCanSave(with_({ metrics: { outcome: "augmented" } }), "project"))).toBe(
+      "SAVE_UNSUPPORTED",
+    );
+    for (const outcome of ["reused", "skipped", "failed", undefined]) {
+      expect(code(() => assertCanSave(with_({ metrics: { outcome } }), "personal"))).toBe(
+        "INVALID_STATE",
+      );
+    }
+  });
+  it("always allows ephemeral and discard", () => {
+    const bad = with_({ status: "failed", completedSteps: [], metrics: { outcome: "failed" } });
+    expect(code(() => assertCanSave(bad, "ephemeral"))).toBe("none");
+    expect(code(() => assertCanSave(bad, "discard"))).toBe("none");
+  });
+});
+
+describe("save: remaining guards", () => {
+  it("ephemeral is allowed on an unfinished session and writes nothing", async () => {
+    const id = await ready(h);
+    const r = await save(id, ["--scope", "ephemeral"]);
+    expect(r.exitCode).toBe(0);
+    expect(r.out.saved).toEqual([]);
+    expect(await h.exists(id, "session.json")).toBe(true);
+  });
+
+  it("flags the unresolved session-home spelling when it differs from the realpath", async () => {
+    const id = await activated();
+    const alias = join(h.tmp, "tmp-alias");
+    await symlink(h.tmp, alias);
+    const md = join(sessionSkill(id), "SKILL.md");
+    await appendFile(md, `\nLog at ${alias}/home/x.\n`);
+    await repin(id);
+    // Only the unresolved spelling appears in the bundle; the home is given through the alias.
+    const r = await h.runWith(
+      ["save", "--session", id, "--scope", "project", "--harness", "claude-code"],
+      { probe, vars: {}, home: join(alias, "home") },
+    );
+    expect(r.out).toMatchObject({ error: "SAVE_CONFLICT", reason: "machine path" });
+  });
+
+  it("matches a home path only at a path boundary", async () => {
+    const id = await activated();
+    const md = join(sessionSkill(id), "SKILL.md");
+    const user = await realpath(h.userHome);
+    await appendFile(md, `\nSee ${user}2/notes.\n`);
+    await repin(id);
+    const r = await save(id, ["--scope", "project", "--harness", "claude-code"]);
+    expect(r.exitCode).toBe(0);
+    await appendFile(md, `\nSee ${user}/notes.\n`);
+    await repin(id);
+    const r2 = await save(id, ["--scope", "project", "--harness", "claude-code"]);
+    expect(r2.out).toMatchObject({ error: "SAVE_CONFLICT", reason: "machine path" });
+  });
+
+  it("reports an unreadable same-named directory as name in use", async () => {
+    if (process.getuid?.() === 0) return;
+    const id = await activated();
+    const other = join(h.userHome, ".agents/skills", NAME);
+    await mkdir(other, { recursive: true });
+    await chmod(other, 0o000);
+    try {
+      const r = await save(id, ["--scope", "project", "--harness", "opencode"]);
+      expect(r.out).toMatchObject({ error: "SAVE_CONFLICT", reason: "name in use" });
+      expect(r.out.conflicts.some((c: string) => c.endsWith(join(".agents/skills", NAME)))).toBe(
+        true,
+      );
+    } finally {
+      await chmod(other, 0o755);
+    }
   });
 });

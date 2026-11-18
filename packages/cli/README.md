@@ -34,7 +34,7 @@ newline) removed, because session ids and option values are agent-controlled.
   `status`, `clean` and `save`. `assertCanSave(state, scope)` guards `save`: `ephemeral` and
   `discard` are always allowed, `project` and `personal` need an activated (not augmented) session.
 - **`CliError`** and **`parseDocument(schema, text)`** (internal, `src/io.ts`): expected failures
-  with a stable code (`SESSION_NOT_FOUND`, `SESSION_LOCKED`, `HOME_UNSAFE`, `INVALID_STATE`,
+  with a stable code (`SESSION_NOT_FOUND`, `SESSION_LOCKED`, `HOME_UNSAFE`, `INVALID_STATE`, `SAVE_CONFLICT`, `SAVE_DENIED`, `SAVE_UNSUPPORTED`,
   `USAGE`, `ANALYSIS_LIMIT`, `BASE_CHANGED`, `ACTIVATION_REFUSED`, `SCHEMA_INVALID`,
   `VERDICT_INVALID`, `BUNDLE_INVALID`, `EVAL_ATTEMPTS_EXHAUSTED`, `INIT_CONFLICT`,
   `HARNESS_NOT_DETECTED`, `TIMEOUT`) and strict validation of agent documents with

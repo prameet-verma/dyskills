@@ -78,6 +78,7 @@ command returns `TIMEOUT` again without saving.
 | `evaluate`                       | `compile`, `evaluate`, `eval-record`                                                                                                         |
 | `eval record`                    | `evaluate`                                                                                                                                   |
 | `activate`                       | `eval-record`                                                                                                                                |
+| `save`                           | any state (the scope decides: `project` and `personal` need a finished `activate`; see `save`)                                               |
 | `status`, `clean`, `report perf` | any state                                                                                                                                    |
 
 One verdict is allowed per session, so a second `sufficiency submit` is `INVALID_STATE`.
@@ -274,7 +275,9 @@ stdout: `removed: true`, `archived` (whether a report was archived).
 If the session recorded a native placement, `clean` also removes that placement, unless another
 session references the same directory or any other `session.json` cannot be read (then it is kept,
 and the TTL sweep removes it later). The path comes from session state, so it is removed only when
-it lies inside `<realpath home>/native/` (never through `..`, a symlink or a path elsewhere).
+it is exactly `<realpath home>/native/<harness>/.claude/skills/<name>` and `<home>/native` is a
+plain directory, never a symlink (Ruling R38); a kept placement is explained in `notes`. Another
+session referencing the directory or anything inside it also keeps it.
 
 ### `save --session <id> --scope project|personal|ephemeral|discard [--harness <list>] [--dry-run]`
 
@@ -285,7 +288,8 @@ account and never changes `session.json`, `completedSteps` or the reports).
 
 - `ephemeral`: writes nothing. stdout: `scope`, `saved: []`, `sessionDir`, `notes` (the skill stays
   in the session directory until `clean`). Always allowed.
-- `discard`: ends the session if it is still open (as `clean` does), archives its report to
+- `discard`: ends the session if it is still open (as `clean` does, writing terminal reports that
+  are then archived, Ruling R21), archives its report to
   `<home>/reports/<id>.json` and removes the session directory and any unshared native placement.
   stdout: `scope`, `removed: true`, `archived` (the archive path, or `null` when there was no valid
   report). Always allowed.
@@ -297,7 +301,8 @@ account and never changes `session.json`, `completedSteps` or the reports).
   else `USAGE`.
 
 For `project` and `personal` the command checks, in this order, that nothing it would write could
-mislead or collide, and writes nothing on any failure:
+mislead or collide, and keeps no skill file on any failure (an empty parent directory such as
+`.claude` that placeBundle created may remain):
 
 1. The bundle still matches the digest pinned by `evaluate` (`BUNDLE_INVALID` otherwise), so only
    the evaluated bytes are saved. The saved copy is byte-identical (files 0644, directories 0755).
@@ -306,7 +311,7 @@ mislead or collide, and writes nothing on any failure:
    from this machine.
 3. No root any selected harness reads (project and personal) may hold a different skill of the same
    name (`SAVE_CONFLICT`, `reason: "name in use"`, `conflicts` lists the paths). An identical copy is
-   not a conflict.
+   not a conflict; a same-named entry that cannot be read counts as in use.
 
 The fewest skill roots that every selected harness reads are then written, for example one
 `.claude/skills` entry for `claude-code,opencode` (its `covers` lists both). `project` writes must
