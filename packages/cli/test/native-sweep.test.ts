@@ -6,7 +6,11 @@ import type { Harness } from "./helpers";
 
 vi.mock("../src/native", async (orig) => {
   const real = await orig<typeof import("../src/native")>();
-  return { ...real, sweepNativePlacements: vi.fn(real.sweepNativePlacements) };
+  return {
+    ...real,
+    placeNative: vi.fn(real.placeNative),
+    sweepNativePlacements: vi.fn(real.sweepNativePlacements),
+  };
 });
 import * as native from "../src/native";
 
@@ -86,19 +90,21 @@ describe("native sweep at assess", () => {
 describe("native sweep at activate", () => {
   it("removes a placement whose session directory was deleted", async () => {
     const { id, dir } = await placed();
-    await rm(join(h.home, "sessions", id), { recursive: true });
+    // Created first: its own `assess` sweep must not be what removes the placement.
     const next = await recorded();
+    await rm(join(h.home, "sessions", id), { recursive: true });
+    expect(await exists(dir)).toBe(true);
     expect((await h.run(["activate", "--session", next])).exitCode).toBe(0);
     expect(await exists(dir)).toBe(false);
   });
 
   it("keeps it while another session.json cannot be parsed, until 25 h", async () => {
     const { id, dir } = await placed();
+    const next = await recorded();
     await rm(join(h.home, "sessions", id), { recursive: true });
     const bad = join(h.home, "sessions", "ds-20240101000000-abcdef");
     await mkdir(bad, { recursive: true });
     await writeFile(join(bad, "session.json"), "{ not json");
-    const next = await recorded();
     expect((await h.run(["activate", "--session", next])).exitCode).toBe(0);
     expect(await exists(join(dir, "SKILL.md"))).toBe(true);
     h.clock.t += 25 * HOUR;
@@ -119,6 +125,16 @@ describe("native sweep safety", () => {
     await assess(h);
     expect(await exists(dir)).toBe(false);
     expect(await exists(join(tmp, "SKILL.md"))).toBe(true);
+  });
+
+  it("skips an in-flight temp directory at any level", async () => {
+    const root = await nativeRoot();
+    const inner = join(root, "a/.x.tmp-deadbeef/inner-skill");
+    await mkdir(inner, { recursive: true });
+    await writeFile(join(inner, "SKILL.md"), "---\nname: inner-skill\n---\n");
+    await utimes(inner, h.clock.t / 1000, h.clock.t / 1000);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([]);
+    expect(await exists(join(inner, "SKILL.md"))).toBe(true);
   });
 
   it("does not follow or remove through symlinks", async () => {
@@ -183,7 +199,63 @@ describe("native sweep safety", () => {
     const tooDeep = join(root, "a/b/c/d/other-skill");
     await mkdir(tooDeep, { recursive: true });
     await writeFile(join(tooDeep, "SKILL.md"), "---\nname: other-skill\n---\n");
+    for (const d of [deep, tooDeep]) await utimes(d, h.clock.t / 1000, h.clock.t / 1000);
     expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([deep]);
     expect(await exists(join(tooDeep, "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("native sweep grace, home safety and limits", () => {
+  it("keeps a fresh placement even when no session references it yet (R39)", async () => {
+    const root = await nativeRoot();
+    const fresh = join(root, "claude-code/.claude/skills/fresh-skill");
+    await mkdir(fresh, { recursive: true });
+    await writeFile(join(fresh, "SKILL.md"), "---\nname: fresh-skill\n---\n");
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([]);
+    expect(await exists(join(fresh, "SKILL.md"))).toBe(true);
+    // A future-dated mtime must not keep it forever.
+    const future = new Date(Date.now() + 5 * HOUR);
+    await utimes(fresh, future, future);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([fresh]);
+  });
+
+  it("survives a sweep that runs between placement and save", async () => {
+    const real = await vi.importActual<typeof import("../src/native")>("../src/native");
+    const id = await recorded();
+    vi.mocked(native.placeNative).mockImplementationOnce(async (input) => {
+      const r = await real.placeNative(input);
+      // Another session's sweep, before this session saved its reference.
+      await real.sweepNativePlacements(h.home, h.clock.t);
+      return r;
+    });
+    const r = await h.runWith(["activate", "--session", id], { vars: NATIVE_ON });
+    expect(r.out.native).not.toBeNull();
+    expect(await exists(join(r.out.native.path, "SKILL.md"))).toBe(true);
+    expect((await h.readJson(id, "session.json")).native.dir).toBe(r.out.native.path);
+  });
+
+  it("does not sweep before a symlinked session home is rejected", async () => {
+    const target = join(h.tmp, "target");
+    const skill = join(target, "native/claude-code/.claude/skills/some-skill");
+    await mkdir(skill, { recursive: true });
+    await writeFile(join(skill, "SKILL.md"), "---\nname: some-skill\n---\n");
+    await utimes(skill, h.clock.t / 1000, h.clock.t / 1000);
+    const link = join(h.tmp, "linked-home");
+    await symlink(target, link);
+    const r = await h.runWith(["assess", "--task", "Add caching to order reads"], { home: link });
+    expect(r.out.error).toBe("HOME_UNSAFE");
+    expect(await exists(join(skill, "SKILL.md"))).toBe(true);
+  });
+
+  it("stops at the wall-clock budget and at the directory cap", async () => {
+    const root = await nativeRoot();
+    const dir = join(root, "a/some-skill");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), "---\nname: some-skill\n---\n");
+    await utimes(dir, h.clock.t / 1000, h.clock.t / 1000);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t, { budgetMs: 0 })).toEqual([]);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t, { maxDirs: 2 })).toEqual([]);
+    expect(await exists(join(dir, "SKILL.md"))).toBe(true);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([dir]);
   });
 });

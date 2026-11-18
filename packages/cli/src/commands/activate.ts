@@ -6,7 +6,8 @@ import { BundleError, parseSkillBundle } from "@dynamic-skills/skill-compiler";
 import type { GeneratedSkill, SessionState, SessionStore } from "@dynamic-skills/core";
 import type { HostProbe } from "@dynamic-skills/adapter-sdk";
 import type { PlaceNativeResult } from "../native";
-import { dirname, basename } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { removePlacedBundle } from "@dynamic-skills/adapter-sdk";
 import { ADAPTERS, currentHarness } from "../adapters";
 import { buildHostEnv } from "../host";
 import { placeNative, sweepNativePlacements } from "../native";
@@ -89,13 +90,33 @@ async function placeForHarness(input: {
       etcDir,
     });
     const skillDir = dirname(result.skillPath);
-    return await placeNative({
+    const placed = await placeNative({
       env,
       adapter: ADAPTERS[harness],
       skillDir,
       name: basename(skillDir),
       now: input.now(),
     });
+    if (placed.placement === null) return placed;
+    // R14: the copy happened after the pin check; what was placed must still be what was evaluated.
+    try {
+      await assertBundlePinned(state, store.dir(state.id));
+    } catch {
+      // Only a directory this call created is ours to remove; a reused one belongs to others too.
+      if (placed.created === true) {
+        await removePlacedBundle(
+          placed.placement.dir,
+          placed.placement.manifestSha256,
+          join(env.sessionHome, "native"),
+        );
+      }
+      return {
+        native: null,
+        placement: null,
+        limitation: "Native registration skipped: the skill changed after evaluation.",
+      };
+    }
+    return placed;
   } catch (e) {
     const message = e instanceof Error ? e.message : "unexpected error";
     return {
@@ -155,7 +176,7 @@ export const activateCommand: SessionCommandDef = {
       now: now(),
     });
     const out = toResult(result);
-    if (!result.activated) return out;
+    if (!result.activated) return { ...out, data: { ...out.data, native: null } };
     const placed = await placeForHarness({
       state,
       store,

@@ -1,7 +1,7 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, readdir, realpath, utimes } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { bundleManifest, placeBundle, removePlacedBundle } from "@dynamic-skills/adapter-sdk";
-import type { HarnessAdapter, HostEnv } from "@dynamic-skills/adapter-sdk";
+import type { HarnessAdapter, HostEnv, PlaceInput } from "@dynamic-skills/adapter-sdk";
 import { readNativeReferences, selectExpiredPlacements } from "@dynamic-skills/core";
 import type { NativePlacement } from "@dynamic-skills/core";
 
@@ -10,6 +10,25 @@ const SWEEP_MAX_DEPTH = 4;
 
 /** Most directories the sweep looks at in one run; keeps it far below the 60 s budget. */
 const SWEEP_MAX_DIRS = 2_000;
+
+/** Real-clock budget of one sweep (2 s); it stops enumerating and removing once it is spent. */
+const SWEEP_BUDGET_MS = 2_000;
+
+/**
+ * Grace period (10 min, real clock) for a fresh placement (Ruling R39). A session's placement is
+ * unreferenced between `placeNative` and its save, so a sweep in another process must not take a
+ * directory whose mtime is younger than this. Only `0 <= age < grace` counts: a future-dated
+ * mtime gets no grace, so it cannot keep a placement forever.
+ */
+export const NATIVE_PLACEMENT_GRACE_MS = 600_000;
+
+/** Optional limits of {@link sweepNativePlacements}; tests lower them. */
+export interface SweepOptions {
+  /** Real-clock budget in ms; default 2000. */
+  budgetMs?: number;
+  /** Most directories to look at; default 2000. */
+  maxDirs?: number;
+}
 
 /** True for an in-flight `.<name>.tmp-<hex>` directory left by `placeBundle`; never swept. */
 function isTempDir(name: string): boolean {
@@ -22,11 +41,14 @@ function isTempDir(name: string): boolean {
  * in-flight temp directories are skipped, the walk is capped by depth and by directory count, and
  * a directory that cannot be read is skipped.
  */
-async function listPlacements(root: string): Promise<{ dir: string; mtimeMs: number }[]> {
+async function listPlacements(
+  root: string,
+  limits: { maxDirs: number; deadline: number },
+): Promise<{ dir: string; mtimeMs: number }[]> {
   const found: { dir: string; mtimeMs: number }[] = [];
   let visited = 0;
   const walk = async (dir: string, depth: number): Promise<void> => {
-    if (visited >= SWEEP_MAX_DIRS) return;
+    if (visited >= limits.maxDirs || Date.now() >= limits.deadline) return;
     visited++;
     const skill = await lstat(join(dir, "SKILL.md")).catch(() => undefined);
     if (skill?.isFile() === true) {
@@ -40,7 +62,8 @@ async function listPlacements(root: string): Promise<{ dir: string; mtimeMs: num
       if (isTempDir(name)) continue;
       const child = join(dir, name);
       const st = await lstat(child).catch(() => undefined);
-      if (st === undefined || st.isSymbolicLink() || !st.isDirectory()) continue;
+      // `lstat` reports a symlink as a symlink, never as a directory, so links are skipped here.
+      if (st === undefined || !st.isDirectory()) continue;
       await walk(child, depth + 1);
     }
   };
@@ -62,22 +85,47 @@ async function listPlacements(root: string): Promise<{ dir: string; mtimeMs: num
  * let it fail `assess` or `activate`.
  *
  * @param home - Session home.
- * @param now - Epoch ms used for the age check.
+ * A placement whose mtime is younger than {@link NATIVE_PLACEMENT_GRACE_MS} on the real clock is
+ * kept regardless of the policy (Ruling R39), and the sweep stops after a 2 s real-clock budget
+ * or 2000 directories.
+ *
+ * @param home - Session home.
+ * @param now - Epoch ms used for the policy's age check (the invocation's clock).
+ * @param opts - Limits, lowered by tests.
  * @returns The placement directories that were removed.
  */
-export async function sweepNativePlacements(home: string, now: number): Promise<string[]> {
+export async function sweepNativePlacements(
+  home: string,
+  now: number,
+  opts: SweepOptions = {},
+): Promise<string[]> {
+  const deadline = Date.now() + (opts.budgetMs ?? SWEEP_BUDGET_MS);
   const realHome = await realpath(home).catch(() => undefined);
   if (realHome === undefined) return [];
   const root = join(realHome, "native");
   const rootStat = await lstat(root).catch(() => undefined);
-  if (rootStat === undefined || rootStat.isSymbolicLink() || !rootStat.isDirectory()) return [];
-  const placements = await listPlacements(root);
+  // `lstat` never follows: a symlinked `native` is not a directory here (Ruling R38).
+  if (rootStat === undefined || !rootStat.isDirectory()) return [];
+  if ((await realpath(root)) !== root) return [];
+  const placements = await listPlacements(root, {
+    maxDirs: opts.maxDirs ?? SWEEP_MAX_DIRS,
+    deadline,
+  });
   if (placements.length === 0) return [];
   const { byDir, unparsable } = await readNativeReferences(realHome);
-  const expired = selectExpiredPlacements({ placements, refs: byDir, unparsable, now });
+  const mtimes = new Map(placements.map((p) => [p.dir, p.mtimeMs]));
+  const wallNow = Date.now();
+  const expired = selectExpiredPlacements({ placements, refs: byDir, unparsable, now }).filter(
+    (dir) => {
+      // mtime has sub-millisecond digits that `Date.now()` lacks; floor so "just now" is age 0.
+      const age = wallNow - Math.floor(mtimes.get(dir) ?? 0);
+      return !(age >= 0 && age < NATIVE_PLACEMENT_GRACE_MS);
+    },
+  );
   const removed: string[] = [];
-  const realRoot = await realpath(root);
+  const realRoot = root;
   for (const dir of expired) {
+    if (Date.now() >= deadline) break;
     try {
       const sha = (await bundleManifest(dir)).sha256;
       if (await removePlacedBundle(dir, sha, realRoot)) removed.push(dir);
@@ -100,6 +148,12 @@ export interface PlaceNativeInput {
   name: string;
   /** Epoch ms recorded as `placedAt`. */
   now: number;
+  /**
+   * Test seams passed to `placeBundle`.
+   *
+   * @internal Never wire user input into these.
+   */
+  testHooks?: PlaceInput["testHooks"];
 }
 
 /** Outcome of {@link placeNative}. */
@@ -108,6 +162,8 @@ export interface PlaceNativeResult {
   native: { name: string; path: string } | null;
   /** Record to store in the session state; `null` when nothing was placed. */
   placement: NativePlacement | null;
+  /** True when this call created the directory (as opposed to reusing identical bytes). */
+  created?: boolean;
   /** Why registration was skipped; `null` when placed or when native mode is off. */
   limitation: string | null;
 }
@@ -157,13 +213,20 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
       name,
       mode: "native",
       within,
+      ...(input.testHooks === undefined ? {} : { testHooks: input.testHooks }),
     });
     if (placed.action === "conflict") {
       return none(
         `Native registration skipped: another session holds a different skill named ${name}.`,
       );
     }
+    if (placed.action === "unchanged") {
+      // Reuse restarts the grace period; best effort.
+      const t = new Date();
+      await utimes(placed.path, t, t).catch(() => undefined);
+    }
     return {
+      created: placed.action === "create",
       native: { name, path: placed.path },
       placement: {
         harness: adapter.id,

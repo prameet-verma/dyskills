@@ -43,7 +43,9 @@ export const assessCommand: CreateCommandDef = {
   step: "assess",
   stage: "assessment",
   async run(ctx) {
-    // Best effort, before the session exists: a sweep failure never fails the command.
+    // The home is checked first (a symlinked home must be refused before anything under it is
+    // removed); then a best-effort sweep, before the session exists.
+    await ctx.store.prepare();
     await sweepNativePlacements(ctx.store.home, ctx.now()).catch(() => undefined);
     const task = String(ctx.opts.task ?? "").trim();
     if (task === "") throw new CliError("USAGE", "--task must not be empty.");

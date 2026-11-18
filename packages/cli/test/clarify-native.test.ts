@@ -57,6 +57,19 @@ describe("clarify ask native plan", () => {
     expect(r.out.native.textOnly).toEqual(["r1-q2"]);
   });
 
+  it("sends a multiSelect question to text for codex", async () => {
+    const id = await ready();
+    const multi = q({
+      id: "r1-q1",
+      requirement: "r-one",
+      options: [option(1), option(2)],
+      multiSelect: true,
+    });
+    const r = await ask(id, ["--harness", "codex"], {}, multi);
+    expect(r.out.native.textOnly).toEqual(["r1-q1"]);
+    expect(r.out.native.calls).toEqual([]);
+  });
+
   it("takes the harness from DYNAMIC_SKILLS_HARNESS, and the flag wins", async () => {
     const id = await ready();
     const env = { DYNAMIC_SKILLS_HARNESS: "codex" };

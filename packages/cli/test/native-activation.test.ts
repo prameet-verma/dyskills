@@ -157,6 +157,32 @@ describe("native activation", () => {
     expect(r.out).toMatchObject({ ok: true, activated: true });
   });
 
+  it("removes the placement and skips when the bundle changed during placement (R14)", async () => {
+    const real = await vi.importActual<typeof import("../src/native")>("../src/native");
+    const id = await recorded();
+    vi.mocked(native.placeNative).mockImplementationOnce((input) =>
+      real.placeNative({
+        ...input,
+        testHooks: {
+          beforeCopy: async () => {
+            await appendFile(join(input.skillDir, "SKILL.md"), "\nUnevaluated addition.\n");
+          },
+        },
+      }),
+    );
+    const r = await activate(id);
+    expect(r.exitCode).toBe(0);
+    expect(r.out.native).toBeNull();
+    expect(r.out.limitations.join(" ")).toContain("Native registration skipped");
+    expect(
+      await stat(await placedDir()).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false);
+    expect((await h.readJson(id, "session.json")).native).toBeUndefined();
+  });
+
   it("does not place for a refused activation", async () => {
     const id = await ready(h);
     await h.run(["compile", "--session", id]);
@@ -166,7 +192,7 @@ describe("native activation", () => {
     await record(h, id);
     const r = await activate(id);
     expect(r.exitCode).toBe(2);
-    expect(r.out.native ?? null).toBeNull();
+    expect(r.out.native).toBeNull();
     await expect(stat(join(h.home, "native"))).rejects.toThrow();
   });
 });
