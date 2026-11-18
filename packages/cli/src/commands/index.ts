@@ -6,6 +6,7 @@ import { compileCommand } from "./compile";
 import { contextRequestCommand, contextSubmitCommand } from "./context";
 import { discoverCommand } from "./discover";
 import { evaluateCommand } from "./evaluate";
+import { initCommand } from "./init";
 import { evalRecordCommand } from "./record";
 import { reportPerfCommand } from "./report";
 import { statusCommand } from "./status";
@@ -32,4 +33,5 @@ export const COMMANDS: CommandDef[] = [
   statusCommand,
   cleanCommand,
   reportPerfCommand,
+  initCommand,
 ];

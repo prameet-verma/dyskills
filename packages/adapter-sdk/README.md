@@ -115,7 +115,9 @@ symlink alias. Native question calls are inspected generically: a call's size is
 - `dryRun` creates nothing, not even parent directories.
 - Reading results: `applyPlan` compares against its own internal preview, so treat ANY `conflict`
   entry in its result as a failed apply. The result and `PlanApplyError.applied` include `unchanged`
-  entries; only `create`/`update` entries mean a write happened.
+  entries; only `create`/`update` entries mean a write happened. When a conflict stops the apply
+  before any write, every would-be create/update is reported as `conflict` with reason
+  "not applied".
 - Parent chains are resolved for every write, `within: null` included: a dangling symlink or a
   non-directory in the chain is a conflict ("parent is a dangling symlink", "parent is not a
   directory"). Configs nested deeper than 256 levels are a conflict ("too deeply nested").

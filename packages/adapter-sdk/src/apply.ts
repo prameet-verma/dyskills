@@ -357,9 +357,10 @@ async function writeAtomic(
 
 /**
  * Applies a plan all-or-nothing with respect to conflicts: previews first, and writes nothing when
- * any conflict remains or on `dryRun`. Each create/update re-reads its target and treats any change
- * since the preview as a conflict ("changed since preview"), stopping there. Files are written via a
- * temp file and `rename`, keeping an existing file's mode (new files 0644, new directories 0755,
+ * any conflict remains or on `dryRun`. When a conflict stops it, every entry that would have been
+ * a create or update is reported as a `conflict` with reason "not applied". Each create/update
+ * re-reads its target and treats any change since the preview as a conflict ("changed since
+ * preview"), stopping there. Files are written via a temp file and `rename`, keeping an existing file's mode (new files 0644, new directories 0755,
  * `dir` writes 0700). An I/O error throws {@link PlanApplyError} listing what was already written.
  *
  * The result is the executor's own account: it compares against its own internal preview, so a
@@ -371,7 +372,15 @@ async function writeAtomic(
  */
 export async function applyPlan(plan: InstallPlan, opts: ApplyOptions): Promise<AppliedWrite[]> {
   const entries = await evaluateAll(plan, opts.force);
-  if (opts.dryRun || entries.some((e) => e.action === "conflict")) return entries.map(toApplied);
+  if (opts.dryRun) return entries.map(toApplied);
+  if (entries.some((e) => e.action === "conflict")) {
+    // Nothing is written, so a would-be create/update must not be reported as one.
+    return entries.map((e) =>
+      e.action === "create" || e.action === "update"
+        ? { ...toApplied(e), action: "conflict" as const, reason: "not applied" }
+        : toApplied(e),
+    );
+  }
 
   const done: AppliedWrite[] = [];
   for (let i = 0; i < entries.length; i++) {

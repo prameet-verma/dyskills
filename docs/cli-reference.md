@@ -282,24 +282,67 @@ stdout: `count`, `p50ActiveMs`, `p95ActiveMs`, `maxActiveMs`, `timeoutRate`, `fa
 `reuseRate`, `augmentationRate`, `cacheHitRate`, `avgClarificationRounds`, `avgContextRequests`.
 Percentiles are `null` when there are no sessions.
 
+### `init [--harness <list>] [--scope project|personal] [--repo <path>] [--dry-run] [--force] [--native] [--codex-allow-rule]`
+
+Needs no session. Installs the bootstrap skill, the consent rules (D6) and each harness's own
+configuration, by reference to the adapter READMEs in `adapters/*/README.md` (what each harness
+gets is listed there). `--harness` takes a comma-separated list of `claude-code`, `codex` and
+`opencode` (alias `claude`); a named harness is planned even when it is not detected, with the note
+`<harness> not detected`. Without it, every detected harness is installed, and none detected is
+`HARNESS_NOT_DETECTED`. `--scope` defaults to `personal`; `--repo` (default: the working directory)
+selects the project for `--scope project`. `--native` also sets up native placement where the
+harness supports it, and adds a note where it does not. `--codex-allow-rule` is the opt-in allow
+rule for harnesses that need one to run `dynamic-skills` outside their sandbox; other harnesses
+ignore it.
+
+Every harness is previewed first. Any conflict (a differing installer file, a merge conflict, a
+symlink, invalid JSON) makes the command fail with `INIT_CONFLICT` (`reason: "conflict"`) and
+**no harness file is written for any harness** (only the session home may have been created).
+`--force` replaces differing installer files only; a merge
+conflict is never forced. In particular, running `init` again after `DYNAMIC_SKILLS_HOME` changed
+conflicts at `env.DYNAMIC_SKILLS_HOME` in the Claude Code settings: edit or remove that key by hand,
+then run `init` again. `--dry-run` reports the plan and creates nothing, not even the session home.
+Otherwise the harnesses are applied in order; a write error, or a target that changed after the
+preview, stops there with `INIT_CONFLICT` (`reason: "apply-failed"`) listing the writes made so far
+(only `create` and `update` count as applied; installer files are not rolled back). Rerunning is
+idempotent: unchanged files are reported as `unchanged`.
+
+Afterwards each harness is verified. A failed verification is reported in `verify` and in the
+summary, and the exit code stays 0. A write that must stay out of version control but is not ignored
+by git adds a warning.
+
+stdout: `dryRun`, `scope`, `sessionHome` (a realpath) and `harnesses`, one entry per harness:
+`harness`, `detection`, `writes` (`path`, `action` of `create`, `update`, `unchanged` or `conflict`,
+`purpose`, `committable`, `reason`), `notes` (the adapter's own notes, unchanged), `warnings` and
+`verify` (`null` on a dry run). stderr: one line per harness,
+`<harness> <version|not detected>: <n> created, <n> updated, <n> unchanged, <n> conflicts[, verification failed]`.
+`INIT_CONFLICT` carries `reason` and the same `harnesses` report.
+
+Nothing may precede the subcommand: `dynamic-skills -V init ...` and every other leading option or
+word is `USAGE` (only a lone `-V`, `--version`, `-h` or `--help` is accepted, and `help <command>`, which only prints help), so permission
+rules
+that match `dynamic-skills init` cannot be bypassed.
+
 ## Error codes
 
-| Code                      | Exit | Meaning                                                                           | Saved?    |
-| ------------------------- | ---- | --------------------------------------------------------------------------------- | --------- |
-| `USAGE`                   | 1    | Bad flag, empty value, unreadable `--file`, blank answer                          | no        |
-| `SESSION_NOT_FOUND`       | 1    | No such session (a symlinked session directory counts as unknown)                 | no        |
-| `SESSION_LOCKED`          | 1    | Another command holds the session lock                                            | no        |
-| `HOME_UNSAFE`             | 1    | The session home or `sessions/` is a symlink, not a directory, or another user's  | no        |
-| `INVALID_STATE`           | 1    | The state machine refuses the command; `expected` lists the allowed steps         | no        |
-| `SCHEMA_INVALID`          | 1    | A document failed strict validation; `issues: [{path, message}]`                  | no        |
-| `VERDICT_INVALID`         | 1    | The sufficiency verdict failed validation against the scan, mode or explicit flag | no        |
-| `ANALYSIS_LIMIT`          | 1    | `context submit` or `context request` after 4 accepted analyses                   | no        |
-| `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)               | yes       |
-| `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                      | yes       |
-| `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate`                    | see below |
-| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (a 4th `evaluate`)                      | yes       |
-| `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                | yes       |
-| `INTERNAL`                | 1    | An unexpected failure                                                             | no        |
+| Code                      | Exit | Meaning                                                                                                        | Saved?    |
+| ------------------------- | ---- | -------------------------------------------------------------------------------------------------------------- | --------- |
+| `USAGE`                   | 1    | Bad flag, empty value, unreadable `--file`, blank answer                                                       | no        |
+| `SESSION_NOT_FOUND`       | 1    | No such session (a symlinked session directory counts as unknown)                                              | no        |
+| `SESSION_LOCKED`          | 1    | Another command holds the session lock                                                                         | no        |
+| `HOME_UNSAFE`             | 1    | The session home or `sessions/` is a symlink, not a directory, or another user's                               | no        |
+| `INVALID_STATE`           | 1    | The state machine refuses the command; `expected` lists the allowed steps                                      | no        |
+| `SCHEMA_INVALID`          | 1    | A document failed strict validation; `issues: [{path, message}]`                                               | no        |
+| `VERDICT_INVALID`         | 1    | The sufficiency verdict failed validation against the scan, mode or explicit flag                              | no        |
+| `ANALYSIS_LIMIT`          | 1    | `context submit` or `context request` after 4 accepted analyses                                                | no        |
+| `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)                                            | yes       |
+| `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                                                   | yes       |
+| `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate`                                                 | see below |
+| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (a 4th `evaluate`)                                                   | yes       |
+| `INIT_CONFLICT`           | 1    | `init` found a conflict or stopped mid-apply; `reason` is `conflict` or `apply-failed`, `harnesses` the report | no        |
+| `HARNESS_NOT_DETECTED`    | 1    | `init` without `--harness` found no supported harness                                                          | no        |
+| `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                                             | yes       |
+| `INTERNAL`                | 1    | An unexpected failure                                                                                          | no        |
 
 A handler that throws saves nothing, so the previous `session.json` is untouched. The exceptions,
 which do save state because the session or the attempt count must change, are:

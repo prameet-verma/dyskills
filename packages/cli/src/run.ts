@@ -280,6 +280,16 @@ function missingSubcommand(argv: string[]): string | null {
   return subs.length > 0 ? subs.map((w) => w[1]).join(" | ") : null;
 }
 
+/** True for exactly one `-V`, `--version`, `-h` or `--help` argument. */
+function isLoneProgramFlag(argv: string[]): boolean {
+  return argv.length === 1 && ["-V", "--version", "-h", "--help"].includes(argv[0] as string);
+}
+
+/** True when `word` names a registered top-level command, a command group, or `help`. */
+function isSubcommandWord(word: string): boolean {
+  return word === "help" || COMMANDS.some((c) => c.name.split(" ")[0] === word);
+}
+
 /**
  * In-process CLI entry (PRD §10.5, §13). Parses `argv`, runs the command through the shared
  * wrapper and returns the exit code with stdout (one JSON object, except plain-text `status`) and
@@ -320,6 +330,23 @@ async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
       exitCode: 0,
       stdout: jsonLine({ ok: true, schemaVersion: CONTRACT_VERSION, version: CLI_VERSION }),
       stderr: "",
+    };
+  }
+  // Ruling R31: nothing may precede the subcommand (except a lone version or help flag), or a
+  // harness allow rule for `dynamic-skills *` would match `dynamic-skills -V save ...` while the
+  // consent rules for `save` and `init` would not.
+  const first = argv[0];
+  if (first !== undefined && !isLoneProgramFlag(argv) && !isSubcommandWord(first)) {
+    const err = describeError(
+      new CliError(
+        "USAGE",
+        `The command must come first; "${first}" is not a command (program options are only accepted alone).`,
+      ),
+    );
+    return {
+      exitCode: err.exitCode,
+      stdout: jsonLine(err.doc),
+      stderr: `Error USAGE: ${String(err.doc.message)}\n`,
     };
   }
   let usageText = "";
