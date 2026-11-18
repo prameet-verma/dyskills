@@ -1,13 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { resolveSkillRoots } from "../../packages/bootstrapper/src/index";
 
 /** Repository root of the monorepo under test. */
 export const ROOT = resolve(import.meta.dirname, "../..");
 const BIN = join(ROOT, "packages/cli/dist/index.js");
+/** Generous per-test timeout for tests that spawn the binary many times (the machine is often loaded). */
+export const SLOW = 180_000;
 export const TASK = "Add caching to order reads in the orders service";
 
 /** Result of one spawned CLI call. */
@@ -26,6 +39,16 @@ export interface World {
   dsHome: string;
   /** `HOME` seen by the CLI. */
   userHome: string;
+  /** `DYNAMIC_SKILLS_ETC_DIR`: stands in for `/etc` (the admin Codex skill root lives under it). */
+  etcDir: string;
+  /**
+   * Writes executable fake harness binaries (and optionally a `dynamic-skills` shim that runs the
+   * built CLI) into `<tmp>/bin` and puts that directory first on the spawned `PATH`. A fake echoes
+   * its version for `--version` and exits 0 for anything else; no real harness ever runs.
+   */
+  fakeBins(versions: Record<string, string>, opts?: { dynamicSkillsShim?: boolean }): Promise<void>;
+  /** sha256 trees of every permanent skill root the three harnesses read (not `<dsHome>/native`). */
+  hashRoots(): Promise<Record<string, Record<string, string>>>;
   /** Spawns the built CLI with a minimal environment. */
   run(argv: string[], env?: Record<string, string>): Promise<Run>;
   /** Writes a JSON document (or raw string) into the tmp dir and returns its path. */
@@ -42,16 +65,42 @@ export async function world(): Promise<World> {
   const repo = join(tmp, "repo");
   const dsHome = join(tmp, "dshome");
   const userHome = join(tmp, "user");
+  const etcDir = join(tmp, "etc");
+  const binDir = join(tmp, "bin");
+  let binsOn = false;
   await cp(join(ROOT, "fixtures/repos/ts-monorepo"), repo, { recursive: true });
   await mkdir(dsHome, { recursive: true });
   await mkdir(userHome, { recursive: true });
+  await mkdir(etcDir, { recursive: true });
   const session = (id: string) => join(dsHome, "sessions", id);
   return {
     tmp,
     repo,
     dsHome,
     userHome,
+    etcDir,
     session,
+    async fakeBins(versions, opts = {}) {
+      await mkdir(binDir, { recursive: true });
+      binsOn = true;
+      const write = async (name: string, body: string) => {
+        const p = join(binDir, name);
+        await writeFile(p, `#!/bin/sh\n${body}\n`);
+        await chmod(p, 0o755);
+      };
+      for (const [name, version] of Object.entries(versions)) {
+        await write(name, `if [ "$1" = "--version" ]; then echo '${version}'; fi\nexit 0`);
+      }
+      if (opts.dynamicSkillsShim) {
+        await write("dynamic-skills", `exec '${process.execPath}' '${BIN}' "$@"`);
+      }
+    },
+    async hashRoots() {
+      const roots = await resolveSkillRoots({ repo, home: userHome, vars: {}, etcDir });
+      const out: Record<string, Record<string, string>> = {};
+      for (const r of roots) out[r.dir] = await hashTree(r.dir);
+      return out;
+    },
     run(argv, env = {}) {
       return new Promise((done, fail) => {
         execFile(
@@ -61,13 +110,15 @@ export async function world(): Promise<World> {
             cwd: repo,
             // Minimal env: nothing of the real user's environment or home reaches the CLI.
             env: {
-              PATH: dirname(process.execPath),
+              PATH: binsOn ? `${binDir}:${dirname(process.execPath)}` : dirname(process.execPath),
               HOME: userHome,
               TMPDIR: tmp,
               DYNAMIC_SKILLS_HOME: dsHome,
+              DYNAMIC_SKILLS_ETC_DIR: etcDir,
               ...env,
             },
-            timeout: 30_000,
+            // Generous: spawned binaries are slow on a loaded machine.
+            timeout: 90_000,
           },
           (err, stdout, stderr) => {
             const code = err ? ((err as { code?: unknown }).code as number) : 0;
