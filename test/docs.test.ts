@@ -116,6 +116,7 @@ describe("documentation set", () => {
       "skills/dynamic-skill-bootstrap/SKILL.md",
       "scripts/live-smoke.sh",
       "README.md",
+      "CHANGELOG.md",
       "CONTRIBUTING.md",
       "SECURITY.md",
       "docs/superpowers/plans/2026-11-14-phase-1-jit-core-engine.md",

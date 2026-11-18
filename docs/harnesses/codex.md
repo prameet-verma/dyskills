@@ -13,8 +13,10 @@ dynamic-skills init --harness codex --scope project       # this repository
 dynamic-skills init --harness codex --codex-allow-rule    # opt-in trust decision, see below
 ```
 
-The package is not yet published to npm; until it is, build the repository and put the built
-`dynamic-skills` bin on `PATH`. Restart Codex after `init` so it loads the rules.
+The package is not yet published to npm. Until it is published, build it (`pnpm install && pnpm
+build`) and link the bin into a directory on your `PATH`, for example `ln -s
+"$PWD/packages/cli/dist/index.js" ~/.local/bin/dynamic-skills`. Restart Codex after `init` so it
+loads the rules.
 
 ### What `init` writes
 
@@ -40,24 +42,33 @@ before the subcommand, so `dynamic-skills -V save` cannot slip past the rules.
 ### The opt-in allow rule is a trust decision
 
 With `--codex-allow-rule`, `init` also writes
-`prefix_rule(pattern = ["dynamic-skills"], decision = "allow", ...)`. The allow rule lets every
-`dynamic-skills` command except `save` and `init` run **outside the Codex sandbox, unsandboxed**,
-with no prompt, and it trusts whatever `dynamic-skills` resolves to on `PATH`. Enable it only if you
-accept that. It is off by default, and it matches the bare binary only, never a package runner.
+`prefix_rule(pattern = ["dynamic-skills"], decision = "allow", ...)`. It is off by default, and it
+matches the bare binary only, never a package runner. Enable it only if you accept the following.
 
-It gives `save` and `init` no sandbox escape: their prompt rules always match, and an approved
-prompt runs the CLI with the session's current permissions, which stay sandboxed. Saving into
-`.agents/skills` from inside the sandbox may therefore need the agent to request escalated
-permissions, or running `dynamic-skills save` in a terminal. Whether `save` from inside Codex needs
-escalation is still to be verified by the phase-gate live smoke (Ruling R32); until then, treat a
-terminal run as the reliable route.
+With `--codex-allow-rule`, every `dynamic-skills` command except `save` and `init` runs outside the
+Codex sandbox without a prompt, trusting whatever `dynamic-skills` resolves to on `PATH`. `save` and
+`init` keep their prompt rules; an approved prompt runs with the session's current permissions
+(sandboxed unless the session itself is not), so the allow rule gives them no sandbox escape.
+Whether `save` from inside Codex needs an escalation or a terminal run is pending live verification
+(R32).
 
 ### Headless runs (`codex exec`)
 
 `codex exec` cannot approve a prompt, so a save is rejected there. Either:
 
 - run `dynamic-skills save --session <id> --scope project --harness codex` in a terminal, or
-- remove the `save` prompt rule from `dynamic-skills.rules`.
+- remove the `save` prompt rule from `dynamic-skills.rules`, with the caveats below.
+
+Prefer the terminal run. Removing the prompt rule does not make a headless save work reliably:
+
+- **Without `--codex-allow-rule`**, `save` then only runs inside the `exec` sandbox. That sandbox is
+  read-only by default and protects `.agents/`, so the save most likely fails with a sandbox write
+  error.
+- **With `--codex-allow-rule`**, `save` then runs unprompted and outside the sandbox, which gives up
+  the consent rule (D6).
+
+Whether `save` from inside Codex works is part of the pending R32 live smoke
+(`scripts/live-smoke.sh codex autonomous`).
 
 Editing the rules file makes it differ from what `init` writes, so the next `init` reports a
 conflict that needs `--force`. A Starlark mistake in an edited rules file makes Codex stop loading
@@ -88,12 +99,11 @@ CLI's schema validation is the real gate on its output.
 ## Saving a skill
 
 `dynamic-skills save --session <id> --scope project|personal --harness codex` copies the evaluated
-bundle byte for byte to `<project>/.agents/skills/<name>/` (project) or
-`~/.agents/skills/<name>/` (personal). OpenCode reads `.agents/skills` too, so
-`--harness codex,opencode` writes one copy. Codex lists a skill saved into an existing skills
-directory within about 10 seconds; restart Codex if it does not appear. A skill saved in Phase 2
-carries no freshness fingerprint, and saving an augmentation is not supported yet
-(`SAVE_UNSUPPORTED`).
+bundle byte for byte to `<project>/.agents/skills/<name>/` (project) or `~/.agents/skills/<name>/`
+(personal). OpenCode reads `.agents/skills` too, so `--harness codex,opencode` usually writes one
+copy. Codex lists a skill saved into an existing skills directory within about 10 seconds; restart
+Codex if it does not appear. A skill saved in Phase 2 carries no freshness fingerprint, and saving
+an augmentation is not supported yet (`SAVE_UNSUPPORTED`).
 
 ## Troubleshooting
 

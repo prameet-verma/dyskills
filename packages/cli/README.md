@@ -38,7 +38,8 @@ newline) removed, because session ids and option values are agent-controlled.
   with a stable code (`SESSION_NOT_FOUND`, `SESSION_LOCKED`, `HOME_UNSAFE`, `INVALID_STATE`,
   `SAVE_CONFLICT`, `SAVE_DENIED`, `SAVE_UNSUPPORTED`, `USAGE`, `ANALYSIS_LIMIT`, `BASE_CHANGED`,
   `ACTIVATION_REFUSED`, `SCHEMA_INVALID`, `VERDICT_INVALID`, `BUNDLE_INVALID`,
-  `EVAL_ATTEMPTS_EXHAUSTED`, `INIT_CONFLICT`, `HARNESS_NOT_DETECTED`, `TIMEOUT`) and strict validation of agent documents with
+  `EVAL_ATTEMPTS_EXHAUSTED`, `INIT_CONFLICT`, `HARNESS_NOT_DETECTED`, `TIMEOUT`) and strict
+  validation of agent documents with
   `issues: { path, message }[]`.
 - **`ADAPTERS`, `HARNESS_IDS`, `parseHarnessList`, `currentHarness`** (internal,
   `src/adapters.ts`): the adapter registry (`claude-code`, `codex`, `opencode`) and the only CLI
@@ -106,5 +107,5 @@ Install and per-harness setup are in the [harness guides](../../docs/harnesses/c
 ## PRD sections implemented
 
 §5.4 (invocation modes), §5.5 (skill sufficiency, augmentation), §8-§9 (compilation, evaluation),
-§11 (activation), §6.4-§6.8 (Context Packet exchange), §10.1-§10.8
-(SLA, clarification, status, reports), §13 (CLI contract).
+§11 (activation), §6.4-§6.8 (Context Packet exchange), §10.1-§10.8 (SLA, clarification, status,
+reports), §13 (CLI contract).

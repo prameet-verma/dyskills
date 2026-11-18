@@ -65,10 +65,15 @@ dynamic-skills init                      # every detected harness, personal scop
 dynamic-skills init --harness codex --scope project --dry-run   # preview one harness, write nothing
 ```
 
-The package is not yet published to npm (no license has been chosen either); until it is, build the
-repository (see [below](#requirements-and-quick-start)) and link the built `dynamic-skills` bin
-from `packages/cli` onto your `PATH`. Everything calls the bare `dynamic-skills` command and never a package runner,
-which could fetch an unrelated package of the same name (Ruling R19).
+The package is not yet published to npm (no license has been chosen either). Until it is published,
+build it (`pnpm install && pnpm build`) and link the bin into a directory on your `PATH`, for
+example `ln -s "$PWD/packages/cli/dist/index.js" ~/.local/bin/dynamic-skills`. Any global
+`dynamic-skills` on `PATH` (this link or `npm i -g`) makes the live smoke abort; remove it before
+running the smoke, or set `SMOKE_ALLOW_GLOBAL=1` and accept that the global copy bypasses the smoke
+guard and jail.
+
+Everything calls the bare `dynamic-skills` command and never a package runner, which could fetch an
+unrelated package of the same name (Ruling R19).
 
 `init` installs the `dynamic-skill-bootstrap` skill, a read-only analyst agent where the harness has
 one, and the harness's permission rules. It makes the harness ask before `dynamic-skills save` and
@@ -85,22 +90,24 @@ Sessions live in a private per-user home (`DYNAMIC_SKILLS_HOME`, default
 `<os tmpdir>/dynamic-skills-<uid>`).
 Full detail is in the [CLI README](packages/cli/README.md).
 
-| Command                                                          | Purpose                                                                  |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `assess --task <t> [--repo <p>] [--mode m] [--explicit]`         | Start a session and apply the invocation-mode gate.                      |
-| `discover --session <id>`                                        | Programmatic discovery and the Context Packet.                           |
-| `context request --session <id> --file <f>`                      | Ask for more repository files (3 rounds, safe-read rules).               |
-| `context submit --session <id> --file <f>`                       | Submit the agent's analysis (strictly validated).                        |
-| `sufficiency submit --session <id> --file <f>`                   | Record the reuse, augment or generate verdict.                           |
-| `sufficiency approve --session <id> --decision approve\|decline` | Suggest mode: answer the approval prompt.                                |
-| `clarify ask` / `clarify answer --session <id> --file <f>`       | Ask material questions (clock paused) and apply the answers.             |
-| `compile --session <id>`                                         | Write the compilation brief and prepare the session `skills/` directory. |
-| `evaluate --session <id>`                                        | Run the generation evals and pin the evaluated bundle.                   |
-| `eval record --session <id> --output <f> --verdict pass\|fail`   | Record the behavioural smoke-eval result.                                |
-| `activate --session <id>`                                        | Gated activation: returns the skill, or refuses with a fallback.         |
-| `status --session <id>`                                          | Print the status block as plain text on stdout.                          |
-| `clean --session <id>`                                           | Archive the performance report, then remove the session directory.       |
-| `report perf`                                                    | Aggregate performance over all sessions (no session needed, read-only).  |
+| Command                                                             | Purpose                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `assess --task <t> [--repo <p>] [--mode m] [--explicit]`            | Start a session and apply the invocation-mode gate.                      |
+| `discover --session <id>`                                           | Programmatic discovery and the Context Packet.                           |
+| `context request --session <id> --file <f>`                         | Ask for more repository files (3 rounds, safe-read rules).               |
+| `context submit --session <id> --file <f>`                          | Submit the agent's analysis (strictly validated).                        |
+| `sufficiency submit --session <id> --file <f>`                      | Record the reuse, augment or generate verdict.                           |
+| `sufficiency approve --session <id> --decision approve\|decline`    | Suggest mode: answer the approval prompt.                                |
+| `clarify ask` / `clarify answer --session <id> --file <f>`          | Ask material questions (clock paused) and apply the answers.             |
+| `compile --session <id>`                                            | Write the compilation brief and prepare the session `skills/` directory. |
+| `evaluate --session <id>`                                           | Run the generation evals and pin the evaluated bundle.                   |
+| `eval record --session <id> --output <f> --verdict pass\|fail`      | Record the behavioural smoke-eval result.                                |
+| `activate --session <id>`                                           | Gated activation: returns the skill, or refuses with a fallback.         |
+| `status --session <id>`                                             | Print the status block as plain text on stdout.                          |
+| `clean --session <id>`                                              | Archive the performance report, then remove the session directory.       |
+| `init [--harness l] [--scope s] [--dry-run] [--native]`             | Install the bootstrap skill and consent rules into each harness.         |
+| `save --session <id> --scope project\|personal\|ephemeral\|discard` | Persist the evaluated skill after the host asks you.                     |
+| `report perf`                                                       | Aggregate performance over all sessions (no session needed, read-only).  |
 
 ## Current limitations
 
@@ -160,7 +167,8 @@ suite.
 check, never run in CI. It runs a **real harness** with **your own login** (it costs tokens), in a
 temp workspace that is removed on exit, and records evidence for **you to judge**: it runs a few
 automatic checks (such as AC 28, that nothing ephemeral reached a permanent skill directory) but the
-verdicts are yours: it prints a checklist to fill in, the timing and the reports. Build first (`pnpm build`), then for example:
+verdicts are yours: it prints a checklist to fill in, the timing and the reports. Build first
+(`pnpm build`), then for example:
 
 ```sh
 pnpm build
@@ -171,7 +179,9 @@ SMOKE_SKIP_PROBES=1 scripts/live-smoke.sh codex autonomous
 
 The scripts jail `init` and `save` to the temp workspace, deny the harness real config access and
 guard the CLI calls, so your real harness configuration and skill directories are not written.
-Environment variables:
+Any global `dynamic-skills` on `PATH` (the link above or `npm i -g`) makes the live smoke abort;
+remove it before running the smoke, or set `SMOKE_ALLOW_GLOBAL=1` and accept that the global copy
+bypasses the smoke guard and jail. Environment variables:
 
 - `SMOKE_ALLOW_GLOBAL=1`: the script aborts when a `dynamic-skills` is already on `PATH`, because
   it could shadow the guarded wrapper and bypass the guard and the jail. Set this to run anyway and
@@ -192,7 +202,7 @@ versions.
    discovery, gap analysis, clarification, evals, activation gating, CLI and bootstrap skill.
 2. **Phase 2, Harness Integrations:** adapter contract and adapters, native activation, installer
    (implemented; gate pending).
-3. **Phase 3, Persistence and Lifecycle:** saving skills, versioning, freshness checks, caching.
+3. **Phase 3, Persistence and Lifecycle:** freshness, versioning, saving augmentations.
 4. **Phase 4, Evaluation Maturity:** eval fixture library, baseline-vs-skill benchmarks, regressions.
 5. **Phase 5, Ecosystem Expansion:** extension API, more adapters, optional headless LLM provider.
 

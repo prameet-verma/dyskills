@@ -15,9 +15,11 @@ dynamic-skills init --harness opencode                    # personal scope (defa
 dynamic-skills init --harness opencode --scope project    # this repository
 ```
 
-The package is not yet published to npm; until it is, build the repository and put the built
-`dynamic-skills` bin on `PATH`. The adapter writes only the V1 config form (`"permission": {...}`),
-which V2 migrates; it never writes the V2 `permissions` key, `plugin` or `plugins`.
+The package is not yet published to npm. Until it is published, build it (`pnpm install && pnpm
+build`) and link the bin into a directory on your `PATH`, for example `ln -s
+"$PWD/packages/cli/dist/index.js" ~/.local/bin/dynamic-skills`. The adapter writes only the V1
+config form (`"permission": {...}`), which V2 migrates; it never writes the V2 `permissions` key,
+`plugin` or `plugins`.
 
 ### What `init` writes
 
@@ -43,7 +45,7 @@ written. Comments and trailing commas in your config are kept.
 
 ## Consent rules
 
-`permission.bash` always ends with, in this order (the last match wins):
+`init` appends, in this order (the last match wins):
 
 ```jsonc
 { "dynamic-skills *": "allow", "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
@@ -79,7 +81,7 @@ key makes the next `init` report a conflict):
 **Autonomous.** OpenCode lists skills in `<available_skills>` and the model loads one with the
 `skill` tool, so a matching task can trigger `dynamic-skill-bootstrap`. **Explicit.** Run the
 installed command `/dynamic-skills <task>`, which tells the agent to use the bootstrap skill. On
-2.x you can also write `@dynamic-skill-bootstrap <task>`.
+2.x you can also write `@dynamic-skill-bootstrap <task>` (live check pending).
 
 Activation is reading the files in `loadOrder`; OpenCode has no native placement (`activate`
 returns `native: null`). Status is relayed as text in the reply.
@@ -98,10 +100,10 @@ toward the 60 second budget.
 ## Saving a skill
 
 `dynamic-skills save --session <id> --scope project|personal --harness opencode` copies the
-evaluated bundle byte for byte to `<project>/.opencode/skills/<name>/` (project) or `C/skills/<name>/`
-(personal). OpenCode also reads `.claude/skills` and `.agents/skills`, so
-`--harness opencode,claude-code` writes one copy to `.claude/skills`. OpenCode asks first (the
-consent rule).
+evaluated bundle byte for byte to `<project>/.opencode/skills/<name>/` (project) or
+`C/skills/<name>/` (personal). OpenCode also reads `.claude/skills` and `.agents/skills`, so
+`--harness opencode,claude-code` usually writes one copy to `.claude/skills`. OpenCode asks first
+(the consent rule).
 
 - **1.x:** a newly saved skill is listed after a **restart**. The ephemeral skill itself needs no
   restart, because it is read from the session home.

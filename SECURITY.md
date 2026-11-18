@@ -37,15 +37,17 @@ treat as instructions. The design assumes both inputs can be hostile.
 - **Agent-written regular expressions are bounded.** They run in a worker thread under a total time
   budget and are terminated on timeout.
 - **No automatic installation, no package runner.** Nothing is installed or saved unless you run
-  `dynamic-skills init` or `save`, which the harness asks you to approve. The bootstrap skill runs the bare `dynamic-skills`
-  command and never a package runner, which could fetch and run an unrelated registry package of the same name without a prompt
-  (Ruling R19); when the command is missing, the agent stops and asks the user to install it.
+  `dynamic-skills init` or `save`, which the harness asks you to approve. The bootstrap skill runs
+  the bare `dynamic-skills` command and never a package runner, which could fetch and run an
+  unrelated registry package of the same name without a prompt (Ruling R19); when the command is
+  missing, the agent stops and asks the user to install it.
 - **Where Dynamic Skills writes.** A session writes inside its session directory. Session artifact
-  paths are lexically confined to it; agent-written bundle trees and performance reports are
-  walked or read without following symlinks; repository reads resolve real paths and re-check the
-  secret and excluded rules. Three other writes exist, each planned and reported by one executor
-  before it happens, idempotent, atomic (a temp file or directory, then `rename`), refusing a
-  symlink at the final path and never overwriting a file it did not plan:
+  paths are lexically confined to it; agent-written bundle trees and performance reports are walked
+  or read without following symlinks; repository reads resolve real paths and re-check the secret
+  and excluded rules. Three other writes exist, each planned and reported through the SDK
+  (`applyPlan` for `init`, `placeBundle` for `save` and native placement) before it happens,
+  idempotent, atomic (a temp file or directory, then `rename`), refusing a symlink at the final path
+  and never overwriting a file it did not plan:
   - **`init`** writes the bootstrap skill, an analyst agent and the harness's permission and
     consent rules, only to the paths its plan lists (`--dry-run` writes nothing). It merges into
     your settings and keeps every other key, comment and file mode; it writes nothing for any
@@ -75,12 +77,13 @@ treat as instructions. The design assumes both inputs can be hostile.
   enforcement boundary. A headless run cannot answer a prompt, so a save there is a terminal run
   of `dynamic-skills save` or a relaxed rule, as each [harness guide](docs/harnesses/claude-code.md)
   describes.
-- **The Codex allow rule runs the CLI unsandboxed.** With the opt-in `--codex-allow-rule`, `init`
-  lets every `dynamic-skills` command except `save` and `init` run outside the Codex sandbox, with
-  no prompt, and it trusts whatever `dynamic-skills` resolves to on `PATH`. `save` and `init` keep
-  their prompt rules; an approved prompt runs with the session's current permissions, so the allow
-  rule gives them no escape from the sandbox. Whether `save` needs an escalation or a terminal run
-  from inside Codex is still pending live verification. The rule is off by default.
+- **The Codex allow rule lets most `dynamic-skills` commands run unsandboxed.** With
+  `--codex-allow-rule`, every `dynamic-skills` command except `save` and `init` runs outside the
+  Codex sandbox without a prompt, trusting whatever `dynamic-skills` resolves to on `PATH`. `save`
+  and `init` keep their prompt rules; an approved prompt runs with the session's current permissions
+  (sandboxed unless the session itself is not), so the allow rule gives them no sandbox escape.
+  Whether `save` from inside Codex needs an escalation or a terminal run is pending live
+  verification (R32). The rule is off by default.
 - **The session home is private.** The default home is per user,
   `<os tmpdir>/dynamic-skills-<uid>`. Before writing, the CLI refuses a home (or its `sessions/`)
   that is a symlink (including a trailing-slash spelling), not a directory, or owned by another
@@ -97,9 +100,10 @@ treat as instructions. The design assumes both inputs can be hostile.
 
 ## Known limitations
 
-- A symlinked session directory or subdirectory can redirect internal session writes. The CLI
-  rejects a symlinked `sessions/<id>` at lookup, but internal artifact writes are not
-  symlink-checked.
+- Session artifact writes refuse symlinked components and re-check the parent's real path, but a
+  small window remains between that re-check and the `rename`, exploitable only by the same user
+  (the session directory is 0700). See the residual windows in
+  [architecture.md](docs/architecture.md#trust-boundaries).
 - Owner and permission checks need uids. On a platform without them (Windows) the home is
   checked only for being a real directory; use a private `DYNAMIC_SKILLS_HOME` there.
 - Reuse and activation content is returned unfenced, so a hostile existing skill reaches the agent

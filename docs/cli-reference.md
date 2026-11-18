@@ -399,12 +399,15 @@ stdout: `count`, `p50ActiveMs`, `p95ActiveMs`, `maxActiveMs`, `timeoutRate`, `fa
 `reuseRate`, `augmentationRate`, `cacheHitRate`, `avgClarificationRounds`, `avgContextRequests`.
 Percentiles are `null` when there are no sessions.
 
-### `init [--harness <list>] [--scope project|personal] [--repo <path>] [--dry-run] [--force] [--native] [--codex-allow-rule]`
+### `init [--harness <list>] [--scope project|personal] [--repo <path>] [--dry-run] [--force]
+
+[--native] [--codex-allow-rule]`
 
 Needs no session. Installs the bootstrap skill, the consent rules (D6) and each harness's own
 configuration. What each harness gets is listed in its guide
 ([Claude Code](harnesses/claude-code.md), [Codex](harnesses/codex.md),
-[OpenCode](harnesses/opencode.md)) and its adapter README in `adapters/*/README.md`. `--harness` takes a comma-separated list of `claude-code`, `codex` and
+[OpenCode](harnesses/opencode.md)) and its adapter README in `adapters/*/README.md`.
+`--harness` takes a comma-separated list of `claude-code`, `codex` and
 `opencode` (alias `claude`); a named harness is planned even when it is not detected, with the note
 `<harness> not detected`. Without it, every detected harness is installed, and none detected is
 `HARNESS_NOT_DETECTED`. `--scope` defaults to `personal`; `--repo` (default: the working directory)

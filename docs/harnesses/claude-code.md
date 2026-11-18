@@ -14,9 +14,11 @@ dynamic-skills init --harness claude-code --scope project # this repository
 dynamic-skills init --harness claude-code --native        # also set up native placement
 ```
 
-The package is not yet published to npm; until it is, build the repository and put the built
-`dynamic-skills` bin on `PATH`. Run `init --dry-run` first to see the plan: it writes nothing, not
-even the session home. Skills never call the CLI through a package runner (Ruling R19).
+The package is not yet published to npm. Until it is published, build it (`pnpm install && pnpm
+build`) and link the bin into a directory on your `PATH`, for example `ln -s
+"$PWD/packages/cli/dist/index.js" ~/.local/bin/dynamic-skills`. Run `init --dry-run` first to see
+the plan: it writes nothing, not even the session home. Skills never call the CLI through a package
+runner (Ruling R19).
 
 ### What `init` writes
 
@@ -59,8 +61,8 @@ A headless run cannot answer the prompt, so a save is denied. Either:
 
 - run the command yourself in a terminal:
   `dynamic-skills save --session <id> --scope project --harness claude-code`, or
-- remove the four `ask` entries from `permissions.ask` in the settings file (a later `init`
-  may restore them or report a conflict).
+- remove the four `ask` entries from `permissions.ask` in the settings file. Running `init` again
+  adds them back, so remove them again after any later `init`.
 
 ## Using it
 
@@ -113,10 +115,10 @@ evaluated bundle byte for byte to:
 | `personal` | `R/skills/<name>/` (`~/.claude/skills/<name>/` by default) |
 
 Claude Code asks first (the consent rule). `--dry-run` shows the plan. OpenCode reads the same
-directories, so `--harness claude-code,opencode` writes one copy. After a save, the skill is listed
-live when the skills directory existed at session start; otherwise run `/reload-skills` (below
-`2.1.0`, restart Claude Code). A skill saved in Phase 2 carries no freshness fingerprint; a later
-phase treats it as needing a relevance check. Saving an augmentation is not supported yet
+directories, so `--harness claude-code,opencode` usually writes one copy. After a save, the skill is
+listed live when the skills directory existed at session start; otherwise run `/reload-skills`
+(below `2.1.0`, restart Claude Code). A skill saved in Phase 2 carries no freshness fingerprint; a
+later phase treats it as needing a relevance check. Saving an augmentation is not supported yet
 (`SAVE_UNSUPPORTED`).
 
 ## Troubleshooting
@@ -133,7 +135,7 @@ phase treats it as needing a relevance check. Saving an augmentation is not supp
 - **`/var` and `/private/var`.** Allow rules must match both the requested and the resolved path, so
   `init` writes realpaths. If you moved the session home, rerun `init`.
 - **`--add-dir` and native mode.** The directory must be the one `init` reported
-  (`<session home>/native/claude-code`) and must exist before launch; a directory added after start
+  (`<session home>/native/claude-code`) (`init --native` creates it); a directory added after start
   needs `/add-dir`. Without it, the skill is still activated by reading `loadOrder`.
 - **`settings.local.json` in git.** It holds machine paths and must stay out of version control.
 - **Env-prefixed commands.** A command written as `FOO=1 dynamic-skills ...` does not match the
