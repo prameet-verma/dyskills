@@ -296,6 +296,22 @@ describe("init: idempotency and conflicts", () => {
     }
     await expectReportMatchesDisk(r.out);
   });
+
+  it("does not count unchanged writes as applied", async () => {
+    expect((await init(["--harness", "codex"], { bins: ALL })).exitCode).toBe(0);
+    const settings = join(h.userHome, ".claude/settings.json");
+    let previews = 0;
+    hooks.afterPreview = async () => {
+      if (++previews !== 2) return;
+      await mkdir(join(settings, ".."), { recursive: true });
+      await writeFile(settings, JSON.stringify({ env: { DYNAMIC_SKILLS_HARNESS: "other" } }));
+    };
+    const r = await init(["--harness", "codex,claude-code"], { bins: ALL });
+    expect(r.out.reason).toBe("apply-failed");
+    const codex = r.out.harnesses.find((x: any) => x.harness === "codex");
+    expect(codex.writes.every((w: any) => w.action === "unchanged")).toBe(true);
+    expect(r.out.message).toContain("0 write(s) applied so far (including claude-code)");
+  });
 });
 
 describe("init: options", () => {
