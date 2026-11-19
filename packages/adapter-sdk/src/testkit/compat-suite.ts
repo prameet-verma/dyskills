@@ -134,9 +134,9 @@ const parseDoc = (text: string): JsonValue =>
   parse(text, [], { allowTrailingComma: true }) as JsonValue;
 
 /**
- * Sample ids of 20 characters, longer than Claude Code's 12-character header, so that header cannot
- * stand in for the id. (OpenCode's limit is 30, so its header could carry the id; that is
- * harmless because OpenCode's native id is the header itself.)
+ * Sample ids of 20 characters, longer than a short native header (12 characters on one host), so
+ * such a header cannot stand in for the id. (A host whose header limit exceeds 20 may carry the
+ * id in its header; that is harmless when the header itself is that host's native id.)
  */
 const SAMPLE_ID = (key: string): string => `${key}-sample-identifier`;
 
