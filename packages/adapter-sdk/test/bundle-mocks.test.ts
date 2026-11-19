@@ -126,7 +126,7 @@ describe("placeBundle rename failures", () => {
 describe("source file swaps", () => {
   it("refuses a FIFO that appears after the type check without hanging", async () => {
     const { execFileSync } = await import("node:child_process");
-    execFileSync("mkfifo", [join(src, "swapped")]);
+    execFileSync("mkfifo", [join(src, "swapped")], { timeout: 30_000 });
     state.lstatLie = { suffix: "/swapped", as: join(src, "SKILL.md") };
     await expect(bundleManifest(src)).rejects.toBeInstanceOf(BundleLayoutError);
   }, 10_000);

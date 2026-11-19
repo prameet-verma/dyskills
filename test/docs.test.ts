@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { R19_RUNNER, joinContinuations } from "./r19";
 import { COMMANDS } from "../packages/cli/src/commands/index";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -131,14 +132,50 @@ describe("documentation set", () => {
     ];
     for (const f of files) {
       const text = readFileSync(join(ROOT, f), "utf8");
-      expect(text, f).not.toMatch(
-        /\b(?:npx|pnpx|bunx|pnpm\s+dlx|yarn\s+dlx|npm\s+exec)\s+dynamic-skills\b/,
-      );
+      expect(joinContinuations(text), f).not.toMatch(R19_RUNNER);
     }
   });
 
   it("keeps a code span that wraps a line from hiding a prose link", () => {
     const text = "Use `a\nb` then [guide](docs/x.md) and `c` and [other](y.md).";
     expect(relativeLinks(text)).toEqual(["docs/x.md", "y.md"]);
+  });
+});
+
+describe("R19 runner guard", () => {
+  it.each([
+    "npx dynamic-skills init",
+    "npx -y dynamic-skills init",
+    "npx --yes dynamic-skills@latest init",
+    "npm exec -- dynamic-skills init",
+    "pnpm dlx dynamic-skills",
+    "bunx --bun dynamic-skills",
+    "npm x dynamic-skills init",
+    "bun x dynamic-skills",
+    "npx 'dynamic-skills' init",
+    'npx "dynamic-skills" init',
+    "npx --package foo dynamic-skills",
+    "npx -p dynamic-skills@1 dynamic-skills init",
+    "npx \\\n  dynamic-skills init",
+  ])("matches %s", (text) => {
+    expect(joinContinuations(text)).toMatch(R19_RUNNER);
+  });
+
+  it.each([
+    "dynamic-skills init",
+    "npx cowsay hi",
+    "npm install -g dynamic-skills",
+    "npx -y cowsay",
+  ])("does not match %s", (text) => {
+    expect(text).not.toMatch(R19_RUNNER);
+  });
+});
+
+describe("R19 runner guard performance", () => {
+  it("does not backtrack exponentially on a long flag run", () => {
+    const text = `npx${" -a".repeat(5000)} x`;
+    const t = Date.now();
+    R19_RUNNER.test(text);
+    expect(Date.now() - t).toBeLessThan(1000);
   });
 });

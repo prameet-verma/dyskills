@@ -125,7 +125,9 @@ describe("aggregatePerformance", () => {
   it("skips a FIFO performance.json without blocking", async () => {
     await put(report({ activeMs: 5 }));
     await mkdir(join(home, "sessions", "ds-fifo", "reports"), { recursive: true });
-    execFileSync("mkfifo", [join(home, "sessions", "ds-fifo", "reports", "performance.json")]);
+    execFileSync("mkfifo", [join(home, "sessions", "ds-fifo", "reports", "performance.json")], {
+      timeout: 30_000,
+    });
     expect((await aggregatePerformance(home)).count).toBe(1);
   }, 5_000);
 
@@ -179,7 +181,7 @@ describe("archived reports (R21)", () => {
     await archive("{not json", "ds-bad");
     await archive({ ...report(), schemaVersion: "2" }, "ds-v2");
     await archive(JSON.stringify({ ...report(), padding: "x".repeat(2_000_000) }), "ds-big");
-    execFileSync("mkfifo", [join(home, "reports", "ds-fifo.json")]);
+    execFileSync("mkfifo", [join(home, "reports", "ds-fifo.json")], { timeout: 30_000 });
     const outside = await mkdtemp(join(tmpdir(), "ds-agg-out-"));
     try {
       await writeFile(join(outside, "r.json"), JSON.stringify(report()));

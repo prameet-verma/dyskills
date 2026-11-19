@@ -1,7 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { copyAtomic } from "../scripts/copy-atomic";
 import { resolveBootstrapSkill } from "../src/assets";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -34,5 +44,103 @@ describe("resolveBootstrapSkill", () => {
     await expect(resolveBootstrapSkill(["/nonexistent/SKILL.md"])).rejects.toThrow(
       "bootstrap skill not found",
     );
+  });
+
+  it("prefers the repository copy over a stale package build copy when run from source", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-assets-"));
+    try {
+      const put = (rel: string, text: string): void => {
+        mkdirSync(resolve(dir, rel, ".."), { recursive: true });
+        writeFileSync(resolve(dir, rel), text);
+      };
+      put("repo/packages/cli/src/.keep", "");
+      put("repo/packages/cli/skills/dynamic-skill-bootstrap/SKILL.md", "stale build copy");
+      put("repo/skills/dynamic-skill-bootstrap/SKILL.md", "fresh repository copy");
+      const fromSource = await resolveBootstrapSkill(
+        undefined,
+        resolve(dir, "repo/packages/cli/src"),
+      );
+      expect(fromSource.bytes.toString()).toBe("fresh repository copy");
+      // Published layout (module in dist/): the package copy still wins.
+      put("repo/packages/cli/dist/.keep", "");
+      const fromDist = await resolveBootstrapSkill(
+        undefined,
+        resolve(dir, "repo/packages/cli/dist"),
+      );
+      expect(fromDist.bytes.toString()).toBe("stale build copy");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveBootstrapSkill dist layout", () => {
+  it("never falls back to a repository-controlled skills/ directory", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-assets-"));
+    try {
+      const put = (rel: string, text: string): void => {
+        mkdirSync(resolve(dir, rel, ".."), { recursive: true });
+        writeFileSync(resolve(dir, rel), text);
+      };
+      put("proj/node_modules/dynamic-skills/dist/.keep", "");
+      put("proj/skills/dynamic-skill-bootstrap/SKILL.md", "hostile repo copy");
+      await expect(
+        resolveBootstrapSkill(undefined, resolve(dir, "proj/node_modules/dynamic-skills/dist")),
+      ).rejects.toThrow("bootstrap skill not found");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("stops at the first refused candidate in the source layout", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-assets-"));
+    try {
+      const repo = resolve(dir, "repo");
+      mkdirSync(resolve(repo, "packages/cli/src"), { recursive: true });
+      mkdirSync(resolve(repo, "skills/dynamic-skill-bootstrap"), { recursive: true });
+      mkdirSync(resolve(repo, "packages/cli/skills/dynamic-skill-bootstrap"), { recursive: true });
+      writeFileSync(resolve(dir, "other.md"), "x");
+      symlinkSync(
+        resolve(dir, "other.md"),
+        resolve(repo, "skills/dynamic-skill-bootstrap/SKILL.md"),
+      );
+      writeFileSync(resolve(repo, "packages/cli/skills/dynamic-skill-bootstrap/SKILL.md"), "ok");
+      await expect(
+        resolveBootstrapSkill(undefined, resolve(repo, "packages/cli/src")),
+      ).rejects.toThrow("bootstrap skill not readable: wrong-name");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("copyAtomic", () => {
+  it("copies byte-identically through a temp file and leaves no temp behind", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-copy-"));
+    try {
+      writeFileSync(resolve(dir, "a.md"), "new bytes");
+      const target = resolve(dir, "out/b/SKILL.md");
+      mkdirSync(resolve(dir, "out/b"), { recursive: true });
+      writeFileSync(target, "old");
+      copyAtomic(resolve(dir, "a.md"), target);
+      expect(readFileSync(target, "utf8")).toBe("new bytes");
+      expect(readdirSync(resolve(dir, "out/b"))).toEqual(["SKILL.md"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("never truncates the target in place (the inode is replaced by rename)", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-copy-"));
+    try {
+      writeFileSync(resolve(dir, "a.md"), "new");
+      const target = resolve(dir, "t.md");
+      writeFileSync(target, "old");
+      const before = statSync(target).ino;
+      copyAtomic(resolve(dir, "a.md"), target);
+      expect(statSync(target).ino).not.toBe(before);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -256,7 +256,7 @@ describe("activate", () => {
     const skill = await stageSkill(AUG_SKILL);
     const basePath = join(dir, "base", "SKILL.md");
     await mkdir(join(dir, "base"), { recursive: true });
-    execFileSync("mkfifo", [basePath]);
+    execFileSync("mkfifo", [basePath], { timeout: 30_000 });
     const state = makeState({ sufficiency: partial(basePath, "0".repeat(64)) });
     const r = await activate({
       state,

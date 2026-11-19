@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   AUGMENTATION_REQUIRED_SECTIONS,
+  MAX_AUGMENTATION_TITLE_CHARS,
   MAX_BASE_SKILL_CHARS,
   REQUIRED_SECTIONS,
   augmentationName,
@@ -353,5 +354,73 @@ describe("augmentationName", () => {
     const out = augmentationName(base);
     expect(out).toBe(`${"a".repeat(55)}-augment`);
     expect(out).toMatch(SPEC);
+  });
+});
+
+describe("frontmatter and portability rules match the D7 evals", () => {
+  it("forbids allowed-tools instead of allowing it", async () => {
+    const b = await build();
+    expect(b).toContain("never allowed-tools");
+    expect(b).not.toMatch(/metadata, allowed-tools/);
+  });
+
+  it("lists the portability rules the structural eval enforces", async () => {
+    const b = await build();
+    for (const rule of [
+      "$ARGUMENTS",
+      "${",
+      "$<digit>",
+      "5 USD",
+      "!`",
+      "harness names",
+      "single SKILL.md",
+      "dot-files",
+    ]) {
+      expect(b).toContain(rule);
+    }
+  });
+});
+
+describe("brief rules round 1", () => {
+  it("states the augmentation title and heading rules", async () => {
+    const b = await build({ augmentation: aug() });
+    expect(b).toContain(
+      "Write nothing except the single `# title` line before the first `##` section",
+    );
+    expect(b).toContain("no other heading at any level (`###` included)");
+  });
+
+  it("asks for bullets, as roleEval requires", async () => {
+    const b = await build({ augmentation: aug() });
+    expect(b).toContain("a bullet `- Already covered by order-caching: ...`");
+    expect(b).toContain("a bullet `- Adds: ...`");
+    expect(b).toContain(`at most ${MAX_AUGMENTATION_TITLE_CHARS} characters`);
+  });
+
+  it("lists the remaining failing checks", async () => {
+    const b = await build();
+    for (const t of [
+      "unsupported version claim",
+      "user.* evidence",
+      "description must share a word with the task",
+      "at least one `prohibited` entry and one assertion or rubric item",
+      "links must resolve to files inside the bundle",
+      "at most 200 entries, 50,000 bytes per linked file and 2,000 characters per line",
+    ]) {
+      expect(b).toContain(t);
+    }
+  });
+
+  it("matches structural.ts on the remaining portability details", async () => {
+    const b = await build();
+    for (const t of [
+      "no stray entries next to the skill directory in skills/",
+      "${CLAUDE_",
+      "no fence opened with !",
+      "no / in metadata keys",
+      "in an inline code span counts as prose",
+    ]) {
+      expect(b).toContain(t);
+    }
   });
 });

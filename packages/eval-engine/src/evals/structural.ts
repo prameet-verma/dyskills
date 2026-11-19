@@ -453,9 +453,11 @@ const RENDERED_SYNTAX: { re: RegExp; label: string }[] = [
 
 /**
  * `$` and digits not followed by a word character, as hosts substitute them wherever they sit
- * (`file$1`, `$$1`, `$10`). The one exemption is a `$` escaped by a single backslash (`\$1`).
+ * (`file$1`, `$$1`, `$10`). A `$` escaped by a single backslash (`\$1`) is not a neutral escape across
+ * hosts either, so it is reported as a warning (`ESCAPED_POSITIONAL`), not passed.
  */
 const POSITIONAL = /(?<!(?:^|[^\\])\\)\$\d+(?!\w)/;
+const ESCAPED_POSITIONAL = /(?<=(?:^|[^\\])\\)\$\d+(?!\w)/;
 
 /**
  * Fails on any harness-specific reference or host-rendered syntax in the bundle (SKILL.md and
@@ -478,6 +480,16 @@ export const portabilityEval: GenerationEval = {
       }
       for (const { re, label: what } of RENDERED_SYNTAX) {
         if (re.test(line)) found.add(tag(label, what));
+      }
+      if (ESCAPED_POSITIONAL.test(line)) {
+        warned.add(
+          tag(
+            label,
+            fenced
+              ? "positional placeholder in code"
+              : "escaped positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts",
+          ),
+        );
       }
       if (POSITIONAL.test(line)) {
         if (fenced) warned.add(tag(label, "positional placeholder in code"));

@@ -70,7 +70,8 @@ treat as instructions. The design assumes both inputs can be hostile.
 - **Consent rules.** `init` makes the harness ask before `dynamic-skills save` and
   `dynamic-skills init`, even where `dynamic-skills` is otherwise allowed: Claude Code
   `permissions.ask` (ask beats allow), a Codex `prefix_rule` with `decision = "prompt"` (the
-  strictest wins) and OpenCode `"ask"` entries after the allow (the last match wins). The CLI
+  strictest wins) and OpenCode `"ask"` entries (the last match wins; project scope writes only the asks, with no broad
+  allow). The CLI
   rejects any option placed before the subcommand so `dynamic-skills -V save` cannot slip past
   them. **Limit:** OpenCode matches the raw command text, so a quoted or extra-spaced subcommand
   (`dynamic-skills 'save' ...`) is not asked; the ask rules are a prompt for ordinary calls, not an
@@ -94,6 +95,17 @@ treat as instructions. The design assumes both inputs can be hostile.
   `~/sessions` or `~/reports` is still tightened to 0700, so use a dedicated directory. On a shared temp
   directory another user therefore cannot pre-create, redirect or read the session data.
   `DYNAMIC_SKILLS_HOME` can still point the home at a private directory of your choice.
+- **Cleanup is safe and bounded.** A relative or empty `DYNAMIC_SKILLS_HOME` counts as unset (R42).
+  The native sweep removes only direct children of each adapter's native layout, and only when the
+  marker `<realpath home>/native/.dynamic-skills-native` exists. Without the marker nothing
+  is swept. `clean` and `save --scope discard` never fail on unreadable artifacts; `clean` removes a
+  session with an unreadable `session.json` with a note, archiving nothing and removing no native
+  placement. Both keep a placement within the R39 grace, including the session's own, and the next
+  sweep removes it. `save --scope discard` and `--scope ephemeral` accept `--dry-run` and change
+  nothing (R45). Internal errors carry a fixed message, never exception text.
+- **OpenCode project scope asks, never allows broadly.** Project-scope `init` writes only the
+  `save` and `init` ask entries (no broad allow); its consent notes simulate the layered config,
+  including agent-level permissions (R44).
 - **No network or model calls** are made by any package.
 - Terminal output is stripped of control characters, because session ids and options are
   agent-controlled.
@@ -102,10 +114,24 @@ treat as instructions. The design assumes both inputs can be hostile.
 
 - Session artifact writes (`writeSessionFile`) refuse symlinked components and re-check the
   parent's real path, but a small window remains between that re-check and the `rename`.
-  `session.json` (written through a fixed `.tmp` name) and the `skills/` and `evals/` directories
-  are created without that check. All of these need write access to the 0700 session directory,
-  so only the same user can exploit them. See the residual windows in
+  `session.json` is written through the same `writeSessionFile`; the `skills/` and `evals/`
+  directories are created without that check. All of these need write access to the 0700 session
+  directory, so only the same user can exploit them. See the residual windows in
   [architecture.md](docs/architecture.md#trust-boundaries).
+- `applyPlan` (project-scope `init`) opens and renames through the unresolved parent after its
+  second containment check, so a parent swapped for a symlink in that window redirects the write.
+  It needs write access to the repository's directories. See
+  [architecture.md](docs/architecture.md#trust-boundaries).
+- Codex prefix rules match plain-word commands only. Codex splits pipes and `&&`, `||` and `;`
+  chains of plain words and checks each part, so those are not bypasses. A redirection (including a
+  heredoc), `$(...)` or backticks, a `$VAR`, a `VAR=` prefix, a glob, or control flow and subshells
+  skip the rules. Such a command is then not matched, so a `prompt` or `forbidden` rule does not
+  fire for it. Under `workspace-write` it still runs inside the sandbox; only `danger-full-access`
+  leaves it fully exposed. The bootstrap skill tells agents to run `dynamic-skills` commands bare
+  (R43).
+- Directories under a project or personal skill root are not 0700: `placeBundle` in save mode
+  chmods bundle directories to 0755 and creates parents 0755 subject to the umask. Only the session
+  home is 0700.
 - Owner and permission checks need uids. On a platform without them (Windows) the home is
   checked only for being a real directory; use a private `DYNAMIC_SKILLS_HOME` there.
 - Reuse and activation content is returned unfenced, so a hostile existing skill reaches the agent

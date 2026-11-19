@@ -6,6 +6,7 @@ import {
   AUGMENTATION_REQUIRED_SECTIONS,
   CITATION_PATTERN,
   INFERENCE_PATTERN,
+  MAX_AUGMENTATION_TITLE_CHARS,
   PROJECT_CONTEXT_SECTION,
   REQUIRED_SECTIONS,
 } from "@dynamic-skills/skill-compiler";
@@ -113,10 +114,21 @@ function normaliseHeading(h: string): string {
  * Fence rules are stricter than skill-compiler's `stripFences`: at most three spaces of indent,
  * no backtick in a backtick fence's info string, and closing on the same character with at least
  * the opening length. A fence still open at the end of the text is treated as not fenced so it
- * cannot hide later sections. Lines before the first section are dropped.
+ * cannot hide later sections. Lines before the first section are collected as the preamble
+ * (see {@link parseBody}); {@link sectionsOf} drops them.
  */
 function sectionsOf(body: string): Section[] {
-  const lines = body.split(/\r?\n/);
+  return parseBody(body).sections;
+}
+
+/** The sections of a body plus the non-blank lines that sit before the first section. */
+function parseBody(body: string): {
+  sections: Section[];
+  preamble: string[];
+  title: { rows: number; text: string } | null;
+} {
+  const preamble: string[] = [];
+  const lines = body.split(/\r\n|\r|\n/);
   const fenced: boolean[] = new Array<boolean>(lines.length).fill(false);
   let open: { run: string; at: number } | null = null;
   lines.forEach((line, i) => {
@@ -137,7 +149,7 @@ function sectionsOf(body: string): Section[] {
   // text is the run joined with spaces. Both underline kinds count, so a setext heading cannot
   // slip a section past the augmentation allow-list. One forward pass: `start` is the first line
   // of the current paragraph run, so each line is looked at a constant number of times.
-  const setextText = new Map<number, { text: string; level: number }>(); // first line -> heading
+  const setextText = new Map<number, { text: string; level: number; rows: number }>(); // first line -> heading
   const consumed = new Set<number>(); // every line of a setext heading, underline included
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -150,7 +162,11 @@ function sectionsOf(body: string): Section[] {
         .slice(start, i)
         .map((l) => l.trim())
         .join(" ");
-      setextText.set(start, { text, level: line.trimStart().startsWith("=") ? 1 : 2 });
+      setextText.set(start, {
+        text,
+        level: line.trimStart().startsWith("=") ? 1 : 2,
+        rows: i - start,
+      });
       for (let j = start; j <= i; j++) consumed.add(j);
       start = -1;
     } else if (
@@ -166,14 +182,17 @@ function sectionsOf(body: string): Section[] {
   }
   const sections: Section[] = [];
   let titled = false; // a leading level-1 heading is the title and opens no section
-  const openSection = (heading: string, level: number): void => {
-    if (level === 1 && sections.length === 0 && !titled) titled = true;
-    else sections.push({ heading: normaliseHeading(heading), lines: [], subheadings: [] });
+  let title: { rows: number; text: string } | null = null;
+  const openSection = (heading: string, level: number, rows = 1): void => {
+    if (level === 1 && sections.length === 0 && !titled) {
+      titled = true;
+      title = { rows, text: heading };
+    } else sections.push({ heading: normaliseHeading(heading), lines: [], subheadings: [] });
   };
   lines.forEach((text, i) => {
     const setext = setextText.get(i);
     if (setext !== undefined) {
-      openSection(setext.text, setext.level);
+      openSection(setext.text, setext.level, setext.rows);
       return;
     }
     if (consumed.has(i)) return;
@@ -186,9 +205,10 @@ function sectionsOf(body: string): Section[] {
       current.subheadings.push(normaliseHeading(atxText(atx[2] ?? "")));
       current.lines.push({ text, fenced: false });
     } else if (atx) openSection(atxText(atx[2] ?? ""), level);
-    else current?.lines.push({ text, fenced: isFenced });
+    else if (current !== undefined) current.lines.push({ text, fenced: isFenced });
+    else if (text.trim() !== "") preamble.push(text);
   });
-  return sections;
+  return { sections, preamble, title };
 }
 
 /** ATX heading text: trimmed, without a closing `#` run (which must follow a space). */
@@ -449,7 +469,7 @@ export const roleEval: GenerationEval = {
   id: "role",
   mandatory: false,
   async run(ctx) {
-    const sections = sectionsOf(ctx.skill.body);
+    const { sections, preamble, title } = parseBody(ctx.skill.body);
     const failures: string[] = [];
     if (ctx.augmentation === null) {
       const missing = REQUIRED_SECTIONS.filter((h) => !hasContent(sections, h));
@@ -466,6 +486,19 @@ export const roleEval: GenerationEval = {
     }
     if (!contract.some((l) => l.text.trimStart().startsWith("- Adds:"))) {
       failures.push('## Task contract needs a line starting "- Adds:"');
+    }
+    // R26: prose between the title and the first section would escape the section allow-list.
+    if (preamble.length > 0) {
+      failures.push(
+        `augmentation has text before the first section (only the # title line is allowed): ${preamble[0]?.trim().slice(0, 60)}`,
+      );
+    }
+    // The title is the one line allowed before the first section, so it cannot carry prose.
+    const t = title as { rows: number; text: string } | null;
+    if (t !== null && (t.rows > 1 || t.text.length > MAX_AUGMENTATION_TITLE_CHARS)) {
+      failures.push(
+        `augmentation title must be one line of at most ${MAX_AUGMENTATION_TITLE_CHARS} characters`,
+      );
     }
     const allowedNorm = new Set(allowed.map(normaliseHeading));
     const headings = sections.flatMap((s) => [s.heading, ...s.subheadings]);

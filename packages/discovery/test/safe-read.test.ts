@@ -85,8 +85,8 @@ describe("createRepoReader", () => {
 describe.skipIf(process.platform === "win32")("FIFOs", () => {
   it("never block resolution, reads or discovery", { timeout: 3000 }, async () => {
     const repo = await makeRepo();
-    execFileSync("mkfifo", [join(repo, "pipe.txt")]);
-    execFileSync("mkfifo", [join(repo, "package.json")]);
+    execFileSync("mkfifo", [join(repo, "pipe.txt")], { timeout: 30_000 });
+    execFileSync("mkfifo", [join(repo, "package.json")], { timeout: 30_000 });
     expect(await resolveRepoPath(repo, "pipe.txt")).toEqual({ ok: false, reason: "missing" });
     expect(await createRepoReader(repo)("pipe.txt")).toBeNull();
     const d = await runDiscovery({ repo, task: "x" });
@@ -99,7 +99,7 @@ describe("readRegularFile", () => {
   it("reads a regular file and names why anything else is refused", async () => {
     const repo = await makeRepo();
     const fifo = join(repo, "pipe");
-    execFileSync("mkfifo", [fifo]);
+    execFileSync("mkfifo", [fifo], { timeout: 30_000 });
     await symlink("/dev/zero", join(repo, "zero"));
     await writeFile(join(repo, "big.txt"), "x".repeat(11));
     expect(await readRegularFile(join(repo, "README.md"))).toEqual({ ok: true, text: "hello" });

@@ -256,7 +256,7 @@ describe("hardened bundle reads", () => {
     writeFileSync(target, "{}");
     symlinkSync(target, join(dir, "link.json"));
     await expect(loadSmokeEval(join(dir, "link.json"))).rejects.toThrow(/regular file/);
-    execFileSync("mkfifo", [join(dir, "fifo.json")]);
+    execFileSync("mkfifo", [join(dir, "fifo.json")], { timeout: 30_000 });
     await expect(loadSmokeEval(join(dir, "fifo.json"))).rejects.toThrow(/regular file/);
     writeFileSync(join(dir, "big.json"), "x".repeat(MAX_SMOKE_BYTES + 1));
     await expect(loadSmokeEval(join(dir, "big.json"))).rejects.toThrow(/exceeds/);
@@ -265,7 +265,7 @@ describe("hardened bundle reads", () => {
   it("parseSkillBundle rejects a FIFO SKILL.md without blocking", async () => {
     const dir = tmp();
     mkdirSync(join(dir, "s"));
-    execFileSync("mkfifo", [join(dir, "s", "SKILL.md")]);
+    execFileSync("mkfifo", [join(dir, "s", "SKILL.md")], { timeout: 30_000 });
     await expect(parseSkillBundle(dir)).rejects.toThrow(BundleError);
   });
 });

@@ -42,6 +42,8 @@ export const AUGMENTATION_SUFFIX = "-augment";
 export const AUGMENTATION_REQUIRED_SECTIONS = ["Task contract", "Project context"] as const;
 /** Sections an augmentation may contain; no other `##` heading is allowed (PRD §8). */
 export const AUGMENTATION_OPTIONAL_SECTIONS = ["Constraints", "Methodology additions"] as const;
+/** Longest `# title` line an augmentation may carry; the brief states it and `roleEval` enforces it. */
+export const MAX_AUGMENTATION_TITLE_CHARS = 120;
 /** Maximum characters of the base skill body shown to the agent. */
 export const MAX_BASE_SKILL_CHARS = 20_000;
 
@@ -209,9 +211,18 @@ function renderBase(aug: NonNullable<CompilationBriefInput["augmentation"]>): st
 }
 
 const FRONTMATTER_RULES = [
-  "Frontmatter rules: allowed keys only name, description, license, compatibility, metadata, allowed-tools;",
+  "Frontmatter rules: allowed keys only name, description, license, compatibility, metadata (never allowed-tools);",
   "name is 1-64 chars of lowercase letters, digits and single dashes and equals the skill directory name;",
   "description is 1-1,024 chars; compatibility is at most 500 chars; metadata is a string-to-string map.",
+  "no / in metadata keys (no host-namespaced keys).",
+  "Portability rules (the evals fail the skill otherwise): no $ARGUMENTS and no ${CLAUDE_*} host variables;",
+  "no $<digit> in prose, and a $1 in an inline code span counts as prose, so write money as 5 USD, not $5;",
+  "no !` inline shell execution and no fence opened with !;",
+  "no harness names (products, instruction files such as CLAUDE.md or AGENTS.md, harness directories, harness tool names, slash commands);",
+  "write a single SKILL.md (no nested SKILL.md), no dot-files in the bundle and no stray entries next to the skill directory in skills/.",
+  "Other checks that fail the skill: an unsupported version claim (a number like 1.2 that no evidence or assumption states); an uncited user.* evidence entry;",
+  "the description must share a word with the task; the smoke eval needs at least one `prohibited` entry and one assertion or rubric item;",
+  "links must resolve to files inside the bundle; scans are bounded to at most 200 entries, 50,000 bytes per linked file and 2,000 characters per line.",
 ];
 
 const CITATION_RULES = [
@@ -264,7 +275,8 @@ export function buildCompilationBrief(input: CompilationBriefInput): string {
     out.push(
       `Write an augmentation of the base skill ${aug.baseName}. Emit only the missing project context, task contract and methodology delta.`,
       `Allowed sections, as ## headings: ${AUGMENTATION_REQUIRED_SECTIONS.map((x) => `## ${x}`).join(", ")} (both required, non-empty); optional: ${AUGMENTATION_OPTIONAL_SECTIONS.map((x) => `## ${x}`).join(", ")}. No other ## heading is allowed.`,
-      `## Task contract must contain a line "Already covered by ${aug.baseName}: ..." (from the covered aspects) and a line "Adds: ..." (from the missing aspects).`,
+      `Write nothing except the single \`# title\` line before the first \`##\` section (one line, at most ${MAX_AUGMENTATION_TITLE_CHARS} characters), and use no other heading at any level (\`###\` included).`,
+      `## Task contract must contain a bullet \`- Already covered by ${aug.baseName}: ...\` (from the covered aspects) and a bullet \`- Adds: ...\` (from the missing aspects).`,
       `Frontmatter must include metadata.augments: ${aug.baseName} and metadata.augments-sha256: "${s(aug.baseSha256)}" (keep the quotes).`,
       `The description must start with "Augments ${aug.baseName} with".`,
       "Never copy, restate or contradict base text; never edit the base. The base is loaded unchanged next to the augmentation.",

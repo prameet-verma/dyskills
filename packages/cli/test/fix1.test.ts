@@ -146,13 +146,13 @@ describe("bundle reads", () => {
     const md = await installGolden(h, id, GOLDEN);
     const { rm } = await import("node:fs/promises");
     await rm(md);
-    execFileSync("mkfifo", [md]);
+    execFileSync("mkfifo", [md], { timeout: 30_000 });
     expect((await evaluate(id)).out.error).toBe("BUNDLE_INVALID");
     await rm(md);
     await installGolden(h, id, GOLDEN);
     const smoke = join(h.home, "sessions", id, "evals/smoke.json");
     await rm(smoke);
-    execFileSync("mkfifo", [smoke]);
+    execFileSync("mkfifo", [smoke], { timeout: 30_000 });
     expect((await evaluate(id)).out.error).toBe("BUNDLE_INVALID");
   });
 
@@ -227,7 +227,7 @@ describe("base skill read", () => {
     const id = await ready(h, "partial");
     const base = (await h.readJson(id, "skills-scan.json")).skills[0].path as string;
     await rm(base);
-    execFileSync("mkfifo", [base]);
+    execFileSync("mkfifo", [base], { timeout: 30_000 });
     const r = await h.run(["compile", "--session", id]);
     expect(r.exitCode).toBe(1);
     expect(r.out.error).toBe("BASE_CHANGED");
@@ -307,7 +307,7 @@ describe("hostile skills scan at compile (I1)", () => {
     const id = await ready(h);
     const fifo = join(h.repo, ".claude/skills/x/SKILL.md");
     await mkdir(join(h.repo, ".claude/skills/x"), { recursive: true });
-    execFileSync("mkfifo", [fifo]);
+    execFileSync("mkfifo", [fifo], { timeout: 30_000 });
     const started = Date.now();
     const r = await h.run(["compile", "--session", id]);
     expect(r.exitCode).toBe(0);

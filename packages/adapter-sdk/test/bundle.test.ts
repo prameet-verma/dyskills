@@ -425,7 +425,7 @@ describe("placeBundle containment and cleanup", () => {
 
 describe("bundle special files and caps", () => {
   it("refuses a real FIFO in the source without hanging", async () => {
-    execFileSync("mkfifo", [join(src, "pipe")]);
+    execFileSync("mkfifo", [join(src, "pipe")], { timeout: 30_000 });
     await expect(bundleManifest(src)).rejects.toBeInstanceOf(BundleLayoutError);
     await expect(place()).rejects.toBeInstanceOf(BundleLayoutError);
     await expect(stat(join(project, ".skills"))).rejects.toThrow();
