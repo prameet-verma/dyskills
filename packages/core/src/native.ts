@@ -88,7 +88,7 @@ export const NATIVE_FUTURE_SKEW_MS = 3_600_000;
  * only when every session file parsed, it is expired when nothing references it or when every
  * referencing session ended without a successful activation (`activated` or `augmented`).
  *
- * An unreferenced placement whose mtime is more than an hour ahead of `now` is treated as older
+ * A placement whose mtime (unreferenced) or newest `placedAt` (referenced) is more than an hour ahead of `now` is treated as older
  * than the TTL, so a bad timestamp cannot keep it alive.
  *
  * @returns The `dir` of every expired placement.
@@ -104,16 +104,20 @@ export function selectExpiredPlacements(input: {
   const expired: string[] = [];
   for (const p of input.placements) {
     const refs = input.refs.get(p.dir) ?? [];
-    let start = refs.length > 0 ? Math.max(...refs.map((r) => r.placedAt)) : p.mtimeMs;
-    // A far-future mtime (clock skew or tampering) must not pin a placement past the TTL: only the
-    // TTL can remove it when a session file is unparsable, and it would start at that future time.
-    if (refs.length === 0 && start - input.now > NATIVE_FUTURE_SKEW_MS) start = input.now - ttl - 1;
+    // A far-future mtime or placedAt (clock skew or tampering) must not pin a placement past the
+    // TTL. A far-future reference is dropped on its own (it must not evict a placement another
+    // session still uses); a placement is TTL-expired when every reference is far-future or old.
+    const future = (t: number): boolean => t - input.now > NATIVE_FUTURE_SKEW_MS;
+    const valid = refs.filter((r) => !future(r.placedAt));
+    let start = valid.length > 0 ? Math.max(...valid.map((r) => r.placedAt)) : p.mtimeMs;
+    if (valid.length === 0 && future(start)) start = input.now - ttl - 1;
+    if (refs.length > 0 && valid.length === 0) start = input.now - ttl - 1;
     if (input.now - start > ttl) {
       expired.push(p.dir);
       continue;
     }
     if (input.unparsable !== 0) continue;
-    const live = refs.some(
+    const live = valid.some(
       (r) => r.outcome === undefined || r.outcome === "activated" || r.outcome === "augmented",
     );
     if (!live) expired.push(p.dir);

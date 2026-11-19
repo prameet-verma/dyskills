@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
+import { applyEdits, modify, parse, visit, type ParseError } from "jsonc-parser";
 import { jsonEqual, mergeJson } from "./json-merge";
 import { isInside, realpathOfPlanned } from "./paths";
 import type { AppliedWrite, InstallPlan, JsonObject, JsonValue, PlannedWrite } from "./types";
@@ -141,6 +141,43 @@ function planMerge(
   }
 }
 
+/** Returns the path of the first patch key that is duplicated in `text`'s object, or null. */
+function duplicateAlongPatch(text: string, patch: JsonObject): string | null {
+  const dups = new Set<string>();
+  const stack: { keys: Set<string>; path: string[] }[] = [];
+  visit(
+    text,
+    {
+      onObjectBegin: (_o, _l, _sl, _sc, pathSupplier) => {
+        stack.push({ keys: new Set(), path: pathSupplier().map(String) });
+      },
+      onObjectEnd: () => {
+        stack.pop();
+      },
+      onObjectProperty: (property) => {
+        const top = stack[stack.length - 1];
+        if (top === undefined) return;
+        if (top.keys.has(property)) dups.add(JSON.stringify([...top.path, property]));
+        top.keys.add(property);
+      },
+    },
+    { allowTrailingComma: true },
+  );
+  if (dups.size === 0) return null;
+  const walk = (node: JsonObject, path: string[]): string | null => {
+    for (const [k, v] of Object.entries(node)) {
+      const here = [...path, k];
+      if (dups.has(JSON.stringify(here))) return here.join(".");
+      if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+        const found = walk(v, here);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  };
+  return walk(patch, []);
+}
+
 function planMergeInner(
   write: PlannedWrite & { kind: "json-merge" | "jsonc-merge" },
   existing: Buffer | null,
@@ -163,6 +200,10 @@ function planMergeInner(
     if (errors.length > 0 || current === undefined) return conflict(write, "invalid JSONC", hash);
   }
   if (tooDeep(current, MAX_DEPTH)) return conflict(write, "too deeply nested", hash);
+  // `parse` keeps the last duplicate key but `modify` edits the first (and a strict merge would
+  // silently drop the shadowed one): refuse to guess.
+  const dup = duplicateAlongPatch(text, write.patch);
+  if (dup !== null) return conflict(write, `duplicate key at: ${dup}`, hash);
   const { value, conflicts } = mergeJson(
     current,
     write.patch,
@@ -418,7 +459,9 @@ async function commit(entry: Entry, plan: InstallPlan, opts: ApplyOptions): Prom
   const stale = await recheck(entry, plan);
   if (stale !== null) return stale;
   await opts.testHooks?.afterCheck?.(write);
-  await mkdir(dirname(write.path), { recursive: true, mode: DIR_MODE });
+  // Missing parents inside the session home are private (0700); elsewhere the usual 0755.
+  const inHome = write.within !== null && write.within !== plan.projectRoot;
+  await mkdir(dirname(write.path), { recursive: true, mode: inHome ? PRIVATE_DIR_MODE : DIR_MODE });
   const again = await containment(write, plan);
   if (again !== null) return again;
   if (write.kind === "dir") {

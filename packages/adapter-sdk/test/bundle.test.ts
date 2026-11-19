@@ -7,6 +7,7 @@ import {
   readFile,
   realpath,
   rm,
+  rmdir,
   stat,
   lutimes,
   symlink,
@@ -605,5 +606,35 @@ describe("placeBundle guards that must stay pinned", () => {
       [".demo-skill.tmp-aaaaaaaa", ".demo-skill.tmp-bbbbbbbb", "demo-skill"].sort(),
     );
     expect(await readdir(outside)).toEqual(["keep"]);
+  });
+});
+
+describe("placeBundle createdDirs", () => {
+  it("lists every created directory deepest first, as realpaths under a symlinked parent", async () => {
+    const real = join(root, "realparent");
+    await mkdir(join(real, "exists"), { recursive: true });
+    await symlink(real, join(root, "link"));
+    const r = await place({
+      destRoot: join(root, "link", "exists", "x", "y", "skills"),
+      within: null,
+    });
+    expect(r.action).toBe("create");
+    const base = join(real, "exists");
+    expect(r.createdDirs).toEqual([
+      join(base, "x", "y", "skills"),
+      join(base, "x", "y"),
+      join(base, "x"),
+    ]);
+    expect(r.realPath).toBe(join(base, "x", "y", "skills", "demo-skill"));
+    // The documented rollback leaves nothing new behind.
+    await rm(r.realPath as string, { recursive: true });
+    for (const d of r.createdDirs ?? []) await rmdir(d);
+    expect(await readdir(base)).toEqual([]);
+  });
+  it("is empty when destRoot already existed", async () => {
+    await mkdir(join(project, ".skills"), { recursive: true });
+    const r = await place();
+    expect(r.createdDirs).toEqual([]);
+    expect(r.realPath).toBe(join(project, ".skills", "demo-skill"));
   });
 });

@@ -48,8 +48,8 @@ describe("selectExpiredPlacements", () => {
     expect(run({ mtimeMs: T + 5 * H }, [], 1)).toEqual(["/n/a"]));
   it("tolerates small clock skew on an unreferenced placement", () =>
     expect(run({ mtimeMs: T + 60_000 }, [], 1)).toEqual([]));
-  it("does not apply the future rule to a referenced placement", () =>
-    expect(run({ mtimeMs: 0 }, [ref(T + 2 * H, "activated")])).toEqual([]));
+  it("applies the future rule to a referenced placement's placedAt too", () =>
+    expect(run({ mtimeMs: 0 }, [ref(T + 2 * H, "activated")])).toEqual(["/n/a"]));
   it("exports the future-skew tolerance (1 h)", () => expect(NATIVE_FUTURE_SKEW_MS).toBe(H));
   it("TTL is 24 hours", () => expect(NATIVE_PLACEMENT_TTL_MS).toBe(24 * H));
   it("keeps a fresh activated placement", () =>
@@ -198,4 +198,22 @@ describe("readNativeReferences", () => {
     expect(r.byDir.size).toBe(0);
     expect(r.unparsable).toBe(1);
   });
+});
+
+describe("selectExpiredPlacements future placedAt", () => {
+  it("expires a referenced placement whose newest placedAt is more than 1 h ahead", () =>
+    expect(run({ mtimeMs: T }, [ref(T + 10 * H, "activated")])).toEqual(["/n/a"]));
+  it("keeps one whose placedAt is within the skew", () =>
+    expect(run({ mtimeMs: T }, [ref(T + H / 2, "activated")])).toEqual([]));
+});
+
+describe("selectExpiredPlacements mixed references", () => {
+  it("keeps a placement another session still uses when one placedAt is far-future", () =>
+    expect(run({ mtimeMs: T }, [ref(T + 10 * H, "activated"), ref(T - H, "activated")])).toEqual(
+      [],
+    ));
+  it("expires it when every reference is far-future", () =>
+    expect(
+      run({ mtimeMs: T }, [ref(T + 10 * H, "activated"), ref(T + 20 * H, "activated")]),
+    ).toEqual(["/n/a"]));
 });

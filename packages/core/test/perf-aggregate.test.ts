@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -228,6 +228,26 @@ describe("archivePerformanceReport", () => {
       await symlink(join(outside, "victim"), join(home, "reports", "ds-a.json"));
       await expect(archivePerformanceReport(home, "ds-a")).rejects.toThrow();
       expect(await stat(join(outside, "victim")).catch(() => null)).toBeNull();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("archivePerformanceReport hard links", () => {
+  it("replaces a pre-planted hard link instead of truncating its target", async () => {
+    await put(report({ sessionId: "ds-h", activeMs: 9 }), "ds-h");
+    const outside = await mkdtemp(join(tmpdir(), "ds-agg-hl-"));
+    try {
+      const victim = join(outside, "victim");
+      await writeFile(victim, "keep");
+      await mkdir(join(home, "reports"), { recursive: true });
+      await link(victim, join(home, "reports", "ds-h.json"));
+      expect(await archivePerformanceReport(home, "ds-h")).toBe(true);
+      expect(await readFile(victim, "utf8")).toBe("keep");
+      expect(JSON.parse(await readFile(join(home, "reports", "ds-h.json"), "utf8"))).toMatchObject({
+        activeMs: 9,
+      });
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
