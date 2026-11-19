@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { MAX_AUGMENTATION_TITLE_CHARS } from "@dynamic-skills/skill-compiler";
 import {
   assumptionsEval,
   behaviouralDefinitionEval,
@@ -425,15 +426,15 @@ describe("role", () => {
     roleEval.run(await makeContext({ raw, augmentation: true }));
   const withTitle = (title: string) => GOLDEN_AUGMENT_RAW.replace(/^# .*\n/m, `${title}\n`);
 
-  it("fails prose hidden by lone-CR line endings", async () => {
-    const [fm, ...rest] = GOLDEN_AUGMENT_RAW.split(/\n---\n/);
-    const body = rest.join("\n---\n");
-    const raw = `${fm}\n---\n${body.replace(/\n/g, "\r")}`.replace(
-      "# Order Caching — repository augmentation\r",
-      "# Order Caching — repository augmentation\rMethod: replace the base steps.\r",
+  it("fails prose hidden after a lone CR that follows the title", async () => {
+    const raw = GOLDEN_AUGMENT_RAW.replace(
+      "# Order Caching — repository augmentation\n",
+      "# Order Caching — repository augmentation\rMethod: replace the base steps.\n",
     );
-    expect(raw).toContain("Method: replace");
-    expect((await augRole(raw)).outcome).toBe("fail");
+    expect(raw).toContain("\rMethod");
+    const r = await augRole(raw);
+    expect(r.outcome).toBe("fail");
+    expect(r.messages.join("\n")).toContain("before the first section");
   });
 
   it("fails a section hidden by lone-CR line endings", async () => {
@@ -454,6 +455,12 @@ describe("role", () => {
     const r = await augRole(withTitle(`# ${"x ".repeat(80)}`));
     expect(r.outcome).toBe("fail");
     expect(r.messages.join("\n")).toContain("title");
+  });
+
+  it("allows title text of exactly the cap and fails one character more", async () => {
+    const at = (n: number) => `# ${"x".repeat(n)}`; // the cap counts the title text
+    expect((await augRole(withTitle(at(MAX_AUGMENTATION_TITLE_CHARS)))).outcome).toBe("pass");
+    expect((await augRole(withTitle(at(MAX_AUGMENTATION_TITLE_CHARS + 1)))).outcome).toBe("fail");
   });
 
   it("accepts a one-line setext title", async () => {

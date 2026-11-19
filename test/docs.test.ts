@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { R19_RUNNER } from "./r19";
+import { R19_RUNNER, joinContinuations } from "./r19";
 import { COMMANDS } from "../packages/cli/src/commands/index";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -132,7 +132,7 @@ describe("documentation set", () => {
     ];
     for (const f of files) {
       const text = readFileSync(join(ROOT, f), "utf8");
-      expect(text, f).not.toMatch(R19_RUNNER);
+      expect(joinContinuations(text), f).not.toMatch(R19_RUNNER);
     }
   });
 
@@ -156,8 +156,9 @@ describe("R19 runner guard", () => {
     'npx "dynamic-skills" init',
     "npx --package foo dynamic-skills",
     "npx -p dynamic-skills@1 dynamic-skills init",
+    "npx \\\n  dynamic-skills init",
   ])("matches %s", (text) => {
-    expect(text).toMatch(R19_RUNNER);
+    expect(joinContinuations(text)).toMatch(R19_RUNNER);
   });
 
   it.each([

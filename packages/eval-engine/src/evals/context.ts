@@ -6,6 +6,7 @@ import {
   AUGMENTATION_REQUIRED_SECTIONS,
   CITATION_PATTERN,
   INFERENCE_PATTERN,
+  MAX_AUGMENTATION_TITLE_CHARS,
   PROJECT_CONTEXT_SECTION,
   REQUIRED_SECTIONS,
 } from "@dynamic-skills/skill-compiler";
@@ -96,9 +97,6 @@ interface Section {
   lines: Line[];
   subheadings: string[];
 }
-
-/** Longest title an augmentation may carry (R26: the title must not become a prose channel). */
-const MAX_TITLE_CHARS = 120;
 
 /** Heading comparison form: trimmed, lowercase, trailing `:` removed (PRD §8.1). */
 function normaliseHeading(h: string): string {
@@ -497,8 +495,10 @@ export const roleEval: GenerationEval = {
     }
     // The title is the one line allowed before the first section, so it cannot carry prose.
     const t = title as { rows: number; text: string } | null;
-    if (t !== null && (t.rows > 1 || t.text.length > MAX_TITLE_CHARS)) {
-      failures.push(`augmentation title must be one line of at most ${MAX_TITLE_CHARS} characters`);
+    if (t !== null && (t.rows > 1 || t.text.length > MAX_AUGMENTATION_TITLE_CHARS)) {
+      failures.push(
+        `augmentation title must be one line of at most ${MAX_AUGMENTATION_TITLE_CHARS} characters`,
+      );
     }
     const allowedNorm = new Set(allowed.map(normaliseHeading));
     const headings = sections.flatMap((s) => [s.heading, ...s.subheadings]);

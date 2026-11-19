@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { R19_RUNNER } from "./r19";
+import { R19_RUNNER, joinContinuations } from "./r19";
 import {
   existsSync,
   mkdirSync,
@@ -46,7 +46,7 @@ describe("live smoke scripts", () => {
   });
 
   it.each(SCRIPTS)("%s never uses a package runner for dynamic-skills (R19)", (rel) => {
-    expect(read(rel)).not.toMatch(R19_RUNNER);
+    expect(joinContinuations(read(rel))).not.toMatch(R19_RUNNER);
   });
 
   it.each(SCRIPTS)("%s uses no skip-all-permissions flag", (rel) => {

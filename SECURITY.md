@@ -122,9 +122,13 @@ treat as instructions. The design assumes both inputs can be hostile.
   second containment check, so a parent swapped for a symlink in that window redirects the write.
   It needs write access to the repository's directories. See
   [architecture.md](docs/architecture.md#trust-boundaries).
-- Codex prefix rules match bare commands only. A redirection, env prefix, `$` expansion, glob, pipe
-  or chaining skips them, and the command is allowed by default. The bootstrap skill tells agents to
-  run `dynamic-skills` commands bare (R43).
+- Codex prefix rules match plain-word commands only. Codex splits pipes and `&&`, `||` and `;`
+  chains of plain words and checks each part, so those are not bypasses. A redirection (including a
+  heredoc), `$(...)` or backticks, a `$VAR`, a `VAR=` prefix, a glob, or control flow and subshells
+  skip the rules. Such a command is then not matched, so a `prompt` or `forbidden` rule does not
+  fire for it. Under `workspace-write` it still runs inside the sandbox; only `danger-full-access`
+  leaves it fully exposed. The bootstrap skill tells agents to run `dynamic-skills` commands bare
+  (R43).
 - Directories under a project or personal skill root are not 0700: `placeBundle` in save mode
   chmods bundle directories to 0755 and creates parents 0755 subject to the umask. Only the session
   home is 0700.

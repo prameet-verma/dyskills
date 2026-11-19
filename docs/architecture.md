@@ -129,10 +129,13 @@ so `dynamic-skills -V save` cannot slip past the rules. A headless run that must
 command in a terminal, or relaxes the rule as each adapter README describes. OpenCode matches raw
 command text, so a quoted subcommand is a known limit ([ADR 0007](adr/0007-harness-adapter-interface.md)).
 
-Two further limits are documented, not enforced. Codex prefix rules match bare commands only: a
-redirection, an env prefix, `$` expansion, a glob, a pipe or chaining skips them, and the command is
-then allowed by default. The bootstrap skill tells agents to run `dynamic-skills` commands bare
-(Ruling R43). OpenCode project-scope `init` writes
+Two further limits are documented, not enforced. Codex prefix rules match plain-word commands
+only. Codex splits pipes and `&&`, `||` and `;` chains of plain words and checks each part, so those
+are not bypasses; a redirection (including a heredoc), `$(...)` or backticks, a `$VAR`, a `VAR=`
+prefix, a glob, or control flow and subshells skip the rules, and a `prompt` or `forbidden` rule does
+not fire for such a command. Under `workspace-write` it still runs inside the sandbox; only
+`danger-full-access` leaves it fully exposed. The bootstrap skill tells agents to run
+`dynamic-skills` commands bare (Ruling R43). OpenCode project-scope `init` writes
 only the `save` and `init` ask entries, with no broad `dynamic-skills *` allow, and its consent
 notes simulate the layered config (global, then the project root, then `.opencode`, including
 agent-level permissions); personal scope is unchanged (Ruling R44).
