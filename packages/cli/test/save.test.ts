@@ -9,6 +9,7 @@ import {
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -514,6 +515,8 @@ describe("discardSession", () => {
   async function place(dest: string): Promise<string> {
     await mkdir(join(dest, ".."), { recursive: true });
     await cp(join(ROOT, "fixtures/skills/valid", NAME), dest, { recursive: true });
+    // Old enough to be outside the R39/R45 grace window.
+    await utimes(dest, 1_000_000_000, 1_000_000_000);
     return (await bundleManifest(dest)).sha256;
   }
 
@@ -646,6 +649,8 @@ describe("discardSession: native root safety (Ruling R38)", () => {
   const seed = async (dest: string) => {
     await mkdir(join(dest, ".."), { recursive: true });
     await cp(join(ROOT, "fixtures/skills/valid", NAME), dest, { recursive: true });
+    // Old enough to be outside the R39/R45 grace window.
+    await utimes(dest, 1_000_000_000, 1_000_000_000);
     return sha(dest);
   };
 

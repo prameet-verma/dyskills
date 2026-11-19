@@ -12,6 +12,7 @@ import {
 import type { SessionState, SessionStore } from "@dynamic-skills/core";
 import { ADAPTERS } from "../adapters";
 import { writeTerminalReports } from "../io";
+import { inPlacementGrace } from "../native";
 import type { SessionCommandDef } from "./types";
 
 /**
@@ -79,6 +80,12 @@ async function nativeRemovalBlocker(
       return "a directory on the native placement path is a symlink; it was not removed";
     }
   }
+  // Ruling R45: another session may have just placed or reused this directory and not saved its
+  // reference yet; a placement inside the R39 grace window (real clock) is kept.
+  const placed = await lstat(dir).catch(() => null);
+  if (placed !== null && inPlacementGrace(placed.mtimeMs)) {
+    return "the native placement was placed or refreshed within the last 10 minutes; it was kept";
+  }
   const refs = await readNativeReferences(store.home, { exclude: state.id });
   if (refs.unparsable > 0) {
     return "another session could not be read; the native placement was kept";
@@ -124,6 +131,22 @@ export async function discardSession(
   }
   await store.remove(state.id);
   return { archived, notes };
+}
+
+/**
+ * Removes a session whose `session.json` cannot be loaded (corrupt or unreadable), Ruling R45:
+ * `clean` must always work. Nothing is archived (there is no state to build a report from) and no
+ * native placement is removed (the state that names it is gone), so the session's directory goes
+ * and a note says so; the TTL sweep takes a placement that nothing references anymore.
+ * @param store - Session store.
+ * @param id - Session id.
+ * @returns The notes for the command's output.
+ */
+export async function removeUnreadableSession(store: SessionStore, id: string): Promise<string[]> {
+  await store.remove(id);
+  return [
+    "session.json could not be read; the session directory was removed, nothing was archived and no native placement was touched.",
+  ];
 }
 
 /**

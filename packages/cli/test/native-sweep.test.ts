@@ -1,5 +1,6 @@
 import { mkdir, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assess, harness, installGolden, ready, record } from "./helpers";
 import type { Harness } from "./helpers";
@@ -52,6 +53,13 @@ async function placed(): Promise<{ id: string; dir: string }> {
 }
 
 const nativeRoot = async () => join(await realpath(h.home), "native");
+/** The directory where the claude-code adapter places native skills, with the R42 marker in place. */
+const layout = async () => {
+  const dir = join(await nativeRoot(), "claude-code/.claude/skills");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(await nativeRoot(), ".dynamic-skills-native"), "");
+  return dir;
+};
 
 describe("native sweep at assess", () => {
   it("keeps a placement of an activated session placed 1 h ago", async () => {
@@ -193,24 +201,116 @@ describe("native sweep safety", () => {
     expect(await exists(join(odd, "SKILL.md"))).toBe(true);
   });
 
-  it("finds placements generically, within four levels", async () => {
+  it("sweeps only direct children of an adapter layout (R42)", async () => {
+    const lay = await layout();
     const root = await nativeRoot();
-    const deep = join(root, "a/b/c/some-skill");
-    await mkdir(deep, { recursive: true });
-    await writeFile(join(deep, "SKILL.md"), "---\nname: some-skill\n---\n");
-    const tooDeep = join(root, "a/b/c/d/other-skill");
-    await mkdir(tooDeep, { recursive: true });
-    await writeFile(join(tooDeep, "SKILL.md"), "---\nname: other-skill\n---\n");
-    for (const d of [deep, tooDeep]) await utimes(d, h.clock.t / 1000, h.clock.t / 1000);
-    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([deep]);
-    expect(await exists(join(tooDeep, "SKILL.md"))).toBe(true);
+    const mk = async (dir: string, name: string) => {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\n---\n`);
+      await utimes(dir, h.clock.t / 1000, h.clock.t / 1000);
+      return dir;
+    };
+    const inLayout = await mk(join(lay, "some-skill"), "some-skill");
+    const user = await mk(join(root, "skills/release-notes"), "release-notes");
+    const nested = await mk(join(lay, "a/other-skill"), "other-skill");
+    const sibling = await mk(join(root, "claude-code/other-skill"), "other-skill");
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([inLayout]);
+    for (const d of [user, nested, sibling]) expect(await exists(join(d, "SKILL.md"))).toBe(true);
+  });
+
+  it("removes nothing without the marker file (R42)", async () => {
+    const lay = await layout();
+    await rm(join(await nativeRoot(), ".dynamic-skills-native"));
+    const dir = join(lay, "some-skill");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), "---\nname: some-skill\n---\n");
+    await utimes(dir, h.clock.t / 1000, h.clock.t / 1000);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([]);
+    expect(await exists(join(dir, "SKILL.md"))).toBe(true);
+    // A marker that is a directory is not a marker.
+    await mkdir(join(await nativeRoot(), ".dynamic-skills-native"));
+    expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([]);
+  });
+
+  it("placeNative creates the marker on the first placement", async () => {
+    await placed();
+    const marker = join(await nativeRoot(), ".dynamic-skills-native");
+    expect((await stat(marker)).isFile()).toBe(true);
+  });
+
+  it("never deletes a user's skill when DYNAMIC_SKILLS_HOME is the user's home (R42)", async () => {
+    const userHome = await realpath(h.userHome);
+    const mine = join(userHome, "native/skills/release-notes");
+    await mkdir(mine, { recursive: true });
+    await writeFile(join(mine, "SKILL.md"), "---\nname: release-notes\n---\n");
+    await utimes(mine, 1_000_000_000, 1_000_000_000);
+    const r = await h.runWith(["assess", "--task", "Add caching to order reads"], {
+      home: userHome,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(await exists(join(mine, "SKILL.md"))).toBe(true);
+  });
+
+  it("treats a relative DYNAMIC_SKILLS_HOME as unset (R42)", async () => {
+    // A value relative to the process working directory that names a home holding a stray layout.
+    const stray = join(h.tmp, "relhome/native/claude-code/.claude/skills/some-skill");
+    await mkdir(stray, { recursive: true });
+    await writeFile(join(stray, "SKILL.md"), "---\nname: some-skill\n---\n");
+    await writeFile(join(h.tmp, "relhome/native/.dynamic-skills-native"), "");
+    await utimes(stray, 1_000_000_000, 1_000_000_000);
+    const rel = relative(process.cwd(), join(h.tmp, "relhome"));
+    expect(isAbsolute(rel)).toBe(false);
+    const r = await h.runWith(["assess", "--task", "Add caching to order reads"], {
+      home: undefined,
+      vars: { DYNAMIC_SKILLS_HOME: rel },
+    });
+    expect(r.exitCode).toBe(0);
+    expect(await exists(join(stray, "SKILL.md"))).toBe(true);
+    expect(await exists(join(h.tmp, "relhome/sessions"))).toBe(false);
+    // The session went to the default home under the OS temp directory.
+    await rm(
+      join(tmpdir(), `dynamic-skills-${process.getuid?.() ?? "user"}`, "sessions", r.out.sessionId),
+      {
+        recursive: true,
+        force: true,
+      },
+    );
+  });
+
+  it("removes a crash-orphaned temp directory older than the SDK threshold, in layouts only (R42)", async () => {
+    const lay = await layout();
+    const root = await nativeRoot();
+    const old = join(lay, ".some-skill.tmp-deadbeef");
+    const young = join(lay, ".other-skill.tmp-deadbeef");
+    const outside = join(root, "skills/.some-skill.tmp-deadbeef");
+    for (const d of [old, young, outside]) await mkdir(join(d, "x"), { recursive: true });
+    const stale = new Date(Date.now() - 2 * HOUR);
+    await utimes(old, stale, stale);
+    await utimes(outside, stale, stale);
+    await native.sweepNativePlacements(h.home, h.clock.t);
+    expect(await exists(old)).toBe(false);
+    expect(await exists(young)).toBe(true);
+    expect(await exists(outside)).toBe(true);
+  });
+
+  it("re-checks the mtime right before removal (R45)", async () => {
+    const lay = await layout();
+    const dir = join(lay, "some-skill");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), "---\nname: some-skill\n---\n");
+    await utimes(dir, 1_000_000_000, 1_000_000_000);
+    const removed = await native.sweepNativePlacements(h.home, h.clock.t, {
+      // Another session reuses the placement after it was selected.
+      beforeRemove: () => utimes(dir, new Date(), new Date()),
+    });
+    expect(removed).toEqual([]);
+    expect(await exists(join(dir, "SKILL.md"))).toBe(true);
   });
 });
 
 describe("native sweep grace, home safety and limits", () => {
   it("keeps a fresh placement even when no session references it yet (R39)", async () => {
-    const root = await nativeRoot();
-    const fresh = join(root, "claude-code/.claude/skills/fresh-skill");
+    const fresh = join(await layout(), "fresh-skill");
     await mkdir(fresh, { recursive: true });
     await writeFile(join(fresh, "SKILL.md"), "---\nname: fresh-skill\n---\n");
     expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([]);
@@ -222,8 +322,7 @@ describe("native sweep grace, home safety and limits", () => {
   });
 
   it("keeps a fresh placement whose mtime is slightly ahead (clock skew)", async () => {
-    const root = await nativeRoot();
-    const fresh = join(root, "claude-code/.claude/skills/skewed-skill");
+    const fresh = join(await layout(), "skewed-skill");
     await mkdir(fresh, { recursive: true });
     await writeFile(join(fresh, "SKILL.md"), "---\nname: skewed-skill\n---\n");
     const ahead = new Date(Date.now() + 5_000);
@@ -263,13 +362,12 @@ describe("native sweep grace, home safety and limits", () => {
   });
 
   it("stops at the wall-clock budget and at the directory cap", async () => {
-    const root = await nativeRoot();
-    const dir = join(root, "a/some-skill");
+    const dir = join(await layout(), "some-skill");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "SKILL.md"), "---\nname: some-skill\n---\n");
     await utimes(dir, h.clock.t / 1000, h.clock.t / 1000);
     expect(await native.sweepNativePlacements(h.home, h.clock.t, { budgetMs: 0 })).toEqual([]);
-    expect(await native.sweepNativePlacements(h.home, h.clock.t, { maxDirs: 2 })).toEqual([]);
+    expect(await native.sweepNativePlacements(h.home, h.clock.t, { maxDirs: 0 })).toEqual([]);
     expect(await exists(join(dir, "SKILL.md"))).toBe(true);
     expect(await native.sweepNativePlacements(h.home, h.clock.t)).toEqual([dir]);
   });

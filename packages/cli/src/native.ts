@@ -1,22 +1,29 @@
-import { lstat, readdir, realpath, utimes } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
-import { bundleManifest, placeBundle, removePlacedBundle } from "@dynamic-skills/adapter-sdk";
+import { lstat, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import {
+  STALE_TEMP_MS,
+  bundleManifest,
+  placeBundle,
+  removePlacedBundle,
+} from "@dynamic-skills/adapter-sdk";
 import type { HarnessAdapter, HostEnv, PlaceInput } from "@dynamic-skills/adapter-sdk";
 import {
   NATIVE_FUTURE_SKEW_MS,
   readNativeReferences,
+  SkillNameSchema,
   selectExpiredPlacements,
 } from "@dynamic-skills/core";
 import type { NativePlacement } from "@dynamic-skills/core";
-
-/** Deepest directory level (below `<home>/native`) at which a placement is looked for. */
-const SWEEP_MAX_DEPTH = 4;
+import { ADAPTERS, HARNESS_IDS } from "./adapters";
 
 /** Most directories the sweep looks at in one run; keeps it far below the 60 s budget. */
 const SWEEP_MAX_DIRS = 2_000;
 
 /** Real-clock budget of one sweep (2 s); it stops enumerating and removing once it is spent. */
 const SWEEP_BUDGET_MS = 2_000;
+
+/** Name of the marker file `placeNative` creates in `<home>/native` (Ruling R42). */
+export const NATIVE_MARKER = ".dynamic-skills-native";
 
 /**
  * Grace period (10 min, real clock) for a fresh placement (Ruling R39). A session's placement is
@@ -27,73 +34,129 @@ const SWEEP_BUDGET_MS = 2_000;
  */
 export const NATIVE_PLACEMENT_GRACE_MS = 600_000;
 
-/** Optional limits of {@link sweepNativePlacements}; tests lower them. */
+/**
+ * True when a directory last modified at `mtimeMs` is inside the R39 grace window at real time
+ * `wallNow`. mtime has sub-millisecond digits that `Date.now()` lacks; floor so "just now" is 0.
+ */
+export function inPlacementGrace(mtimeMs: number, wallNow: number = Date.now()): boolean {
+  const age = wallNow - Math.floor(mtimeMs);
+  return age >= -NATIVE_FUTURE_SKEW_MS && age < NATIVE_PLACEMENT_GRACE_MS;
+}
+
+/** Optional limits and test seams of {@link sweepNativePlacements}; tests set them. */
 export interface SweepOptions {
   /** Real-clock budget in ms; default 2000. */
   budgetMs?: number;
   /** Most directories to look at; default 2000. */
   maxDirs?: number;
+  /**
+   * Called for each placement just before its mtime is re-checked and it is removed.
+   *
+   * @internal Test seam; never wire user input into it.
+   */
+  beforeRemove?: (dir: string) => Promise<void> | void;
 }
 
-/** True for an in-flight `.<name>.tmp-<hex>` directory left by `placeBundle`; never swept. */
+/** True for an in-flight `.<name>.tmp-<hex>` directory left by `placeBundle`; never a placement. */
 function isTempDir(name: string): boolean {
   return name.startsWith(".") && name.includes(".tmp-");
 }
 
+/** True for a `.<skill-name>.tmp-<8 hex>` directory, the shape `placeBundle` leaves behind. */
+function isPlaceBundleTemp(name: string): boolean {
+  const m = /^\.(.+)\.tmp-[0-9a-f]{8}$/.exec(name);
+  return m !== null && SkillNameSchema.safeParse(m[1]).success;
+}
+
 /**
- * Lists every placement under `root`: a real directory that directly contains a regular
- * `SKILL.md`. Symlinks are never followed (every entry is `lstat`ed and non-directories skipped),
- * in-flight temp directories are skipped, the walk is capped by depth and by directory count, and
- * a directory that cannot be read is skipped.
+ * The directories each adapter places native skills in, computed the way `clean` does (Ruling
+ * R42). An adapter without a native layout, or one that throws, contributes nothing.
+ */
+function nativeLayouts(realHome: string): string[] {
+  const layouts = new Set<string>();
+  for (const id of HARNESS_IDS) {
+    try {
+      const layout = ADAPTERS[id].nativeSessionRoot({
+        sessionHome: realHome,
+        vars: { DYNAMIC_SKILLS_NATIVE: "1" },
+      } as unknown as HostEnv);
+      if (layout !== null) layouts.add(layout);
+    } catch {
+      // An adapter that needs more of the environment has no layout the sweep can name.
+    }
+  }
+  return [...layouts];
+}
+
+/**
+ * Lists the placements in the adapters' native layouts, and the crash-orphaned temp directories
+ * beside them (Ruling R42). Only direct children of a layout count: a child must have a valid
+ * skill name, be a real directory (never a symlink) and hold a regular `SKILL.md`. A layout must
+ * be a real directory whose realpath is itself. The walk is capped by directory count and time.
  */
 async function listPlacements(
   root: string,
   limits: { maxDirs: number; deadline: number },
-): Promise<{ dir: string; mtimeMs: number }[]> {
-  const found: { dir: string; mtimeMs: number }[] = [];
+): Promise<{ placements: { dir: string; mtimeMs: number }[]; staleTemps: string[] }> {
+  const placements: { dir: string; mtimeMs: number }[] = [];
+  const staleTemps: string[] = [];
   let visited = 0;
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    if (visited >= limits.maxDirs || Date.now() >= limits.deadline) return;
-    visited++;
-    const skill = await lstat(join(dir, "SKILL.md")).catch(() => undefined);
-    if (skill?.isFile() === true) {
-      const st = await lstat(dir).catch(() => undefined);
-      if (st !== undefined) found.push({ dir, mtimeMs: st.mtimeMs });
-      return;
-    }
-    if (depth >= SWEEP_MAX_DEPTH) return;
-    const names = await readdir(dir).catch(() => [] as string[]);
+  for (const layout of nativeLayouts(dirname(root))) {
+    const rel = relative(root, layout);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    const info = await lstat(layout).catch(() => undefined);
+    if (info === undefined || !info.isDirectory()) continue;
+    if ((await realpath(layout).catch(() => undefined)) !== layout) continue;
+    const names = await readdir(layout).catch(() => [] as string[]);
     for (const name of names) {
-      if (isTempDir(name)) continue;
-      const child = join(dir, name);
+      if (visited >= limits.maxDirs || Date.now() >= limits.deadline)
+        return { placements, staleTemps };
+      visited++;
+      const child = join(layout, name);
+      if (isTempDir(name)) {
+        const st = await lstat(child).catch(() => undefined);
+        if (
+          st !== undefined &&
+          st.isDirectory() &&
+          isPlaceBundleTemp(name) &&
+          Date.now() - st.mtimeMs > STALE_TEMP_MS
+        ) {
+          staleTemps.push(child);
+        }
+        continue;
+      }
+      if (!SkillNameSchema.safeParse(name).success) continue;
       const st = await lstat(child).catch(() => undefined);
       // `lstat` reports a symlink as a symlink, never as a directory, so links are skipped here.
       if (st === undefined || !st.isDirectory()) continue;
-      await walk(child, depth + 1);
+      const skill = await lstat(join(child, "SKILL.md")).catch(() => undefined);
+      if (skill?.isFile() === true) placements.push({ dir: child, mtimeMs: st.mtimeMs });
     }
-  };
-  await walk(root, 0);
-  return found;
+  }
+  return { placements, staleTemps };
 }
 
 /**
- * Removes expired native placements under `<home>/native` (D5). Placements are found generically
- * (no harness path is built in), and the policy is core's `selectExpiredPlacements`: a placement
- * goes when no session references it, when every referencing session ended without `activated` or
- * `augmented`, or when it is older than 24 h. A session file that cannot be parsed counts as a
- * reference (fail-safe), so it keeps young placements. Every removal goes through
- * `removePlacedBundle` contained in the real `<home>/native` (Ruling R29), so a placement that
- * was swapped for a symlink, or whose name is not a skill name, is left alone. In-flight temp
- * directories (`.<name>.tmp-*`) are never touched.
+ * Removes expired native placements under `<home>/native` (D5, Ruling R42). The sweep acts only
+ * when `<realpath home>/native/.dynamic-skills-native` exists as a regular file (`placeNative`
+ * creates it), and only on direct children of each adapter's native layout whose name is a valid
+ * skill name, so a user-provided home that holds the user's own `native/` directory is never
+ * touched. The policy is core's `selectExpiredPlacements`: a placement goes when no session
+ * references it, when every referencing session ended without `activated` or `augmented`, or
+ * when it is older than 24 h. A session file that cannot be parsed counts as a reference
+ * (fail-safe), so it keeps young placements. Every removal goes through `removePlacedBundle`
+ * contained in the real `<home>/native` (Ruling R29), so a placement that was swapped for a
+ * symlink is left alone. In-flight temp directories (`.<name>.tmp-*`) are never touched, except
+ * those in a layout that are older than the SDK's stale-temp threshold (crash orphans).
+ *
+ * A placement whose mtime is younger than {@link NATIVE_PLACEMENT_GRACE_MS} on the real clock is
+ * kept regardless of the policy (Ruling R39); the mtime is read again right before each removal,
+ * so a placement another session refreshed meanwhile is kept. The sweep stops after a 2 s
+ * real-clock budget or 2000 directories. The budget is not a hard bound: it is checked between
+ * steps, so reading the session files and hashing one placement before its removal can run past it.
  *
  * It may throw (an unreadable session home, say); callers treat it as best effort and must not
  * let it fail `assess` or `activate`.
- *
- * @param home - Session home.
- * A placement whose mtime is younger than {@link NATIVE_PLACEMENT_GRACE_MS} on the real clock is
- * kept regardless of the policy (Ruling R39), and the sweep stops after a 2 s real-clock budget
- * or 2000 directories. The budget is not a hard bound: it is checked between steps, so reading
- * the session files and hashing one placement before its removal can run past it.
  *
  * @param home - Session home.
  * @param now - Epoch ms used for the policy's age check (the invocation's clock).
@@ -113,29 +176,35 @@ export async function sweepNativePlacements(
   // `lstat` never follows: a symlinked `native` is not a directory here (Ruling R38).
   if (rootStat === undefined || !rootStat.isDirectory()) return [];
   if ((await realpath(root)) !== root) return [];
-  const placements = await listPlacements(root, {
+  // No marker, no sweep: the directory was not made by this tool (Ruling R42).
+  const marker = await lstat(join(root, NATIVE_MARKER)).catch(() => undefined);
+  if (marker?.isFile() !== true) return [];
+  const { placements, staleTemps } = await listPlacements(root, {
     maxDirs: opts.maxDirs ?? SWEEP_MAX_DIRS,
     deadline,
   });
+  for (const tmp of staleTemps) {
+    if (Date.now() >= deadline) break;
+    await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+  }
   if (placements.length === 0) return [];
   const { byDir, unparsable } = await readNativeReferences(realHome);
   if (Date.now() >= deadline) return [];
   const mtimes = new Map(placements.map((p) => [p.dir, p.mtimeMs]));
   const wallNow = Date.now();
   const expired = selectExpiredPlacements({ placements, refs: byDir, unparsable, now }).filter(
-    (dir) => {
-      // mtime has sub-millisecond digits that `Date.now()` lacks; floor so "just now" is age 0.
-      const age = wallNow - Math.floor(mtimes.get(dir) ?? 0);
-      return !(age >= -NATIVE_FUTURE_SKEW_MS && age < NATIVE_PLACEMENT_GRACE_MS);
-    },
+    (dir) => !inPlacementGrace(mtimes.get(dir) ?? 0, wallNow),
   );
   const removed: string[] = [];
-  const realRoot = root;
   for (const dir of expired) {
     if (Date.now() >= deadline) break;
     try {
+      await opts.beforeRemove?.(dir);
+      // The selection used a snapshot: another session may have refreshed this placement since.
+      const fresh = await lstat(dir);
+      if (!fresh.isDirectory() || inPlacementGrace(fresh.mtimeMs)) continue;
       const sha = (await bundleManifest(dir)).sha256;
-      if (await removePlacedBundle(dir, sha, realRoot)) removed.push(dir);
+      if (await removePlacedBundle(dir, sha, root)) removed.push(dir);
     } catch {
       // A bundle that cannot be hashed (odd entries, vanished) is left for the next sweep.
     }
@@ -255,6 +324,11 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
       ...(input.testHooks === undefined ? {} : { testHooks: input.testHooks }),
     });
     if (placed.action === "conflict") return none(conflictLimitation(placed.reason, name));
+    // Ruling R42: the sweep acts only in a native directory this tool made. `wx` never follows a
+    // symlink and never overwrites; an existing marker (EEXIST) is the normal case.
+    await writeFile(join(within, NATIVE_MARKER), "", { flag: "wx", mode: 0o600 }).catch(
+      () => undefined,
+    );
     if (placed.action === "unchanged") {
       // Reuse restarts the grace period; best effort.
       const t = new Date();

@@ -263,16 +263,6 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect(archived.activeMs).toBeLessThan(60_000);
   });
 
-  it("leaves no partial reports when a terminal report cannot be built", async () => {
-    const id = await analysed(h);
-    await writeFile(join(h.home, "sessions", id, "context-packet.json"), "{ corrupt");
-    const r = await h.run(["clean", "--session", id]);
-    expect(r.exitCode).not.toBe(0);
-    expect(await h.exists(id, "session.json")).toBe(true);
-    expect(await h.exists(id, "reports/performance.json")).toBe(false);
-    expect(await stat(join(h.home, "reports", `${id}.json`)).catch(() => null)).toBeNull();
-  });
-
   it("leaves no performance.json when a later report cannot be written", async () => {
     const id = await analysed(h);
     await mkdir(join(h.home, "sessions", id, "reports", "discovery.json"), { recursive: true });

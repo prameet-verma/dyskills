@@ -196,8 +196,8 @@ export async function readEvidence(store: SessionStore, id: string): Promise<Evi
 
 /**
  * Writes `reports/performance.json`, `reports/discovery.json` and `reports/assumptions.json` for a
- * session that has ended (PRD §10.6, §10.8). Safe on any session: a missing packet or evidence
- * file reads as `null` / empty.
+ * session that has ended (PRD §10.6, §10.8). Safe on any session: a missing, unreadable or invalid
+ * packet or evidence file reads as `null` / empty (Ruling R45).
  * @param store - Session store.
  * @param state - Final session state (outcome already set).
  * @param now - Epoch ms used for the wall and active durations.
@@ -207,13 +207,15 @@ export async function writeTerminalReports(
   state: SessionState,
   now: number,
 ): Promise<void> {
+  // Ruling R45: an unreadable or invalid artifact must not block the reports (or `clean`), so it
+  // reads as absent. `performance.json` comes from the state alone.
   const packet: ContextPacket | null = await readArtifactJson(
     store,
     state.id,
     "context-packet.json",
     ContextPacketSchema,
-  );
-  const evidence = await readEvidence(store, state.id);
+  ).catch(() => null);
+  const evidence = await readEvidence(store, state.id).catch(() => [] as Evidence[]);
   // Build every document first so a build failure writes nothing, then write each final file
   // atomically (checked, symlink-safe). `performance.json` goes last: it is the only file
   // `report perf` reads, so a failure partway never leaves a counted report behind.
