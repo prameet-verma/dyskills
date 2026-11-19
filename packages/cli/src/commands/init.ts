@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { applyPlan, PlanApplyError, previewPlan, verifyInstall } from "@dynamic-skills/adapter-sdk";
 import type {
@@ -125,8 +126,12 @@ export const initCommand: GlobalCommandDef = {
     const scope = opts.scope === "project" ? "project" : "personal";
     const explicit = typeof opts.harness === "string" ? parseHarnessList(opts.harness) : null;
 
+    const repo = resolve(cwd, typeof opts.repo === "string" ? opts.repo : ".");
+    const repoInfo = await stat(repo).catch(() => null);
+    if (!repoInfo?.isDirectory()) throw new CliError("USAGE", "--repo is not a directory.");
+
     const env: HostEnv = await buildHostEnv({
-      repo: resolve(cwd, typeof opts.repo === "string" ? opts.repo : "."),
+      repo,
       userHome,
       home,
       vars,

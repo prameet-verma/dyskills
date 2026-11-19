@@ -102,6 +102,11 @@ await runCli(["discover", "--session", sessionId]);
 A session writes only inside `$DYNAMIC_SKILLS_HOME/sessions/<id>/`; the other writes are `init`,
 `save` and native placement under `<home>/native/`, each planned and contained (see
 [SECURITY.md](../../SECURITY.md)). Existing skills and instruction files are only ever read.
+The native sweep removes only direct children of an adapter's layout and only when
+`<home>/native/.dynamic-skills-native` exists; a relative or empty `DYNAMIC_SKILLS_HOME` counts as
+unset. `clean` always works, even on an unreadable session; `INTERNAL` errors carry a fixed message;
+`save --scope discard|ephemeral --dry-run` changes nothing; `--repo` must be an existing directory
+and option values may not start with `-` (see `docs/cli-reference.md`).
 Install and per-harness setup are in the [harness guides](../../docs/harnesses/claude-code.md).
 
 ## PRD sections implemented

@@ -12,6 +12,7 @@ import {
 import type { SessionState, SessionStore } from "@dynamic-skills/core";
 import { ADAPTERS } from "../adapters";
 import { writeTerminalReports } from "../io";
+import { inPlacementGrace } from "../native";
 import type { SessionCommandDef } from "./types";
 
 /**
@@ -35,6 +36,9 @@ export async function endAbandonedSession(
   stopClock(state, at - Math.max(0, clock.activeMs(at) - clock.snapshot(at).budgetMs));
   await writeTerminalReports(store, state, at);
 }
+
+const GRACE_NOTE =
+  "the native placement was placed or refreshed within the last 10 minutes; it was kept";
 
 /**
  * Decides whether the native placement of `state` may be removed, and why not (Ruling R38).
@@ -79,6 +83,12 @@ async function nativeRemovalBlocker(
       return "a directory on the native placement path is a symlink; it was not removed";
     }
   }
+  // Ruling R45: another session may have just placed or reused this directory and not saved its
+  // reference yet; a placement inside the R39 grace window (real clock) is kept.
+  const placed = await lstat(dir).catch(() => null);
+  if (placed !== null && inPlacementGrace(placed.mtimeMs)) {
+    return GRACE_NOTE;
+  }
   const refs = await readNativeReferences(store.home, { exclude: state.id });
   if (refs.unparsable > 0) {
     return "another session could not be read; the native placement was kept";
@@ -120,10 +130,32 @@ export async function discardSession(
     const within = join(await realpath(store.home).catch(() => store.home), "native");
     const why = await nativeRemovalBlocker(store, { ...state, native: state.native }, within);
     if (why !== null) notes.push(why);
-    else await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
+    else {
+      // Ruling R45: look again right before removing; another session may have reused the
+      // placement since the check above (a short window remains while the bundle is hashed and removed, see cli-reference).
+      const again = await lstat(state.native.dir).catch(() => null);
+      if (again !== null && inPlacementGrace(again.mtimeMs)) notes.push(GRACE_NOTE);
+      else await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
+    }
   }
   await store.remove(state.id);
   return { archived, notes };
+}
+
+/**
+ * Removes a session whose `session.json` cannot be loaded (corrupt or unreadable), Ruling R45:
+ * `clean` must always work. Nothing is archived (there is no state to build a report from) and no
+ * native placement is removed (the state that names it is gone), so the session's directory goes
+ * and a note says so; the TTL sweep takes a placement that nothing references anymore.
+ * @param store - Session store.
+ * @param id - Session id.
+ * @returns The notes for the command's output.
+ */
+export async function removeUnreadableSession(store: SessionStore, id: string): Promise<string[]> {
+  await store.remove(id);
+  return [
+    "session.json could not be read; the session directory was removed, nothing was archived and no native placement was touched.",
+  ];
 }
 
 /**

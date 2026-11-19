@@ -1,6 +1,6 @@
 import { lstat, rm } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import {
   CONTRACT_VERSION,
   SessionNotFoundError,
@@ -9,12 +9,12 @@ import {
   hasEnded,
   recordStage,
   renderStatus,
-  resolveHome,
   stopClock,
 } from "@dynamic-skills/core";
 import type { SessionState } from "@dynamic-skills/core";
 import { createHostProbe } from "@dynamic-skills/adapter-sdk";
 import { Command, CommanderError, Option } from "commander";
+import { removeUnreadableSession } from "./commands/clean";
 import { COMMANDS } from "./commands/index";
 import type { CommandDef, CommandResult } from "./commands/types";
 import { CliError, FALLBACK, stripControlChars, writeTerminalReports } from "./io";
@@ -46,6 +46,28 @@ const CORE_CODES: ReadonlySet<string> = new Set([
   "HOME_UNSAFE",
 ]);
 
+/** The message of every `INTERNAL` error that is not one of our own `CliError`s. */
+const INTERNAL_MESSAGE = "unexpected internal error; see `status`";
+
+/** Appended to {@link INTERNAL_MESSAGE}: only an errno-style code, never any text of the error. */
+function errnoSuffix(e: unknown): string {
+  const code = e instanceof Error ? (e as { code?: unknown }).code : undefined;
+  return typeof code === "string" && /^E[A-Z0-9]{2,15}$/.test(code) ? ` (${code})` : "";
+}
+
+/**
+ * The session home: `DYNAMIC_SKILLS_HOME` when it is set, non-empty and absolute, otherwise the
+ * default under the OS temp directory. A relative value counts as unset like an empty one
+ * (Ruling R42): it would resolve against the working directory and put `sessions/` and the native
+ * sweep inside whatever repo the agent runs in.
+ */
+function homeFromVars(vars: NodeJS.ProcessEnv): string {
+  const value = vars.DYNAMIC_SKILLS_HOME;
+  if (value !== undefined && value !== "" && isAbsolute(value)) return value;
+  // Core's `resolveHome` reads `process.env`, which may hold a relative value of its own.
+  return join(tmpdir(), `dynamic-skills-${process.getuid?.() ?? "user"}`);
+}
+
 /** Line-terminated JSON for stdout. */
 function jsonLine(value: Record<string, unknown>): string {
   return `${JSON.stringify(value)}\n`;
@@ -54,13 +76,17 @@ function jsonLine(value: Record<string, unknown>): string {
 /** Converts any thrown value into the error document and exit code (PRD §10.5, §13). */
 function describeError(e: unknown): { exitCode: number; doc: Record<string, unknown> } {
   let code: string = "INTERNAL";
-  let message = e instanceof Error ? e.message : "Unexpected failure.";
+  // Ruling R45: only our own CliErrors and the store's known errors may show their text; anything
+  // else (a ZodError, an fs error) can carry repo or session content, so it gets a fixed message.
+  let message = `${INTERNAL_MESSAGE}${errnoSuffix(e)}`;
   let extra: Record<string, unknown> = {};
   if (e instanceof CliError) {
     code = e.code;
+    message = e.message;
     extra = e.extra;
   } else if (e instanceof Error && CORE_CODES.has(String((e as { code?: unknown }).code))) {
     code = String((e as { code?: unknown }).code);
+    message = e.message;
   }
   if (code === "TIMEOUT") message = "The active processing budget was exceeded.";
   return {
@@ -127,9 +153,16 @@ async function finish(
  * the session is saved as `timeout`. Verified context files are kept.
  */
 async function failOnTimeout(store: SessionStore, state: SessionState, now: number): Promise<void> {
-  await rm(join(store.dir(state.id), "skills"), { recursive: true, force: true });
+  // Reports and the save come first (Ruling R45): if either fails the command fails with the
+  // skill still in place and `session.json` untouched, never half applied.
   await writeTerminalReports(store, state, now);
   await store.save(state);
+  await removeSkills(store, state);
+}
+
+/** Removes the session's unvalidated `skills/`; best effort when the session already timed out. */
+async function removeSkills(store: SessionStore, state: SessionState): Promise<void> {
+  await rm(join(store.dir(state.id), "skills"), { recursive: true, force: true });
 }
 
 /** Runs one session command under the session lock with the shared wrapper. */
@@ -151,7 +184,39 @@ async function runSessionCommand(
   if (!exists) throw new SessionNotFoundError(id);
 
   return store.withLock(id, async () => {
-    const state = await store.load(id);
+    let state: SessionState;
+    try {
+      state = await store.load(id);
+    } catch (e) {
+      if (e instanceof SessionNotFoundError) throw e;
+      // Ruling R45: `clean` and `save --scope discard` always work, even when `session.json` is
+      // corrupt: the directory goes, nothing is archived (a dry run only reports).
+      const discarding = def.name === "clean" || (def.name === "save" && opts.scope === "discard");
+      if (!discarding) {
+        throw new CliError(
+          "INTERNAL",
+          `The session could not be read; run \`clean --session ${id}\` to remove it.`,
+        );
+      }
+      const dry = def.name === "save" && opts.dryRun === true;
+      const notes = dry
+        ? [
+            "Dry run: session.json could not be read; the session would be removed, nothing was changed.",
+          ]
+        : await removeUnreadableSession(store, id);
+      return {
+        doc: {
+          ok: true,
+          schemaVersion: CONTRACT_VERSION,
+          ...(def.name === "save" ? { scope: "discard", dryRun: dry } : {}),
+          removed: !dry,
+          archived: false,
+          notes,
+        },
+        status: "",
+        exitCode: 0,
+      };
+    }
     const startedAt = env.now();
 
     // A finished session keeps its outcome: its clock is stopped when it ends, and the deadline
@@ -160,6 +225,8 @@ async function runSessionCommand(
       const already = state.status === "timeout";
       if (already || enforceDeadline(state, startedAt)) {
         if (!already) await failOnTimeout(store, state, startedAt);
+        // A timeout saved by an earlier run whose removal failed: try again, never fail on it.
+        else await removeSkills(store, state).catch(() => undefined);
         const err = describeError(new CliError("TIMEOUT", "", { fallback: FALLBACK }));
         return { ...err, status: renderStatus(state, startedAt) };
       }
@@ -271,6 +338,45 @@ function buildProgram(
   return program;
 }
 
+/** Options whose value is free text, so a leading `-` is legitimate. */
+const FREE_TEXT_OPTIONS: ReadonlySet<string> = new Set(["--task", "--notes"]);
+
+/**
+ * The flag of the first value-taking option that swallowed one of its own command's flags (for
+ * example `init --repo --dry-run`, or `save --session --scope=project`), else `null`. Commander
+ * lets an option take a following flag as its value, which silently turns a typo into a different
+ * command. A value given as one `--opt=value` token is never refused. Free-text options refuse
+ * only a value that is, whole, one of the command's own flags.
+ */
+function optionValueStartingWithDash(
+  def: CommandDef,
+  opts: Record<string, string | boolean | undefined>,
+  argv: string[],
+): string | null {
+  const specs = def.options.map((o) => new Option(o.flags));
+  if (def.kind === "session") specs.push(new Option("--session <id>"));
+  const own = new Set<string>(["--help", "-h"]);
+  for (const o of specs) {
+    if (o.long !== undefined) own.add(o.long);
+    if (o.short !== undefined) own.add(o.short);
+  }
+  for (const o of specs) {
+    if (!o.required || o.long === undefined) continue;
+    const value = opts[o.attributeName()];
+    if (typeof value !== "string" || !value.startsWith("-")) continue;
+    if (argv.includes(`${o.long}=${value}`)) continue;
+    if (FREE_TEXT_OPTIONS.has(o.long)) {
+      // Free text may start with `-`, but a value that is exactly one of the command's own flags
+      // and its own argv token means the flag was swallowed (`assess --task --explicit`).
+      if (own.has(value) && argv.includes(value)) return o.long;
+      continue;
+    }
+    const name = value.split("=")[0] as string;
+    if (own.has(name)) return o.long;
+  }
+  return null;
+}
+
 /** The `a | b` list of subcommands when `argv` names a command group, else `null`. */
 function missingSubcommand(argv: string[]): string | null {
   const group = argv[0];
@@ -315,8 +421,8 @@ export async function runCli(argv: string[], env: CliEnv = {}): Promise<CliOutco
 async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
   const vars = env.vars ?? process.env;
   const resolved: Required<CliEnv> = {
-    // resolveHome() only reads process.env, so a caller-supplied `vars` is honoured first.
-    home: env.home ?? (vars.DYNAMIC_SKILLS_HOME || undefined) ?? resolveHome(),
+    // A caller-supplied `vars` is honoured first; a relative or empty home counts as unset (R42).
+    home: env.home ?? homeFromVars(vars),
     cwd: env.cwd ?? process.cwd(),
     userHome: env.userHome ?? homedir(),
     now: env.now ?? Date.now,
@@ -397,6 +503,20 @@ async function runCliRaw(argv: string[], env: CliEnv): Promise<CliOutcome> {
     def: CommandDef;
     opts: Record<string, string | boolean | undefined>;
   };
+  const dashed = optionValueStartingWithDash(def, opts, argv);
+  if (dashed !== null) {
+    const err = describeError(
+      new CliError(
+        "USAGE",
+        `${dashed} needs a value, but the next argument is one of this command's options.`,
+      ),
+    );
+    return {
+      exitCode: err.exitCode,
+      stdout: jsonLine(err.doc),
+      stderr: `Error USAGE: ${String(err.doc.message)}\n`,
+    };
+  }
   try {
     const out =
       def.kind === "create"

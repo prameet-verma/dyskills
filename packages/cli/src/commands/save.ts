@@ -1,5 +1,5 @@
 import { lstat, readFile, readdir, rmdir } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   BundleLayoutError,
   bundleManifest,
@@ -36,6 +36,10 @@ interface Created {
   sha256: string;
   /** The root did not exist before this call, so an empty root is removed again on rollback. */
   rootWasNew: boolean;
+  /** Realpath of the placed bundle, as the SDK reports it. */
+  realPath?: string;
+  /** Realpaths of the directories `placeBundle` created, deepest first. */
+  createdDirs?: string[];
 }
 
 /** The single skill directory under the session's `skills/`; anything else is an invalid bundle. */
@@ -90,8 +94,23 @@ async function findMachinePath(
 /** Takes back every bundle this call created, newest first; never throws. */
 async function rollback(created: Created[]): Promise<void> {
   for (const c of [...created].reverse()) {
-    await removePlacedBundle(c.path, c.sha256, c.root);
-    if (c.rootWasNew) await rmdir(c.root).catch(() => undefined);
+    await removePlacedBundle(
+      c.realPath ?? c.path,
+      c.sha256,
+      c.realPath === undefined ? c.root : dirname(c.realPath),
+    );
+    // Only the directories this call created (realpaths, deepest first); never `rm -r`, and stop
+    // at the first one that is not empty or cannot be removed.
+    for (const dir of c.createdDirs ?? []) {
+      if (
+        !(await rmdir(dir).then(
+          () => true,
+          () => false,
+        ))
+      )
+        break;
+    }
+    if (c.createdDirs === undefined && c.rootWasNew) await rmdir(c.root).catch(() => undefined);
   }
 }
 
@@ -139,6 +158,7 @@ export const saveCommand: SessionCommandDef = {
           scope,
           saved: [],
           sessionDir,
+          dryRun: opts.dryRun === true,
           notes: ["The skill stays in the session directory until clean."],
         },
         save: false,
@@ -146,6 +166,20 @@ export const saveCommand: SessionCommandDef = {
       };
     }
     if (scope === "discard") {
+      // Ruling R45: a dry run reports and changes nothing (the session is not even ended).
+      if (opts.dryRun === true) {
+        return {
+          data: {
+            scope,
+            removed: false,
+            archived: null,
+            dryRun: true,
+            notes: ["Dry run: the session would be discarded; nothing was changed."],
+          },
+          save: false,
+          recordStep: false,
+        };
+      }
       await endAbandonedSession(store, state, now());
       const { archived, notes } = await discardSession(store, state);
       return { data: { scope, removed: true, archived, notes }, save: false, recordStep: false };
@@ -256,6 +290,8 @@ export const saveCommand: SessionCommandDef = {
             path: placed.path,
             sha256: placed.manifest.sha256,
             rootWasNew,
+            ...(placed.realPath !== undefined ? { realPath: placed.realPath } : {}),
+            ...(placed.createdDirs !== undefined ? { createdDirs: placed.createdDirs } : {}),
           });
         }
         // AC 20: what was written is what was evaluated.
