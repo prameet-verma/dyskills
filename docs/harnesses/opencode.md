@@ -51,8 +51,8 @@ deny becomes an ask in this project, because the project ask overrides the same 
 scope `init` compares the decision for `save`, `init` and a read-only command such as
 `dynamic-skills status` before and after (plus every existing `deny` rule on a `dynamic-skills` command), over your personal and global config only, never the current project's files: any entry that would weaken a deny (or
 turn a `save`/`init` ask into an allow), such as the broad `"dynamic-skills *": "allow"` or an ask
-that would overwrite a deny, is left out and noted. `save` and `init` never resolve to `allow` over that
-config. If the personal write turns a deny in the current project into an ask, `init` only notes it. Comments and trailing commas in your config are kept.
+that would overwrite a deny, is left out and noted. `init` never makes `save` or `init` resolve to `allow`; if your own config already allows them, `init`
+notes it (R34). If the personal write turns a deny in the current project into an ask, `init` only notes it. Comments and trailing commas in your config are kept.
 
 ## Consent rules
 

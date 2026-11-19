@@ -187,7 +187,7 @@ export interface ConsentLayers {
   after?: readonly Layer[];
   /** Probe labels (`save`, `init`) whose deny is already explained by an `init` note. */
   skip?: ReadonlySet<string>;
-  /** Patterns of the entries `init` itself writes; the advice never tells the user to move those. */
+  /** `permission.bash` keys `init` newly writes; the advice never tells the user to move those. */
   own?: ReadonlySet<string>;
 }
 
@@ -342,7 +342,9 @@ export function consentNotes(
   for (const probe of PROBES) {
     const global = resolve(all, variant, probe.command, null);
     const ownWrite = (r: Rule, source: string | null): boolean =>
-      source === path && (layers.own?.has(r.pattern) ?? false);
+      source === path &&
+      r.action === (variant === "v2" ? "shell" : "bash") &&
+      (layers.own?.has(r.pattern) ?? false);
     const covered = (r: Rule): boolean =>
       r.effect === "deny" && (layers.skip?.has(probe.label) ?? false);
     if (global.rule.effect !== "ask" && !covered(global.rule)) {
@@ -367,7 +369,8 @@ export function consentNotes(
 
 /**
  * Probe commands for every `deny` rule on `dynamic-skills ...` in `layers`, built from the pattern
- * itself: a pattern with no wildcard is the bare command, otherwise each `*` or `?` becomes `x`.
+ * itself: a pattern with no wildcard is the bare command; otherwise the first `*` becomes each of
+ * `x`, `save` and `init`, and any other `*` or `?` becomes `x`.
  *
  * @param layers - Config layers.
  * @param variant - The detected OpenCode line.
@@ -380,7 +383,14 @@ export function denyProbes(layers: readonly Layer[], variant: string | null): st
     for (const r of docRules(layer.doc, variant, null)) {
       if (r.effect !== "deny" || !r.pattern.startsWith("dynamic-skills")) continue;
       if (!wildcardMatch(query, r.action)) continue;
-      out.add(/[*?]/.test(r.pattern) ? r.pattern.replace(/[*?]/g, "x") : r.pattern);
+      if (!/[*?]/.test(r.pattern)) {
+        out.add(r.pattern);
+        continue;
+      }
+      // The first `*` may stand for anything, including the save or init subcommand.
+      for (const first of ["x", "save", "init"]) {
+        out.add(r.pattern.replace("*", first).replace(/[*?]/g, "x"));
+      }
     }
   }
   return [...out];

@@ -803,6 +803,54 @@ describe("opencode installer", () => {
     expect(r.p.notes.join("\n")).toMatch(/init left out/);
   });
 
+  it("Mi1: when your own config already allows save, the broad allow is still written and R34 notes it", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/config.json": { permission: { bash: { "*": "ask" }, "*": "allow" } },
+    });
+    expect(r.weaker).toEqual([]);
+    expect(effectiveDecision(r.personal, "v1", "dynamic-skills save --session x")).toBe("allow");
+    expect(r.p.notes.join("\n")).toMatch(/D6 consent for `dynamic-skills save`/);
+    expect(r.p.notes.join("\n")).not.toMatch(/init left out/);
+    expect(
+      (mergeWrite(r.p).patch as { permission: { bash: Record<string, string> } }).permission.bash[
+        "dynamic-skills *"
+      ],
+    ).toBe("allow");
+  });
+
+  it("Mi3: a deny like `dynamic-skills * --scope personal` keeps protecting init", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/opencode.json": {
+        permission: { bash: { "*": "ask", "dynamic-skills * --scope personal": "deny" } },
+      },
+    });
+    expect(
+      effectiveDecision(
+        r.personal,
+        "v1",
+        "dynamic-skills init --harness opencode --scope personal",
+      ),
+    ).toBe("deny");
+    expect(effectiveDecision(r.personal, "v1", "dynamic-skills save --scope personal")).toBe(
+      "deny",
+    );
+    expect(r.p.notes.join("\n")).toMatch(/init left out/);
+  });
+
+  it("Mi4: your own `dynamic-skills save *: allow` is named as an apply conflict", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/opencode.json": {
+        permission: { bash: { "*": "ask", "dynamic-skills save *": "allow" } },
+      },
+    });
+    const notes = r.p.notes.join("\n");
+    expect(notes).toMatch(
+      /init cannot write `"dynamic-skills save \*": "ask"` because .* already sets it to "allow": apply reports a conflict/,
+    );
+    expect(notes).not.toMatch(/init left out `"dynamic-skills \*": "allow"`/);
+    expect(r.res.some((x) => x.action === "conflict")).toBe(true);
+  });
+
   it("N2: the personal write still works and allows read-only commands when nothing conflicts", async () => {
     const r = await personalCase("v1", {});
     expect(r.weaker).toEqual([]);

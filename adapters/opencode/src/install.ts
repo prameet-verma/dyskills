@@ -305,32 +305,46 @@ export async function planOpenCodeInstall(
       }
       if (!dropped) break;
     }
-    // Hard invariant: over the personal and global layers alone, save and init never resolve to
-    // allow after our write. Drop the broad allow, keep the asks.
-    for (let round = 0; round < 4; round += 1) {
-      const { layers: next } = nextLayers();
+    // init never makes save or init resolve to allow: if our broad allow is what turns an
+    // ask/deny into allow over the personal and global layers, leave it out. When the user's own
+    // config already allows them, dropping it would change nothing, so it stays (R34 notes it).
+    for (let round = 0; round < 2; round += 1) {
+      if (!(BROAD in entries)) break;
       let fixed = false;
       for (const [label, command] of [
         ["save", SAVE_CMD],
         ["init", INIT_CMD],
       ] as const) {
-        if (decide(next, command).effect !== "allow") continue;
-        const askKey = `dynamic-skills ${label} *`;
-        if (BROAD in entries) {
-          delete entries[BROAD];
-          notes.push(
-            `init left out \`"${BROAD}": "allow"\` because \`dynamic-skills ${label}\` would otherwise resolve to allow in your personal config.`,
-          );
-        } else if (!(askKey in entries)) {
-          entries[askKey] = "ask";
-          notes.push(
-            `init kept the \`${label}\` ask entry so \`dynamic-skills ${label}\` never resolves to allow.`,
-          );
-        } else continue;
+        if (decide(nextLayers().layers, command).effect !== "allow") continue;
+        const saved = entries[BROAD]!;
+        delete entries[BROAD];
+        if (decide(nextLayers().layers, command).effect === "allow") {
+          const rest = { ...entries };
+          for (const k of Object.keys(entries)) delete entries[k];
+          Object.assign(entries, { [BROAD]: saved }, rest);
+          continue;
+        }
+        notes.push(
+          `init left out \`"${BROAD}": "allow"\` because \`dynamic-skills ${label}\` would otherwise resolve to allow in your personal config.`,
+        );
         fixed = true;
         break;
       }
       if (!fixed) break;
+    }
+    // A key we want to write that your file already sets to a different value is a merge conflict
+    // at apply time; say so rather than blaming another entry.
+    const finalConflicts = nextLayers().conflicts;
+    for (const key of Object.keys(entries)) {
+      if (!finalConflicts.includes(`permission.bash.${key}`)) continue;
+      const bash =
+        isJsonObject(chosenRead.doc) && isJsonObject(chosenRead.doc.permission)
+          ? chosenRead.doc.permission.bash
+          : undefined;
+      const existing = isJsonObject(bash) ? bash[key] : undefined;
+      notes.push(
+        `init cannot write \`"${key}": "${entries[key]}"\` because ${chosen} already sets it to ${JSON.stringify(existing)}: apply reports a conflict and writes nothing. Edit or remove your rule and run init again.`,
+      );
     }
     // Our write can still turn a deny in the current project's files into an ask there: say so.
     const full: Layer[] = [...before, ...currentLayer, ...after];
@@ -408,7 +422,15 @@ export async function planOpenCodeInstall(
       before,
       after,
       skip,
-      own: new Set(Object.keys(BASH_ENTRIES)),
+      own: new Set(
+        Object.keys(entries).filter((k) => {
+          const bash =
+            isJsonObject(chosenRead.doc) && isJsonObject(chosenRead.doc.permission)
+              ? chosenRead.doc.permission.bash
+              : undefined;
+          return !(isJsonObject(bash) && Object.hasOwn(bash, k));
+        }),
+      ),
     }),
   );
 

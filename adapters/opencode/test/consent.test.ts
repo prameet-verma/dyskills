@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JsonValue } from "@dynamic-skills/adapter-sdk";
-import { consentNotes, effectiveDecision, mergeDeep } from "../src/consent";
+import { consentNotes, denyProbes, effectiveDecision, mergeDeep } from "../src/consent";
 
 const PATH = "/tmp/opencode.json";
 type Loose = { permission: { bash: Record<string, string> } };
@@ -320,5 +320,31 @@ describe("consentNotes", () => {
       before: [{ path: "/w/personal.json", doc: personal }],
     });
     expect(notes[0]).toContain("from /w/personal.json wins");
+  });
+
+  it("Mi2: the own-entry advice fires only for a newly written permission.bash key", () => {
+    const doc: JsonValue = { permission: { bash: { "dynamic-skills *": "allow" } } };
+    const own = consentNotes(doc, "v1", PATH, { own: new Set(["dynamic-skills *"]) });
+    expect(own[0]).toMatch(/entry init itself writes/);
+    expect(own[0]).not.toMatch(/Move or remove/);
+    const preexisting = consentNotes(doc, "v1", PATH, { own: new Set() });
+    expect(preexisting[0]).toMatch(/Move or remove/);
+    const topLevel: JsonValue = { permission: { "*": "allow" } };
+    const t = consentNotes(topLevel, "v1", PATH, { own: new Set(["*"]) });
+    expect(t[0]).toMatch(/Move or remove/);
+  });
+
+  it("Mi3: the first * of a deny pattern is probed as x, save and init", () => {
+    const layers = [
+      {
+        path: PATH,
+        doc: { permission: { bash: { "dynamic-skills * --scope personal": "deny" } } } as JsonValue,
+      },
+    ];
+    expect(denyProbes(layers, "v1").sort()).toEqual([
+      "dynamic-skills init --scope personal",
+      "dynamic-skills save --scope personal",
+      "dynamic-skills x --scope personal",
+    ]);
   });
 });
