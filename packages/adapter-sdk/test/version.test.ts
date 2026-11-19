@@ -12,3 +12,23 @@ describe("version", () => {
     expect(compareVersions("1.2.3", "1.10.0")).toBeLessThan(0);
   });
 });
+
+describe("prereleases", () => {
+  it("keeps the prerelease tag", () => {
+    expect(parseVersion("opencode 2.3.0-beta.1")).toBe("2.3.0-beta.1");
+    expect(parseVersion("v2.3.0 (build)")).toBe("2.3.0");
+  });
+  it("never equals the plain release", () => {
+    expect(compareVersions("2.3.0-beta.1", "2.3.0")).not.toBe(0);
+    expect(compareVersions("2.3.0-beta.1", "2.3.0")).toBeLessThan(0);
+    expect(compareVersions("2.3.0-beta.1", "2.3.0-beta.1")).toBe(0);
+  });
+});
+
+describe("prerelease precedence", () => {
+  it("orders numeric identifiers numerically", () => {
+    expect(compareVersions("1.0.0-beta.2", "1.0.0-beta.10")).toBeLessThan(0);
+    expect(compareVersions("1.0.0-beta", "1.0.0-beta.1")).toBeLessThan(0);
+    expect(compareVersions("1.0.0-1", "1.0.0-alpha")).toBeLessThan(0);
+  });
+});
