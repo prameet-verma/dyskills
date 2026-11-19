@@ -164,12 +164,17 @@ export interface PlaceResult {
   /** Why, for a conflict: one of the fixed reasons listed on {@link placeBundle}. */
   reason?: string;
   /**
-   * On a `create`: the topmost directory this call created because it was missing (an ancestor of
-   * `<destRoot>/<name>`, possibly `destRoot` itself), as a realpath; absent when `destRoot` already
-   * existed. A caller rolling the placement back removes `path` and then, when it is empty, this
-   * directory, so a failed save leaves no new directories behind.
+   * On a `create`: the realpath of the placed bundle (`<realpath destRoot>/<name>`). Unlike `path`
+   * (the requested spelling) it is comparable with `createdDirs`.
    */
-  createdRoot?: string;
+  realPath?: string;
+  /**
+   * On a `create`: the realpaths of every directory this call created (missing ancestors of
+   * `<destRoot>/<name>`, `destRoot` itself included), deepest first; empty when `destRoot` already
+   * existed. Rollback: remove the bundle at `realPath`, then `rmdir` each entry in order and stop at
+   * the first failure (a directory another writer filled meanwhile is not empty).
+   */
+  createdDirs?: string[];
   /** Extra detail for a conflict (never part of the reason vocabulary). */
   detail?: string;
 }
@@ -272,8 +277,7 @@ async function copyBundle(src: string, dest: string, mode: "save" | "native"): P
  * "parent is a dangling symlink" / "parent is a symlink loop" / "parent is not a directory" (the
  * `realpathOfPlanned` failures ENOENT, ELOOP, ENOTDIR, or a `destRoot` that is a file). Any other
  * errno (EACCES, EPERM, EROFS, ...) is rethrown unchanged with its `code`, so callers can tell
- * "denied" from "conflict". A `create` reports `createdRoot` when it had to create `destRoot`
- * ancestors.
+ * "denied" from "conflict". A `create` reports `realPath` and `createdDirs`.
  *
  * @throws {BundleLayoutError} For a bad name, a relative `destRoot`, a symlink or special file in
  *   the source, a source over the caps, or a source that changed while it was copied.
@@ -340,8 +344,15 @@ export async function placeBundle(input: PlaceInput): Promise<PlaceResult> {
 
   if (input.dryRun === true) return { path, action: "create", manifest };
 
-  const createdRoot = await topmostMissing(real);
-  await mkdir(real, { recursive: true, mode: dirMode });
+  // mkdir -p returns the first directory it created: every directory from `real` up to it is ours.
+  const firstCreated = await mkdir(real, { recursive: true, mode: dirMode });
+  const createdDirs: string[] = [];
+  if (firstCreated !== undefined) {
+    for (let cur = real; ; cur = dirname(cur)) {
+      createdDirs.push(cur);
+      if (cur === firstCreated || dirname(cur) === cur) break;
+    }
+  }
   await input.testHooks?.afterMkdir?.();
   const second = await checkParent();
   if (typeof second === "string") return conflict(second);
@@ -385,25 +396,7 @@ export async function placeBundle(input: PlaceInput): Promise<PlaceResult> {
   } finally {
     if (tmp !== null && !renamed) await rm(tmp, { recursive: true, force: true });
   }
-  return { path, action: "create", manifest, ...(createdRoot === null ? {} : { createdRoot }) };
-}
-
-/** The topmost not-yet-existing directory on the way to `dir`, or null when `dir` exists. */
-async function topmostMissing(dir: string): Promise<string | null> {
-  let top: string | null = null;
-  let cur = dir;
-  for (;;) {
-    try {
-      await lstat(cur);
-      return top;
-    } catch (e) {
-      if (!isMissing(e)) throw e;
-    }
-    top = cur;
-    const parent = dirname(cur);
-    if (parent === cur) return top;
-    cur = parent;
-  }
+  return { path, action: "create", manifest, realPath: target, createdDirs };
 }
 
 /**

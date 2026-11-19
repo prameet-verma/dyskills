@@ -206,3 +206,14 @@ describe("selectExpiredPlacements future placedAt", () => {
   it("keeps one whose placedAt is within the skew", () =>
     expect(run({ mtimeMs: T }, [ref(T + H / 2, "activated")])).toEqual([]));
 });
+
+describe("selectExpiredPlacements mixed references", () => {
+  it("keeps a placement another session still uses when one placedAt is far-future", () =>
+    expect(run({ mtimeMs: T }, [ref(T + 10 * H, "activated"), ref(T - H, "activated")])).toEqual(
+      [],
+    ));
+  it("expires it when every reference is far-future", () =>
+    expect(
+      run({ mtimeMs: T }, [ref(T + 10 * H, "activated"), ref(T + 20 * H, "activated")]),
+    ).toEqual(["/n/a"]));
+});

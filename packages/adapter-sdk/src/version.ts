@@ -9,7 +9,8 @@ export function parseVersion(text: string): string | null {
 
 /**
  * Compares two versions numerically on `x.y.z`: negative, zero or positive. A prerelease sorts
- * before its release (`1.0.0-beta < 1.0.0`); two prereleases compare as strings.
+ * before its release (`1.0.0-beta < 1.0.0`); two prereleases compare identifier by identifier (numeric ones numerically, a numeric one before an
+ * alphanumeric one, a shorter list first), per semver.
  */
 export function compareVersions(a: string, b: string): number {
   const [ca = "", pa = ""] = splitPre(a);
@@ -23,7 +24,20 @@ export function compareVersions(a: string, b: string): number {
   if (pa === pb) return 0;
   if (pa === "") return 1;
   if (pb === "") return -1;
-  return pa < pb ? -1 : 1;
+  const ia = pa.split(".");
+  const ib = pb.split(".");
+  for (let i = 0; i < Math.min(ia.length, ib.length); i++) {
+    const x = ia[i] ?? "";
+    const y = ib[i] ?? "";
+    if (x === y) continue;
+    const nx = /^\d+$/.test(x);
+    const ny = /^\d+$/.test(y);
+    if (nx && ny) return Number(x) - Number(y);
+    if (nx) return -1;
+    if (ny) return 1;
+    return x < y ? -1 : 1;
+  }
+  return ia.length - ib.length;
 }
 
 function splitPre(v: string): [string, string] {

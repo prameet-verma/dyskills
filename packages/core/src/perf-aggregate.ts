@@ -108,8 +108,8 @@ export async function archivePerformanceReport(home: string, sessionId: string):
   if (report === null) return false;
   const dir = join(home, ARCHIVE_DIR);
   await ensurePrivateDir(dir);
-  // A random exclusive temp plus rename: a pre-planted hard link or symlink at the final name is
-  // replaced, never truncated or written through.
+  // A random exclusive temp plus rename: a pre-planted hard link at the final name is replaced,
+  // never truncated or written through; a symlink there is refused (HOME_UNSAFE).
   await writeSessionFile(
     home,
     `${ARCHIVE_DIR}/${sessionId}.json`,

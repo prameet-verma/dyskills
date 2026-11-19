@@ -174,9 +174,18 @@ export async function writeSessionFile(
     }
   }
   await mkdir(dirname(abs), { recursive: true, mode: PRIVATE_DIR_MODE });
-  const temp = join(dirname(abs), `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
+  // Exclusive create outside the try: an existing name is never written or removed by us.
+  let temp: string;
+  for (let attempt = 0; ; attempt++) {
+    temp = join(dirname(abs), `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
+    try {
+      await writeFile(temp, content, { mode: PRIVATE_FILE_MODE, flag: "wx" });
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 1) throw e;
+    }
+  }
   try {
-    await writeFile(temp, content, { mode: PRIVATE_FILE_MODE, flag: "wx" });
     // Re-check the parent just before the rename: a component swapped for a symlink since the
     // walk above would redirect the rename.
     const parent = await realpath(dirname(abs));

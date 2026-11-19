@@ -24,3 +24,11 @@ describe("prereleases", () => {
     expect(compareVersions("2.3.0-beta.1", "2.3.0-beta.1")).toBe(0);
   });
 });
+
+describe("prerelease precedence", () => {
+  it("orders numeric identifiers numerically", () => {
+    expect(compareVersions("1.0.0-beta.2", "1.0.0-beta.10")).toBeLessThan(0);
+    expect(compareVersions("1.0.0-beta", "1.0.0-beta.1")).toBeLessThan(0);
+    expect(compareVersions("1.0.0-1", "1.0.0-alpha")).toBeLessThan(0);
+  });
+});

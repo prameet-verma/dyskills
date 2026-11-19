@@ -405,3 +405,15 @@ describe("SessionStore.save temp files", () => {
     expect((await store.load(s.id)).task).toBe("changed");
   });
 });
+
+describe("writeSessionFile temp collisions", () => {
+  it("never removes a pre-existing file at a colliding temp name", async () => {
+    const s = await store.create(init);
+    const dir = store.dir(s.id);
+    // Pre-plant a dotfile for every plausible temp name is impossible; instead check that no
+    // stray planted dotfile is removed by a normal write.
+    await writeFile(join(dir, ".session.json.deadbeef.tmp"), "planted");
+    await store.save({ ...s, task: "x" });
+    expect(await readFile(join(dir, ".session.json.deadbeef.tmp"), "utf8")).toBe("planted");
+  });
+});

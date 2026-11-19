@@ -200,11 +200,10 @@ function planMergeInner(
     if (errors.length > 0 || current === undefined) return conflict(write, "invalid JSONC", hash);
   }
   if (tooDeep(current, MAX_DEPTH)) return conflict(write, "too deeply nested", hash);
-  if (!strict) {
-    // `parse` keeps the last duplicate key but `modify` edits the first: refuse to guess.
-    const dup = duplicateAlongPatch(text, write.patch);
-    if (dup !== null) return conflict(write, `duplicate key at: ${dup}`, hash);
-  }
+  // `parse` keeps the last duplicate key but `modify` edits the first (and a strict merge would
+  // silently drop the shadowed one): refuse to guess.
+  const dup = duplicateAlongPatch(text, write.patch);
+  if (dup !== null) return conflict(write, `duplicate key at: ${dup}`, hash);
   const { value, conflicts } = mergeJson(
     current,
     write.patch,

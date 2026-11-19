@@ -55,9 +55,10 @@ maxBytes })` accepts tighter caps.
 Orphaned temp directories (a crash between copy and rename) are swept: every non-dry-run placement
 first removes `.<name>.tmp-<8 hex>` directories in `destRoot` older than `STALE_TEMP_MS` (1 h). A
 temp-name collision (EEXIST) is retried with a new suffix a bounded number of times and never
-removes the colliding directory. A `create` result carries `createdRoot` (a realpath) when the call
-had to create missing ancestors of `destRoot`: it is the topmost directory created, so a caller
-rolling the placement back removes `path` and then `createdRoot` (when empty). `testHooks` on `placeBundle` is an internal test seam.
+removes the colliding directory. A `create` result carries `realPath` (the bundle's realpath) and `createdDirs` (realpaths of every
+directory the call created, deepest first, empty when `destRoot` existed). To roll back, remove the
+bundle at `realPath`, then `rmdir` each `createdDirs` entry in order, stopping at the first failure.
+`testHooks` on `placeBundle` is an internal test seam.
 
 `removePlacedBundle(path, sha256, within?)` removes a bundle only when it is a plain directory (not
 a symlink) whose current manifest equals the sha256. Callers removing a path read from session state

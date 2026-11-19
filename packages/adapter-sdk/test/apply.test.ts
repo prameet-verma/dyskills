@@ -284,3 +284,13 @@ describe("directory modes and duplicate keys", () => {
     expect(r[0]?.action).toBe("update");
   });
 });
+
+describe("strict JSON duplicate keys", () => {
+  it("reports a conflict for a duplicate patch key instead of dropping the shadowed one", async () => {
+    const f = join(project, "dup.json");
+    await writeFile(f, '{"env":{"A":"1","A":"2"}}');
+    const r = await previewPlan(plan([merge(f, { env: { A: "1" } })]), { force: false });
+    expect(r[0]).toMatchObject({ action: "conflict" });
+    expect(r[0]?.reason).toContain("duplicate key");
+  });
+});
