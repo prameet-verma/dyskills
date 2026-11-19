@@ -129,6 +129,13 @@ so `dynamic-skills -V save` cannot slip past the rules. A headless run that must
 command in a terminal, or relaxes the rule as each adapter README describes. OpenCode matches raw
 command text, so a quoted subcommand is a known limit ([ADR 0007](adr/0007-harness-adapter-interface.md)).
 
+Two further limits are documented, not enforced. Codex skips prefix rules for a command that is not
+bare (redirection, an env prefix, `$`-expansion, a pipe or chaining), so the bootstrap skill tells
+agents to run `dynamic-skills` commands bare (Ruling R43). OpenCode project-scope `init` writes
+only the `save` and `init` ask entries, with no broad `dynamic-skills *` allow, and its consent
+notes simulate the layered config (global, then the project root, then `.opencode`, including
+agent-level permissions); personal scope is unchanged (Ruling R44).
+
 ## Session directory
 
 Session state is written only inside `<home>/sessions/<id>/`, where `<home>` is `DYNAMIC_SKILLS_HOME` or
@@ -144,7 +151,10 @@ write: a symlink (also one written with a trailing slash, because the path is re
 directories the store creates are tightened: a missing home is created 0700, and `<home>/sessions`
 loses any group or other bits, but an existing home keeps its mode and is never chmodded (it may
 be a user-provided `DYNAMIC_SKILLS_HOME`, even `$HOME`; Ruling R23). Every directory the CLI
-creates is mode 0700 and every file it writes is 0600.
+creates inside the session home (including the parents `applyPlan` creates there) is mode 0700,
+and every session file is 0600. Directories created in a project or personal skill root follow the
+umask; the claim covers the session home only. A `DYNAMIC_SKILLS_HOME` that is relative (or empty)
+counts as unset and the default home is used (Ruling R42).
 
 | Path                    | Written by                                                                                        | Content                                                                                                                                                                                               |
 | ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -169,6 +179,16 @@ session's placement when no other session shares it. An unparsable `session.json
 placement, so only the TTL removes it. A placement younger than ten minutes is kept (it may sit
 between placement and the session save), and nothing is removed unless `<realpath home>/native` is
 a real directory and the placement lies inside it.
+
+The sweep is narrow (Ruling R42): it removes only direct children of each adapter's native layout
+(the same layout `clean` uses), and only when the marker `<realpath home>/native/.dynamic-skills-native`
+exists (`placeNative` creates it). Without the marker it removes nothing, so a home that points at
+a directory holding other data is never swept.
+
+`clean` and `save --scope discard` never fail on unreadable artifacts or an unreadable `session.json`
+(Ruling R45): reports are built defensively, and an unloadable session is removed with a note.
+`discard` keeps a placement whose real-clock mtime is within the same ten-minute grace, with a note.
+`save --scope discard` and `--scope ephemeral` accept `--dry-run` and change nothing.
 
 ## SLA clock model
 
@@ -263,6 +283,9 @@ archived reports, so no ended session disappears from the PRD §17 metrics.
     `placeBundle` can redirect the placement elsewhere inside the session home.
   - `applyPlan` loses a concurrent edit that lands between its last check and the `rename`; it is
     never merged into.
+  - `applyPlan` parent swap: after its second `containment()` check, `writeAtomic` opens and
+    renames through the unresolved `dirname`, so a parent swapped for a symlink in that window
+    redirects the write. This affects project-scope `init`.
   - A parent swap before `removePlacedBundle`'s `rm` removes the directory at that path through the
     new parent.
 - **Output hygiene.** Everything written to stderr has control characters removed, because session

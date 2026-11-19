@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { R19_RUNNER } from "./r19";
 import {
   existsSync,
   mkdirSync,
@@ -38,16 +39,14 @@ function code(rel: string): string {
 
 describe("live smoke scripts", () => {
   it.each(SCRIPTS)("%s passes bash -n and uses strict mode", (rel) => {
-    const r = spawnSync("bash", ["-n", join(ROOT, rel)], { encoding: "utf8" });
+    const r = spawnSync("bash", ["-n", join(ROOT, rel)], { encoding: "utf8", timeout: 60_000 });
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
     if (rel !== "scripts/live-smoke/lib.sh") expect(read(rel)).toContain("set -euo pipefail");
   });
 
   it.each(SCRIPTS)("%s never uses a package runner for dynamic-skills (R19)", (rel) => {
-    expect(read(rel)).not.toMatch(
-      /\b(?:npx|pnpx|bunx|pnpm\s+dlx|yarn\s+dlx|npm\s+exec)\s+dynamic-skills\b/,
-    );
+    expect(read(rel)).not.toMatch(R19_RUNNER);
   });
 
   it.each(SCRIPTS)("%s uses no skip-all-permissions flag", (rel) => {
@@ -137,6 +136,7 @@ describe("live smoke scripts", () => {
     for (const args of [["bogus"], [], ["codex", "weird-mode"]]) {
       const r = spawnSync("bash", [join(ROOT, "scripts/live-smoke.sh"), ...args], {
         encoding: "utf8",
+        timeout: 60_000,
       });
       expect(r.status, args.join(" ")).toBe(2);
       expect(r.stderr).toMatch(/usage/i);
@@ -168,14 +168,18 @@ describe("live smoke fix round 1", () => {
 
   it("parses versions exactly instead of matching substrings", () => {
     const script = `source ${JSON.stringify(join(ROOT, "scripts/live-smoke/lib.sh"))}; parse_version 'codex-cli 0.169.0 (abc)'; parse_version 'v12.3.0.1'; parse_version none`;
-    const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf8", timeout: 60_000 });
     expect(r.stdout.split("\n").slice(0, 2)).toEqual(["0.169.0", "12.3.0"]);
   });
 });
 
 /** Run a bash script text with a temp HOME and extra env; returns stdout, stderr and status. */
 function bash(script: string, env: Record<string, string> = {}) {
-  return spawnSync("bash", ["-c", script], { encoding: "utf8", env: { ...process.env, ...env } });
+  return spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    timeout: 60_000,
+  });
 }
 const src = (rel: string): string => `source ${JSON.stringify(join(ROOT, rel))}`;
 
@@ -248,7 +252,7 @@ describe("fix round 2", () => {
         ...opts.env,
       };
       mkdirSync(env.HOME, { recursive: true });
-      const r = spawnSync(w, args, { encoding: "utf8", env, cwd: opts.cwd });
+      const r = spawnSync(w, args, { encoding: "utf8", env, cwd: opts.cwd, timeout: 60_000 });
       const calls = existsSync(log) ? readFileSync(log, "utf8") : "";
       return {
         code: r.status ?? -1,

@@ -209,9 +209,13 @@ function renderBase(aug: NonNullable<CompilationBriefInput["augmentation"]>): st
 }
 
 const FRONTMATTER_RULES = [
-  "Frontmatter rules: allowed keys only name, description, license, compatibility, metadata, allowed-tools;",
+  "Frontmatter rules: allowed keys only name, description, license, compatibility, metadata (never allowed-tools);",
   "name is 1-64 chars of lowercase letters, digits and single dashes and equals the skill directory name;",
   "description is 1-1,024 chars; compatibility is at most 500 chars; metadata is a string-to-string map.",
+  "Portability rules (the evals fail the skill otherwise): no $ARGUMENTS and no ${...} host variables;",
+  "no $<digit> anywhere in prose, so write money as 5 USD, not $5; no !` inline shell execution;",
+  "no harness names (products, instruction files such as CLAUDE.md or AGENTS.md, harness directories, harness tool names, slash commands);",
+  "write a single SKILL.md and no other nested SKILL.md, no dot-files and no stray entries in the skill directory.",
 ];
 
 const CITATION_RULES = [

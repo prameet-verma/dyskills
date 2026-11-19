@@ -163,6 +163,25 @@ describe("workflows", () => {
     expect(runs[pub]).not.toContain("--dry-run");
   });
 
+  it("the publish job fails unless the tag commit is an ancestor of origin/main", () => {
+    const { wf } = release();
+    const job = wf.jobs.publish;
+    const runs: string[] = job.steps.map((s: any) => String(s.run ?? ""));
+    const guard = runs.findIndex((r) => r.includes("merge-base --is-ancestor"));
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(runs[guard]).toContain("git fetch origin main");
+    expect(runs[guard]).toContain("origin/main");
+    expect(runs[guard]).toContain("exit 1");
+    // Before anything is installed, built or published.
+    expect(guard).toBeLessThan(runs.findIndex((r) => r.includes("pnpm install")));
+    const checkout = job.steps.find((s: any) =>
+      String(s.uses ?? "").startsWith("actions/checkout"),
+    );
+    expect(checkout.with["fetch-depth"]).toBe(0);
+    // The dry-run dispatch path has no such guard.
+    expect(JSON.stringify(wf.jobs["dry-run"])).not.toContain("merge-base");
+  });
+
   it("the CLI package has no provenance in publishConfig", () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, "packages/cli/package.json"), "utf8"));
     expect(pkg.name).toBe("dynamic-skills");

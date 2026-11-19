@@ -2,7 +2,7 @@
 
 Thanks for helping. Dynamic Skills is pre-release, so the structure may still shift; read the
 [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md) and the current
-[Phase 1 plan](docs/superpowers/plans/2026-11-14-phase-1-jit-core-engine.md) first.
+[Phase 2 plan](docs/superpowers/plans/2026-11-15-phase-2-harness-integrations.md) first.
 
 ## Setup
 
@@ -25,7 +25,9 @@ pnpm check         # run before every commit
 - `schemas/` - generated JSON Schemas; do not edit by hand, run `pnpm gen:schemas`
 - `scripts/` - repository tooling (for example `gen-schemas.ts`)
 - `skills/` - the `dynamic-skill-bootstrap` routing skill
-- `test/` - repository-level tests (`docs.test.ts`) and the end-to-end suite (`test/e2e`)
+- `test/` - repository-level tests (`docs.test.ts`, `docs-phase2.test.ts`, `live-smoke.test.ts`,
+  `release.test.ts`, with the shared `r19.ts` runner pattern) and the end-to-end suite
+  (`test/e2e`: `adapters`, `pack` and `pipeline`, with their `harness.ts` and `global-setup.ts`)
 - `docs/` - [architecture](docs/architecture.md), [CLI reference](docs/cli-reference.md),
   [harness guides](docs/harnesses/claude-code.md) and [decision records](docs/adr/README.md)
 - `docs/superpowers/plans/` - the roadmap and per-phase implementation plans

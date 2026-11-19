@@ -113,9 +113,16 @@ function normaliseHeading(h: string): string {
  * Fence rules are stricter than skill-compiler's `stripFences`: at most three spaces of indent,
  * no backtick in a backtick fence's info string, and closing on the same character with at least
  * the opening length. A fence still open at the end of the text is treated as not fenced so it
- * cannot hide later sections. Lines before the first section are dropped.
+ * cannot hide later sections. Lines before the first section are collected as the preamble
+ * (see {@link parseBody}); {@link sectionsOf} drops them.
  */
 function sectionsOf(body: string): Section[] {
+  return parseBody(body).sections;
+}
+
+/** The sections of a body plus the non-blank lines that sit before the first section. */
+function parseBody(body: string): { sections: Section[]; preamble: string[] } {
+  const preamble: string[] = [];
   const lines = body.split(/\r?\n/);
   const fenced: boolean[] = new Array<boolean>(lines.length).fill(false);
   let open: { run: string; at: number } | null = null;
@@ -186,9 +193,10 @@ function sectionsOf(body: string): Section[] {
       current.subheadings.push(normaliseHeading(atxText(atx[2] ?? "")));
       current.lines.push({ text, fenced: false });
     } else if (atx) openSection(atxText(atx[2] ?? ""), level);
-    else current?.lines.push({ text, fenced: isFenced });
+    else if (current !== undefined) current.lines.push({ text, fenced: isFenced });
+    else if (text.trim() !== "") preamble.push(text);
   });
-  return sections;
+  return { sections, preamble };
 }
 
 /** ATX heading text: trimmed, without a closing `#` run (which must follow a space). */
@@ -449,7 +457,7 @@ export const roleEval: GenerationEval = {
   id: "role",
   mandatory: false,
   async run(ctx) {
-    const sections = sectionsOf(ctx.skill.body);
+    const { sections, preamble } = parseBody(ctx.skill.body);
     const failures: string[] = [];
     if (ctx.augmentation === null) {
       const missing = REQUIRED_SECTIONS.filter((h) => !hasContent(sections, h));
@@ -466,6 +474,12 @@ export const roleEval: GenerationEval = {
     }
     if (!contract.some((l) => l.text.trimStart().startsWith("- Adds:"))) {
       failures.push('## Task contract needs a line starting "- Adds:"');
+    }
+    // R26: prose between the title and the first section would escape the section allow-list.
+    if (preamble.length > 0) {
+      failures.push(
+        `augmentation has text before the first section (only the # title line is allowed): ${preamble[0]?.trim().slice(0, 60)}`,
+      );
     }
     const allowedNorm = new Set(allowed.map(normaliseHeading));
     const headings = sections.flatMap((s) => [s.heading, ...s.subheadings]);

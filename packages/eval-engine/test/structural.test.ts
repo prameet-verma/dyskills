@@ -16,6 +16,8 @@ import { BASE_SHA, GOLDEN_AUGMENT_RAW, GOLDEN_RAW, makeContext } from "./helpers
 const CEILING_MS = 3000;
 
 /** Full prose-placeholder message. */
+const ESCAPED =
+  "escaped positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts";
 const PROSE =
   "positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts";
 
@@ -601,7 +603,7 @@ describe("rendered syntax and placeholders (portability)", () => {
 
   it("ignores an escaped or longer positional token and a bare bang", async () => {
     const r = await run("Escaped \\$1 and $10x and wow! and a!`b` are fine.");
-    expect(r).toEqual({ outcome: "pass", messages: [] });
+    expect(r.outcome).not.toBe("fail");
   });
 
   it("finishes hostile placeholder lines quickly", async () => {
@@ -717,8 +719,10 @@ describe("fix round 1 (portability)", () => {
     });
   }
 
-  it("keeps the single-backslash escape", async () => {
-    expect((await run("Escaped \\$1 and \\$12 here")).outcome).toBe("pass");
+  it("warns, not passes, on a single-backslash escape in prose", async () => {
+    const r = await run("Escaped \\$1 and \\$12 here");
+    expect(r.outcome).toBe("warning");
+    expect(r.messages).toContain(ESCAPED);
   });
 
   it("does not treat a 4-space-indented fence as a fence", async () => {

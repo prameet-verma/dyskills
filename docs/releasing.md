@@ -16,6 +16,8 @@ bump the minor version; fixes bump the patch version. A `CONTRACT_VERSION` bump 
 
 ## Checklist
 
+1. Fill in the `[maintainer contact]` placeholder in `SECURITY.md` with a real private reporting
+   address before the first release. Do not publish with the placeholder.
 1. Choose a license, then add `LICENSE` at the repository root (pnpm includes it in the tarball)
    and the `"license"` field to `packages/cli/package.json`. The release check fails until the
    field exists, and again if the tarball lacks `LICENSE`.
@@ -27,7 +29,8 @@ bump the minor version; fixes bump the patch version. A `CONTRACT_VERSION` bump 
 1. Bump the version in `packages/cli/package.json` and update `CHANGELOG.md`.
 1. Run `pnpm --filter dynamic-skills publish --dry-run --no-git-checks` locally.
 1. Run `pnpm exec tsx scripts/check-release.ts --tag v<version>`; it must print no problems.
-1. Tag `v<version>` and push the tag.
+1. Tag `v<version>` on a commit that is already on `main` and push the tag. The publish job
+   fetches `origin/main` and fails unless the tag's commit is an ancestor of it.
 1. Approve the `Release` job. It runs the checks, then publishes with `--provenance`.
 
 To rehearse without publishing, run the `Release` workflow manually (`workflow_dispatch`). A manual

@@ -94,6 +94,14 @@ treat as instructions. The design assumes both inputs can be hostile.
   `~/sessions` or `~/reports` is still tightened to 0700, so use a dedicated directory. On a shared temp
   directory another user therefore cannot pre-create, redirect or read the session data.
   `DYNAMIC_SKILLS_HOME` can still point the home at a private directory of your choice.
+- **Cleanup is safe and bounded.** A relative or empty `DYNAMIC_SKILLS_HOME` counts as unset (R42).
+  The native sweep removes only direct children of each adapter's native layout, and only when the
+  marker `<realpath home>/native/.dynamic-skills-native` exists. `clean` and `save --scope discard`
+  never fail on unreadable artifacts or `session.json` (an unloadable session is removed with a
+  note), `discard` keeps a placement still within the 10-minute grace, and `save --scope discard`
+  and `--scope ephemeral` accept `--dry-run` (R45).
+- **OpenCode project scope asks, never allows broadly.** Project-scope `init` writes only the
+  `save` and `init` ask entries; its consent notes simulate the layered config (R44).
 - **No network or model calls** are made by any package.
 - Terminal output is stripped of control characters, because session ids and options are
   agent-controlled.
@@ -102,10 +110,17 @@ treat as instructions. The design assumes both inputs can be hostile.
 
 - Session artifact writes (`writeSessionFile`) refuse symlinked components and re-check the
   parent's real path, but a small window remains between that re-check and the `rename`.
-  `session.json` (written through a fixed `.tmp` name) and the `skills/` and `evals/` directories
-  are created without that check. All of these need write access to the 0700 session directory,
-  so only the same user can exploit them. See the residual windows in
+  `session.json` is written through the same `writeSessionFile`; the `skills/` and `evals/`
+  directories are created without that check. All of these need write access to the 0700 session
+  directory, so only the same user can exploit them. See the residual windows in
   [architecture.md](docs/architecture.md#trust-boundaries).
+- `applyPlan` (project-scope `init`) opens and renames through the unresolved parent after its
+  second containment check, so a parent swapped for a symlink in that window redirects the write.
+  It needs write access to the repository's directories. See
+  [architecture.md](docs/architecture.md#trust-boundaries).
+- Codex skips prefix rules for a command that is not bare (redirection, an env prefix,
+  `$`-expansion, a pipe or chaining), so the consent rule does not fire for it. The bootstrap skill
+  tells agents to run `dynamic-skills` commands bare (R43).
 - Owner and permission checks need uids. On a platform without them (Windows) the home is
   checked only for being a real directory; use a private `DYNAMIC_SKILLS_HOME` there.
 - Reuse and activation content is returned unfenced, so a hostile existing skill reaches the agent

@@ -377,8 +377,8 @@ describe("hostile repository skills scan (I1)", () => {
     const fifoSkill = join(w.repo, ".claude/skills/x/SKILL.md");
     const fifoAgents = join(w.repo, "AGENTS.md");
     await mkdir(dirname(fifoSkill), { recursive: true });
-    execFileSync("mkfifo", [fifoSkill]);
-    execFileSync("mkfifo", [fifoAgents]);
+    execFileSync("mkfifo", [fifoSkill], { timeout: 30_000 });
+    execFileSync("mkfifo", [fifoAgents], { timeout: 30_000 });
     await symlink("/dev/zero", join(w.repo, "CLAUDE.md"));
     const big = join(w.repo, ".agents/skills/big/SKILL.md");
     await mkdir(dirname(big), { recursive: true });

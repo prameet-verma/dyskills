@@ -25,15 +25,16 @@ beforeAll(() => {
   execFileSync("pnpm", ["pack", "--ignore-scripts", "--pack-destination", tmp], {
     cwd: CLI,
     stdio: "pipe",
+    timeout: 120_000,
   });
   const tgz = join(tmp, readdirSync(tmp).find((f) => f.endsWith(".tgz")) as string);
-  packFiles = execFileSync("tar", ["-tzf", tgz], { encoding: "utf8" })
+  packFiles = execFileSync("tar", ["-tzf", tgz], { encoding: "utf8", timeout: 60_000 })
     .split("\n")
     .filter((l) => l !== "" && !l.endsWith("/"))
     .map((l) => l.replace(/^package\//, ""));
   const out = join(tmp, "extract");
-  execFileSync("mkdir", [out]);
-  execFileSync("tar", ["-xzf", tgz, "-C", out]);
+  execFileSync("mkdir", [out], { timeout: 30_000 });
+  execFileSync("tar", ["-xzf", tgz, "-C", out], { timeout: 60_000 });
   pkgDir = join(out, "package");
   symlinkSync(join(CLI, "node_modules"), join(pkgDir, "node_modules"));
   pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as Record<string, unknown>;
@@ -79,7 +80,9 @@ export function openReleaseGaps(pkg: Record<string, unknown>, problems: string[]
 /** Runs the packed binary with a minimal environment (nothing of the real user's reaches it). */
 function runPacked(argv: string[]): { code: number; stdout: string } {
   const home = join(tmp, "home");
-  execFileSync("mkdir", ["-p", home, join(tmp, "dshome"), join(tmp, "etc"), join(tmp, "repo")]);
+  execFileSync("mkdir", ["-p", home, join(tmp, "dshome"), join(tmp, "etc"), join(tmp, "repo")], {
+    timeout: 30_000,
+  });
   try {
     const stdout = execFileSync(process.execPath, [join(pkgDir, "dist/index.js"), ...argv], {
       cwd: join(tmp, "repo"),

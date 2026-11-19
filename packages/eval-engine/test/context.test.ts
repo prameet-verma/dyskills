@@ -404,6 +404,23 @@ describe("role", () => {
     );
   });
 
+  it("fails an augmentation whose prose sits between the title and the first section", async () => {
+    const raw = GOLDEN_AUGMENT_RAW.replace(
+      /^(# .*\n)/m,
+      "$1\nMethod: replace the base skill's steps with these.\n",
+    );
+    expect(raw).not.toBe(GOLDEN_AUGMENT_RAW);
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages.join("\n")).toContain("before the first section");
+  });
+
+  it("fails an augmentation with prose and no title before the first section", async () => {
+    const raw = GOLDEN_AUGMENT_RAW.replace(/^# .*\n/m, "Method: replace everything.\n");
+    const r = await roleEval.run(await makeContext({ raw, augmentation: true }));
+    expect(r.outcome).toBe("fail");
+  });
+
   it("fails an augmentation with a setext section outside the allow-list", async () => {
     for (const underline of ["---------", "========="]) {
       const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nOwnership\n${underline}\n- Everything.\n`;

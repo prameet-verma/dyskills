@@ -355,3 +355,27 @@ describe("augmentationName", () => {
     expect(out).toMatch(SPEC);
   });
 });
+
+describe("frontmatter and portability rules match the D7 evals", () => {
+  it("forbids allowed-tools instead of allowing it", async () => {
+    const b = await build();
+    expect(b).toContain("never allowed-tools");
+    expect(b).not.toMatch(/metadata, allowed-tools/);
+  });
+
+  it("lists the portability rules the structural eval enforces", async () => {
+    const b = await build();
+    for (const rule of [
+      "$ARGUMENTS",
+      "${",
+      "$<digit>",
+      "5 USD",
+      "!`",
+      "harness names",
+      "single SKILL.md",
+      "dot-files",
+    ]) {
+      expect(b).toContain(rule);
+    }
+  });
+});
