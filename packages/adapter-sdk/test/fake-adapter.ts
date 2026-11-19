@@ -34,7 +34,8 @@ export const fakeAdapter: HarnessAdapter = {
     const version = parseVersion(out.stdout);
     const tested =
       version !== null && TESTED.split(" ").some((v) => compareVersions(v, version) === 0);
-    return { installed: true, version, variant: null, tested, warnings: [] };
+    const warnings = tested ? [] : [`fake-harness ${version ?? "?"} is untested`];
+    return { installed: true, version, variant: null, tested, warnings };
   },
   async planInstall(env, _detection, opts): Promise<InstallPlan> {
     const project = opts.scope === "project";

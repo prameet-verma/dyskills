@@ -34,33 +34,65 @@ Personal scope, under the config directory `C` (an absolute `OPENCODE_CONFIG_DIR
   `permission.external_directory` allowing `<session home>/*`.
 
 Project scope, under `<repo>/.opencode/` (committable): the same three files, plus a merge into the
-project's OpenCode config holding only `permission.bash`, which carries no machine path. Reading the
+project's OpenCode config holding only the two `permission.bash` asks (see Consent rules), which carry no machine path. Reading the
 session home from OpenCode 1.x still needs the personal-scope `external_directory` allow, so also
 run `dynamic-skills init --harness opencode --scope personal`.
 
 A scalar `permission.bash`, `permission.edit` or `permission.external_directory` (for example
 `"bash": "ask"`) is promoted to `{ "*": <scalar>, ... }` first, so your blanket rule survives. A
-scalar `permission` itself, or an existing `"dynamic-skills *": "deny"`, is a conflict and nothing is
-written. Comments and trailing commas in your config are kept.
+scalar `permission` itself, or (personal scope) an existing `"dynamic-skills *": "deny"`, is a
+conflict and nothing is written. `init` never weakens a deny that
+others share (Ruling R46, amended). In project scope, a deny for `save` or `init` in a _project_
+layer (the root project files or `.opencode/`) keeps its place: that ask entry is omitted and `init`
+notes it; when both are denied nothing is written to the config. A deny that lives only in your
+personal or global config is not shared with teammates, so the ask is still written (the committed
+file must make `save` and `init` ask for everyone, never allow) and `init` notes that your personal
+deny becomes an ask in this project, because the project ask overrides the same key. In personal
+scope `init` compares the decision for `save`, `init` and a read-only command such as
+`dynamic-skills status` before and after (plus every existing `deny` rule on a `dynamic-skills` command), over your personal and global config only, never the current project's files: any entry that would weaken a deny (or
+turn a `save`/`init` ask into an allow), such as the broad `"dynamic-skills *": "allow"` or an ask
+that would overwrite a deny, is left out and noted. `init` never makes `save` or `init` resolve to `allow`; if your own config already allows them, `init`
+notes it (R34). If the personal write turns a deny in the current project into an ask, `init` only notes it. Comments and trailing commas in your config are kept.
 
 ## Consent rules
 
-`init` appends, in this order (the last match wins):
+Personal scope appends, in this order (the last match wins):
 
 ```jsonc
 { "dynamic-skills *": "allow", "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
 ```
 
-OpenCode asks before a skill is saved or the configuration is changed. `init` simulates the merged
-config with OpenCode's own last-match evaluation and adds a note (never a conflict) when another
-rule outranks the ask, such as a top-level `permission["*"]: "allow"` placed after `bash` (Ruling
-R34). On a project that has its own `opencode.json`, OpenCode 1.x deep-merges it over your personal
+Project scope appends only the two asks, never the broad allow (Ruling R44):
+
+```jsonc
+{ "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
+```
+
+OpenCode merges its config layers key by key (remeda `mergeDeep`): a key already present keeps its
+earlier position and new keys are appended, and the last match wins. A project-layer
+`"dynamic-skills *": "allow"` would therefore land after a personal `"dynamic-skills save *": "deny"`
+and win. Writing only the asks avoids that: a project install cannot turn a personal deny into an
+allow. The cost is that a project-only install no longer pre-allows read-only `dynamic-skills`
+commands, so with a personal `"*": "ask"` they prompt; run a personal `init` as well to allow them.
+
+OpenCode asks before a skill is saved or the configuration is changed. `init` simulates the layered
+config (global `config.json`, `opencode.json(c)`, `OPENCODE_CONFIG_DIR`, the root project files, then
+`.opencode/`, merged with `mergeDeep` key order, plus each agent's `permission` appended after the
+global rules) with OpenCode's own last-match evaluation and adds a note (never a conflict) whenever
+the result for `save` or `init` is not `ask`, for example when another rule outranks the ask, such as a top-level `permission["*"]: "allow"` placed after `bash` (Rulings
+R34, R44).
+
+This simulation is an approximation. It does not model `OPENCODE_CONFIG` or `OPENCODE_CONFIG_CONTENT`,
+`~/.opencode`, config found by walking up to parent directories, markdown agents in `agents/*.md`
+with frontmatter `permission`, or the exact V2 merge semantics (assumed to match V1's `mergeDeep`).
+A command that no rule matches is allowed, as OpenCode's built-in default is. On a project that has its own `opencode.json`, OpenCode 1.x deep-merges it over your personal
 config, so a project `"bash": "allow"` can override the personal asks there; run `init --scope
 project` in that repository too if it should keep them.
 
 **Known limit (Ruling R35).** OpenCode matches the command text exactly as written. A quoted
 subcommand (`dynamic-skills 'save' ...`) or an extra space (`dynamic-skills  save ...`) matches the
-broad allow, not the ask. The ask patterns are deliberately not widened (for example to `*save*`),
+broad allow where one is present (personal scope), or no rule at all (project-only, default allow),
+not the ask. The ask patterns are deliberately not widened (for example to `*save*`),
 because that would also prompt on commands such as `assess --task "save ..."`. The consent rule is
 therefore a prompt for ordinary calls, not an enforcement boundary. The save itself stays contained
 by the CLI's checks.
@@ -123,7 +155,9 @@ supported yet (`SAVE_UNSUPPORTED`).
   `opencode run` waits for background children is not settled; the live smoke records it.
 - **Quoted or double-spaced commands bypass the ask** (Ruling R35, above).
 - **Config in an unusual shape.** `"permission": "ask"` as a whole, or a `deny` for
-  `dynamic-skills *`, is reported as a conflict and nothing is written; edit the file and rerun.
+  `dynamic-skills *` in personal scope, is reported as a conflict and nothing is written; edit the
+  file and rerun. In project scope a deny in a project layer is kept and its ask is not written; in personal scope the
+  entries that would weaken a deny are left out (R46).
 - **V2 `permissions` key.** Do not add it by hand next to the V1 form: V1 hard-fails on a top-level
   V2 `permissions` key, and on 2.x its entries outrank the migrated rules.
 - **Verification.** Only 2.x is verified after `init` (`opencode debug paths`); 1.x has no

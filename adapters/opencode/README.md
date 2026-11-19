@@ -49,12 +49,12 @@ A scalar `permission.bash`, `permission.edit` or `permission.external_directory`
 `{ "*": <scalar>, ... }` before the new entries are added, so a user's blanket `"ask"` or `"allow"`
 at one of those three paths survives as the wildcard rule. **A scalar `permission` itself (the
 whole block, e.g. `"permission": "ask"`) is not promoted — it is a merge conflict, and nothing is
-written.** Any other mismatch (for example an existing `"dynamic-skills *": "deny"`) is also a
-conflict.
+written.** Any other mismatch (for example, in personal scope, an existing `"dynamic-skills *": "deny"`) is also a
+conflict. `init` never weakens a deny others share (Ruling R46, amended). Project scope omits an ask entry when `save` or `init` already resolves to `deny` in a _project_ layer (root project files, `.opencode/`), with a note; a deny only in a personal or global layer still gets the ask (so teammates never get allow) and the note says your personal deny becomes ask in this project. Personal scope compares the decisions for `save`, `init`, a read-only command and every existing `dynamic-skills` deny, over your personal and global config only (never the current project's files), before and after and leaves out, with a note, any entry (the broad allow, or an ask overwriting a deny) that would weaken one.
 
 ## Consent entries (D6)
 
-`permission.bash` always ends with, in this order (the last match wins):
+Personal scope: `permission.bash` ends with, in this order (the last match wins):
 
 ```jsonc
 { "dynamic-skills *": "allow", "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
@@ -70,7 +70,7 @@ example: `"dynamic-skills save --session *": "allow"` and `"dynamic-skills init 
 
 OpenCode matches the command exactly as written, not its parsed intent. `dynamic-skills 'save' …`
 (quoted), `dynamic-skills "init" …` (quoted) and `dynamic-skills  save` (extra space) all match our
-broad `"dynamic-skills *": "allow"` instead of the ask, because the glob compares literal text. We
+broad `"dynamic-skills *": "allow"` (personal scope), or no rule at all (project scope, default allow), instead of the ask, because the glob compares literal text. We
 do **not** widen the ask patterns to catch these (for example to `*save*`), because that would also
 prompt on unrelated commands such as `assess --task "save …"`.
 
@@ -101,7 +101,7 @@ A project's own `.opencode/opencode.json(c)` or a root `opencode.json(c)` is eva
 personal config. On OpenCode 1.x, the project and personal config files are deep-merged, so a
 project file with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` can override
 the _personal_ asks for work done in that project. Run `dynamic-skills init --harness opencode
---scope project` there too if that project should keep the consent entries.
+--scope project` there too if that project should keep the consent entries. Project scope writes only the save and init `ask` entries (no broad `"dynamic-skills *": "allow"`, Ruling R44), so it cannot turn a personal deny into an allow; read-only commands then rely on a personal `init`.
 
 ## Questions
 

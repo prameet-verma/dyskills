@@ -19,8 +19,8 @@ top-level V2 `permissions` key, while V2 migrates V1-form `permission` config on
 - It writes only the V1 form: `"permission": { … }`. It never writes the V2 `permissions` key,
   nor `plugin` or `plugins`.
 - The compat suite has four targets: claude-code, codex, opencode-v1 and opencode-v2.
-- Consent entries end `permission.bash` with `"dynamic-skills *": "allow"`, then `"ask"` entries
-  for `dynamic-skills save *` and `dynamic-skills init *`; OpenCode's last match wins. Opt-out
+- Personal-scope consent entries end `permission.bash` with `"dynamic-skills *": "allow"`, then `"ask"` entries
+  for `dynamic-skills save *` and `dynamic-skills init *`; OpenCode's last match wins. Project scope writes only the two `ask` entries, never the broad allow (R44), and omits an ask entry whose command already resolves to `deny` (R46, with a note): layers merge with `mergeDeep` (existing keys keep their position, new keys append), so a project-layer allow would land after a personal save/init deny and win. A project-only install therefore does not pre-allow read-only commands. `consentNotes` simulates the layered config (global, root project, `.opencode`, plus each agent's `permission`) and notes any `save`/`init` result other than ask (an approximation: no `OPENCODE_CONFIG*`, `~/.opencode`, parent-directory walk or markdown agents; built-in default allow). Opt-out
   advice uses distinct keys (`dynamic-skills save --session *`, `dynamic-skills init --harness *`)
   so a re-run of `init` stays unchanged (R36).
 - Environment semantics follow the source: OpenCode's disable flags are true only for

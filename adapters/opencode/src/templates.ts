@@ -11,6 +11,17 @@ export const BASH_ENTRIES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Project-scope entries (Ruling R44): only the consent asks, never the broad
+ * `"dynamic-skills *": "allow"`. OpenCode merges its layers with `mergeDeep`, where a key already
+ * present keeps its earlier position and new keys are appended; a project-layer allow would land
+ * after a personal `save`/`init` deny and win the last-match evaluation.
+ */
+export const PROJECT_BASH_ENTRIES: Readonly<Record<string, string>> = {
+  "dynamic-skills save *": "ask",
+  "dynamic-skills init *": "ask",
+};
+
+/**
  * Note shown for both scopes about the consent entries and non-interactive saves (Ruling R36: the
  * opt-out key is distinct from, and more specific than, the consent entry it follows, so appending
  * it never creates a duplicate JSON key that would make the next `init` conflict).
@@ -25,6 +36,10 @@ export const QUOTED_SUBCOMMAND_NOTE =
 /** Note shown for project installs: OpenCode 1.x needs an extra allow to read the session home. */
 export const PROJECT_EXTERNAL_DIR_NOTE =
   "Reading the session home from OpenCode 1.x needs an external_directory allow: run `dynamic-skills init --harness opencode --scope personal`.";
+
+/** Note shown for project installs: the project config no longer pre-allows read-only commands. */
+export const PROJECT_READONLY_NOTE =
+  'A project install writes only the save and init asks, not `"dynamic-skills *": "allow"`, so it cannot turn a personal deny into an allow (OpenCode merges its layers key by key, last match wins). Read-only `dynamic-skills` commands are therefore not pre-allowed: with a personal `"*": "ask"` they prompt. Run `dynamic-skills init --harness opencode --scope personal` to allow them.';
 
 /**
  * Note shown for personal installs only: a project-scoped config can defeat the personal asks for

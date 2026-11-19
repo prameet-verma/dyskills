@@ -45,6 +45,14 @@ export interface CompatTarget {
     vars: Record<string, string | undefined>;
     etcDir: string;
   }) => Promise<{ skills: { name: string; path: string }[] }>;
+  /**
+   * Optional consent probe: after `init` has been applied to the world for `scope`, returns what
+   * the harness would decide for `command` (a full command line such as
+   * `dynamic-skills save --session x --scope project`): `"ask"` or `"prompt"` when the user is
+   * asked, anything else (`"allow"`, `"deny"`, ...) otherwise. When set, the suite requires `save`
+   * and `init` to resolve to ask/prompt in both scopes.
+   */
+  consent?: (o: { world: World; scope: InstallScope; command: string }) => Promise<string>;
   /** What the adapter must report. */
   expect: {
     version: string;
@@ -125,6 +133,13 @@ function at(v: JsonValue | undefined, path: string[]): JsonValue | undefined {
 const parseDoc = (text: string): JsonValue =>
   parse(text, [], { allowTrailingComma: true }) as JsonValue;
 
+/**
+ * Sample ids of 20 characters, longer than Claude Code's 12-character header, so that header cannot
+ * stand in for the id. (OpenCode's limit is 30, so its header could carry the id; that is
+ * harmless because OpenCode's native id is the header itself.)
+ */
+const SAMPLE_ID = (key: string): string => `${key}-sample-identifier`;
+
 function sampleQuestions(): NativeQuestionInput[] {
   const opts = (id: string, n: number) =>
     Array.from({ length: n }, (_, i) => ({
@@ -132,15 +147,33 @@ function sampleQuestions(): NativeQuestionInput[] {
       description: `Choice ${i + 1} of ${id}`,
     }));
   return [
-    { id: "qa", text: "Question A?", options: opts("qa", 2) },
-    { id: "qb", text: "Question B?" },
-    { id: "qc", text: "Question C?", multiSelect: true, options: opts("qc", 4) },
-    ...["qd", "qe", "qf", "qg"].map((id) => ({
-      id,
-      text: `Question ${id.slice(1).toUpperCase()}?`,
-      options: opts(id, 2),
+    { id: SAMPLE_ID("qa"), text: "Question A?", options: opts("qa", 2) },
+    { id: SAMPLE_ID("qb"), text: "Question B?" },
+    { id: SAMPLE_ID("qc"), text: "Question C?", multiSelect: true, options: opts("qc", 4) },
+    ...["qd", "qe", "qf", "qg"].map((key) => ({
+      id: SAMPLE_ID(key),
+      text: `Question ${key.slice(1).toUpperCase()}?`,
+      options: opts(key, 2),
     })),
   ];
+}
+
+/** Every plain object reachable in `v` (including `v`). */
+function objectsIn(v: unknown, out: JsonObject[] = []): JsonObject[] {
+  if (Array.isArray(v)) v.forEach((x) => objectsIn(x, out));
+  else if (typeof v === "object" && v !== null) {
+    out.push(v as JsonObject);
+    Object.values(v).forEach((x) => objectsIn(x, out));
+  }
+  return out;
+}
+
+/** Every string reachable in `v`. */
+function stringsIn(v: unknown, out: string[] = []): string[] {
+  if (typeof v === "string") out.push(v);
+  else if (Array.isArray(v)) v.forEach((x) => stringsIn(x, out));
+  else if (typeof v === "object" && v !== null) Object.values(v).forEach((x) => stringsIn(x, out));
+  return out;
 }
 
 /** Every array reachable in `v`. */
@@ -175,12 +208,13 @@ function callSize(call: JsonObject, nativeIds: string[]): number {
 }
 
 /**
- * Registers the 13 adapter compatibility cases under `describe("adapter compat: <name>")`.
- * Call it from a test file. The cases build their own tmp worlds (home copy, project with `.git`,
+ * Registers the 14 adapter compatibility cases, plus a consent case when `consent` is set, under
+ * `describe("adapter compat: <name>")`. Call it from a test file. The cases build their own tmp worlds (home copy, project with `.git`,
  * a session home reached through a symlink alias, an etc dir) and a fake probe; nothing real is
  * read or written. Native-question payloads are inspected generically: a call's size is
- * `call.questions.length` when present, and option labels are found as arrays of strings or
- * `{ label }` objects.
+ * `call.questions.length` when present, option labels are found as arrays of strings or
+ * `{ label }` objects, and each `idMap` key must be a value of a payload object that also carries
+ * the mapped question's text and option labels.
  */
 export function defineAdapterCompatSuite(t: CompatTarget): void {
   const { adapter } = t;
@@ -423,14 +457,44 @@ export function defineAdapterCompatSuite(t: CompatTarget): void {
       const qs = sampleQuestions();
       const plan = adapter.questions(qs);
       expect(plan.tool).toBe(t.expect.questionTool);
-      expect(plan.textOnly).toContain("qb");
-      const cText = plan.textOnly.includes("qc");
+      expect(plan.textOnly).toContain(SAMPLE_ID("qb"));
+      const cText = plan.textOnly.includes(SAMPLE_ID("qc"));
       expect(cText).toBe(!t.expect.multiSelect || 4 > t.expect.maxOptions);
       const nativeIds = Object.keys(plan.idMap);
       const mapped = Object.values(plan.idMap);
       const all = [...mapped, ...plan.textOnly].sort();
       expect(all).toEqual(qs.map((q) => q.id).sort());
-      expect(new Set(nativeIds).size).toBe(nativeIds.length);
+      expect(new Set(mapped).size, "each question maps from exactly one native id").toBe(
+        mapped.length,
+      );
+      expect(
+        mapped.filter((id) => plan.textOnly.includes(id)),
+        "no question is both native and text-only",
+      ).toEqual([]);
+      // Tie every idMap entry to the payload: the object that carries the native id as a value must
+      // also carry the mapped question's text and its option labels, in order.
+      for (const [nativeId, originalId] of Object.entries(plan.idMap)) {
+        const q = qs.find((x) => x.id === originalId)!;
+        const owner = objectsIn(plan.calls).find((o) =>
+          Object.values(o).some((v) => v === nativeId),
+        );
+        expect(owner, `idMap key ${nativeId} is a value in a payload object`).toBeDefined();
+        const strings = stringsIn(owner);
+        expect(
+          strings.some((x) => x.includes(q.text)),
+          `${nativeId}: its payload object carries the text of ${originalId}`,
+        ).toBe(true);
+        const labels = q.options?.map((o) => o.label) ?? [];
+        if (labels.length > 0) {
+          expect(
+            arraysIn(owner).some((arr) => {
+              const got = arr.map(labelOf);
+              return got.length === labels.length && got.every((l, i) => l === labels[i]);
+            }),
+            `${nativeId}: its payload object carries the option labels of ${originalId} in order`,
+          ).toBe(true);
+        }
+      }
       let carried = 0;
       for (const call of plan.calls) {
         const size = callSize(call, nativeIds);
@@ -448,6 +512,41 @@ export function defineAdapterCompatSuite(t: CompatTarget): void {
         ).toBe(true);
       }
     });
+
+    it("warns about an untested version", { timeout: CASE_TIMEOUT }, async () => {
+      const output = t.versionOutput.replace(t.expect.version, "0.0.1");
+      expect(output, "versionOutput contains the expected version").not.toBe(t.versionOutput);
+      await withWorld({ ...t, versionOutput: output }, async (w) => {
+        const d = await adapter.detect(w.env);
+        expect(d.installed).toBe(true);
+        expect(d.tested).toBe(false);
+        expect(d.warnings.length).toBeGreaterThan(0);
+      });
+    });
+
+    if (t.consent !== undefined) {
+      const probe = t.consent;
+      it("save and init resolve to ask", { timeout: CASE_TIMEOUT }, async () => {
+        for (const scope of SCOPES) {
+          await withWorld(t, async (w) => {
+            const res = await applyPlan(await planFor(t, w, scope), {
+              dryRun: false,
+              force: false,
+            });
+            expect(res.some((r) => r.action === "conflict")).toBe(false);
+            for (const command of [
+              `dynamic-skills save --session x --scope project --harness ${adapter.id}`,
+              `dynamic-skills init --harness ${adapter.id}`,
+            ]) {
+              const decision = await probe({ world: w, scope, command });
+              expect(["ask", "prompt"], `${scope}: ${command} resolves to ${decision}`).toContain(
+                decision,
+              );
+            }
+          });
+        }
+      });
+    }
 
     it("native activation root", { timeout: CASE_TIMEOUT }, async () => {
       expect(adapter.nativeActivation).toBe(t.expect.nativeActivation);
