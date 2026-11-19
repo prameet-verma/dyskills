@@ -32,3 +32,18 @@ describe("createHostProbe", () => {
     expect((await p.run(join(bin, "bad"), [])).code).toBe(3);
   });
 });
+
+describe("probe timeout", () => {
+  it("SIGKILLs a binary that traps SIGTERM and resolves near the timeout", async () => {
+    await writeFile(
+      join(bin, "stubborn"),
+      '#!/bin/sh\nPATH=/bin:/usr/bin\ntrap "" TERM\nsleep 30\n',
+    );
+    await chmod(join(bin, "stubborn"), 0o755);
+    const p = createHostProbe({ PATH: bin }, 300);
+    const t0 = Date.now();
+    const r = await p.run(join(bin, "stubborn"), []);
+    expect(r.code).toBe(-1);
+    expect(Date.now() - t0).toBeLessThan(2_000);
+  });
+});

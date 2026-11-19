@@ -1,6 +1,18 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { chmod, mkdtemp, rm, stat, symlink, utimes, writeFile, mkdir } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  lstat,
+  readFile,
+  mkdtemp,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+  mkdir,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -368,5 +380,28 @@ describe("writeSessionFile", () => {
   it("rejects a path that escapes the session directory", async () => {
     const s = await store.create(init);
     await expect(writeSessionFile(store.dir(s.id), "../escape", "x")).rejects.toThrow();
+  });
+});
+
+describe("SessionStore.save temp files", () => {
+  it("never writes through a symlinked session.json.tmp", async () => {
+    const s = await store.create(init);
+    const victim = join(home, "victim.txt");
+    await writeFile(victim, "keep");
+    await symlink(victim, join(store.dir(s.id), "session.json.tmp"));
+    await store.save({ ...s, task: "changed" });
+    expect(await readFile(victim, "utf8")).toBe("keep");
+    expect((await lstat(join(store.dir(s.id), "session.json"))).isFile()).toBe(true);
+    expect((await store.load(s.id)).task).toBe("changed");
+  });
+  it("never writes through a hard-linked session.json.tmp", async () => {
+    const s = await store.create(init);
+    const victim = join(home, "victim.txt");
+    await writeFile(victim, "keep");
+    await link(victim, join(store.dir(s.id), "session.json.tmp"));
+    await store.save({ ...s, task: "changed" });
+    expect(await readFile(victim, "utf8")).toBe("keep");
+    expect((await lstat(join(store.dir(s.id), "session.json"))).isFile()).toBe(true);
+    expect((await store.load(s.id)).task).toBe("changed");
   });
 });

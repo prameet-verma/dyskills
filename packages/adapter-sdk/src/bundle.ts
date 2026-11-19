@@ -163,6 +163,13 @@ export interface PlaceResult {
   manifest: BundleManifest;
   /** Why, for a conflict: one of the fixed reasons listed on {@link placeBundle}. */
   reason?: string;
+  /**
+   * On a `create`: the topmost directory this call created because it was missing (an ancestor of
+   * `<destRoot>/<name>`, possibly `destRoot` itself), as a realpath; absent when `destRoot` already
+   * existed. A caller rolling the placement back removes `path` and then, when it is empty, this
+   * directory, so a failed save leaves no new directories behind.
+   */
+  createdRoot?: string;
   /** Extra detail for a conflict (never part of the reason vocabulary). */
   detail?: string;
 }
@@ -265,7 +272,8 @@ async function copyBundle(src: string, dest: string, mode: "save" | "native"): P
  * "parent is a dangling symlink" / "parent is a symlink loop" / "parent is not a directory" (the
  * `realpathOfPlanned` failures ENOENT, ELOOP, ENOTDIR, or a `destRoot` that is a file). Any other
  * errno (EACCES, EPERM, EROFS, ...) is rethrown unchanged with its `code`, so callers can tell
- * "denied" from "conflict".
+ * "denied" from "conflict". A `create` reports `createdRoot` when it had to create `destRoot`
+ * ancestors.
  *
  * @throws {BundleLayoutError} For a bad name, a relative `destRoot`, a symlink or special file in
  *   the source, a source over the caps, or a source that changed while it was copied.
@@ -332,6 +340,7 @@ export async function placeBundle(input: PlaceInput): Promise<PlaceResult> {
 
   if (input.dryRun === true) return { path, action: "create", manifest };
 
+  const createdRoot = await topmostMissing(real);
   await mkdir(real, { recursive: true, mode: dirMode });
   await input.testHooks?.afterMkdir?.();
   const second = await checkParent();
@@ -376,7 +385,25 @@ export async function placeBundle(input: PlaceInput): Promise<PlaceResult> {
   } finally {
     if (tmp !== null && !renamed) await rm(tmp, { recursive: true, force: true });
   }
-  return { path, action: "create", manifest };
+  return { path, action: "create", manifest, ...(createdRoot === null ? {} : { createdRoot }) };
+}
+
+/** The topmost not-yet-existing directory on the way to `dir`, or null when `dir` exists. */
+async function topmostMissing(dir: string): Promise<string | null> {
+  let top: string | null = null;
+  let cur = dir;
+  for (;;) {
+    try {
+      await lstat(cur);
+      return top;
+    } catch (e) {
+      if (!isMissing(e)) throw e;
+    }
+    top = cur;
+    const parent = dirname(cur);
+    if (parent === cur) return top;
+    cur = parent;
+  }
 }
 
 /**

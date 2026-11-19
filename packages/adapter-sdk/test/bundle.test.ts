@@ -607,3 +607,17 @@ describe("placeBundle guards that must stay pinned", () => {
     expect(await readdir(outside)).toEqual(["keep"]);
   });
 });
+
+describe("placeBundle createdRoot", () => {
+  it("reports the topmost directory it created", async () => {
+    const r = await place({ destRoot: join(project, "x", "y", "skills") });
+    expect(r.action).toBe("create");
+    expect(r.createdRoot).toBe(join(project, "x"));
+  });
+  it("omits createdRoot when destRoot already existed", async () => {
+    await mkdir(join(project, ".skills"), { recursive: true });
+    const r = await place();
+    expect(r.action).toBe("create");
+    expect(r.createdRoot).toBeUndefined();
+  });
+});

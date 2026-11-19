@@ -250,3 +250,37 @@ describe("applyPlan", () => {
     expect(e.cause).toBeInstanceOf(Error);
   });
 });
+
+describe("directory modes and duplicate keys", () => {
+  it("creates missing parents of a session-home write with 0700", async () => {
+    const target = join(home, "a", "b", "c");
+    const p = plan([{ ...base, kind: "dir", path: target, within: home }]);
+    await applyPlan(p, opts);
+    for (const d of [join(home, "a"), join(home, "a", "b"), target]) {
+      expect((await stat(d)).mode & 0o777).toBe(0o700);
+    }
+  });
+  it("creates missing parents of a project write with 0755", async () => {
+    await applyPlan(plan([file(join(project, "x", "y", "f.txt"), "1")]), opts);
+    expect((await stat(join(project, "x", "y"))).mode & 0o777).toBe(0o755);
+  });
+  it("reports a conflict for a duplicate key along a patch path", async () => {
+    const f = join(project, "dup.jsonc");
+    await writeFile(f, '{"permission":{"bash":{"a":"allow"},"bash":{"b":"deny"}}}');
+    const r = await previewPlan(
+      plan([merge(f, { permission: { bash: { "dynamic-skills *": "allow" } } }, "jsonc-merge")]),
+      { force: false },
+    );
+    expect(r[0]).toMatchObject({ action: "conflict" });
+    expect(r[0]?.reason).toContain("duplicate key");
+    expect(r[0]?.reason).toContain("permission.bash");
+  });
+  it("ignores duplicates off the patch paths", async () => {
+    const f = join(project, "dup2.jsonc");
+    await writeFile(f, '{"other":{"k":1,"k":2},"permission":{}}');
+    const r = await previewPlan(plan([merge(f, { permission: { x: "y" } }, "jsonc-merge")]), {
+      force: false,
+    });
+    expect(r[0]?.action).toBe("update");
+  });
+});

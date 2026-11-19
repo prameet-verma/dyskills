@@ -3,7 +3,7 @@ import { lstat, open, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PerformanceReportSchema } from "./contracts";
 import type { PerformanceReport } from "./contracts";
-import { PRIVATE_FILE_MODE, ensurePrivateDir } from "./session";
+import { ensurePrivateDir, writeSessionFile } from "./session";
 
 /** Largest `performance.json` read, in bytes; a real report is well under 1 KiB. */
 const MAX_REPORT_BYTES = 1_048_576;
@@ -108,16 +108,13 @@ export async function archivePerformanceReport(home: string, sessionId: string):
   if (report === null) return false;
   const dir = join(home, ARCHIVE_DIR);
   await ensurePrivateDir(dir);
-  const handle = await open(
-    join(dir, `${sessionId}.json`),
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-    PRIVATE_FILE_MODE,
+  // A random exclusive temp plus rename: a pre-planted hard link or symlink at the final name is
+  // replaced, never truncated or written through.
+  await writeSessionFile(
+    home,
+    `${ARCHIVE_DIR}/${sessionId}.json`,
+    `${JSON.stringify(report, null, 2)}\n`,
   );
-  try {
-    await handle.writeFile(`${JSON.stringify(report, null, 2)}\n`);
-  } finally {
-    await handle.close();
-  }
   return true;
 }
 

@@ -88,7 +88,7 @@ export const NATIVE_FUTURE_SKEW_MS = 3_600_000;
  * only when every session file parsed, it is expired when nothing references it or when every
  * referencing session ended without a successful activation (`activated` or `augmented`).
  *
- * An unreferenced placement whose mtime is more than an hour ahead of `now` is treated as older
+ * A placement whose mtime (unreferenced) or newest `placedAt` (referenced) is more than an hour ahead of `now` is treated as older
  * than the TTL, so a bad timestamp cannot keep it alive.
  *
  * @returns The `dir` of every expired placement.
@@ -105,9 +105,10 @@ export function selectExpiredPlacements(input: {
   for (const p of input.placements) {
     const refs = input.refs.get(p.dir) ?? [];
     let start = refs.length > 0 ? Math.max(...refs.map((r) => r.placedAt)) : p.mtimeMs;
-    // A far-future mtime (clock skew or tampering) must not pin a placement past the TTL: only the
-    // TTL can remove it when a session file is unparsable, and it would start at that future time.
-    if (refs.length === 0 && start - input.now > NATIVE_FUTURE_SKEW_MS) start = input.now - ttl - 1;
+    // A far-future mtime or placedAt (clock skew or tampering) must not pin a placement past the
+    // TTL: only the TTL can remove it when a session file is unparsable, and it would start at that
+    // future time.
+    if (start - input.now > NATIVE_FUTURE_SKEW_MS) start = input.now - ttl - 1;
     if (input.now - start > ttl) {
       expired.push(p.dir);
       continue;
