@@ -133,7 +133,11 @@ function at(v: JsonValue | undefined, path: string[]): JsonValue | undefined {
 const parseDoc = (text: string): JsonValue =>
   parse(text, [], { allowTrailingComma: true }) as JsonValue;
 
-/** Ids longer than any native header limit, so a header cannot stand in for the id. */
+/**
+ * Sample ids of 20 characters, longer than Claude Code's 12-character header, so that header cannot
+ * stand in for the id. (OpenCode's limit is 30, so its header could carry the id; that is
+ * harmless because OpenCode's native id is the header itself.)
+ */
 const SAMPLE_ID = (key: string): string => `${key}-sample-identifier`;
 
 function sampleQuestions(): NativeQuestionInput[] {

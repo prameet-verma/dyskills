@@ -11,7 +11,8 @@ import type {
 } from "@dynamic-skills/adapter-sdk";
 import { mergeJson } from "@dynamic-skills/adapter-sdk";
 import { chooseConfigFile, readConfigDocument } from "./config-file";
-import { consentNotes, resolveCommand, type Layer } from "./consent";
+import { consentNotes, denyProbes, resolveCommand, type Layer } from "./consent";
+import { wildcardMatch } from "./wildcard";
 import {
   analystAgentFile,
   BASH_ENTRIES,
@@ -252,39 +253,108 @@ export async function planOpenCodeInstall(
   };
 
   if (!project) {
-    // Ruling R46 (amended): never weaken an earlier or later layer's decision for save, init or a
-    // read-only command. Leave out the entries responsible and say so.
-    const base: Layer[] = [...before, ...currentLayer, ...after];
-    const probes: [string, string][] = [
-      ["save", SAVE_CMD],
-      ["init", INIT_CMD],
-      ["status", STATUS_CMD],
-    ];
-    for (let round = 0; round < 4; round += 1) {
-      const doc = mergeJson(chosenRead.doc, buildPatch(), { promote: PROMOTE }).value;
-      const next: Layer[] = [...before, { path: chosen, doc }, ...after];
+    // Ruling R46 (amended): the personal file applies to every project on the machine, so it is
+    // judged over the personal and global layers ONLY (never the current project's files). Never
+    // weaken a deny there, and never let save or init resolve to allow.
+    const inProject = (l: Layer): boolean =>
+      l.path.startsWith(`${P}/`) || l.path.startsWith(`${P}\\`);
+    const personalAfter = after.filter((l) => !inProject(l));
+    const base: Layer[] = [...before, ...currentLayer, ...personalAfter];
+    const probes = [...new Set([SAVE_CMD, INIT_CMD, STATUS_CMD, ...denyProbes(base, variant)])];
+    const nextLayers = (): { layers: Layer[]; conflicts: string[] } => {
+      const m = mergeJson(chosenRead.doc, buildPatch(), { promote: PROMOTE });
+      return {
+        layers: [...before, { path: chosen, doc: m.value }, ...personalAfter],
+        conflicts: m.conflicts,
+      };
+    };
+    const BROAD = "dynamic-skills *";
+    for (let round = 0; round < 8; round += 1) {
+      const { layers: next, conflicts } = nextLayers();
+      if (BROAD in entries && conflicts.includes(`permission.bash.${BROAD}`)) {
+        delete entries[BROAD];
+        notes.push(
+          `init left out \`"${BROAD}": "allow"\` because your file already sets that key to a different value (writing it would be a merge conflict).`,
+        );
+        continue;
+      }
       let dropped = false;
-      for (const [label, command] of probes) {
+      for (const command of probes) {
         const was = decide(base, command);
         const now = decide(next, command);
         if ((RANK[now.effect] ?? 0) >= (RANK[was.effect] ?? 0)) continue;
+        const consent =
+          wildcardMatch(command, "dynamic-skills save *") ||
+          wildcardMatch(command, "dynamic-skills init *");
         // A read-only command may go from ask to allow (that is what the broad allow is for).
-        if (label === "status" && was.effect !== "deny") continue;
-        const askKey = `dynamic-skills ${label} *`;
+        if (!consent && was.effect !== "deny") continue;
+        const askKey = ["save", "init"]
+          .map((l) => `dynamic-skills ${l} *`)
+          .find((k) => wildcardMatch(command, k));
         const key =
-          label !== "status" && was.effect === "deny" && askKey in entries
-            ? askKey
-            : "dynamic-skills *";
+          askKey !== undefined && was.effect === "deny" && askKey in entries ? askKey : BROAD;
         if (!(key in entries)) continue;
         delete entries[key];
         dropped = true;
-        if (label !== "status") skip.add(label);
+        for (const l of ["save", "init"])
+          if (command.startsWith(`dynamic-skills ${l}`)) skip.add(l);
         notes.push(
-          `init left out \`"${key}": "${key === askKey ? "ask" : "allow"}"\` because it would weaken your ${was.effect} for \`dynamic-skills ${label}\` (from ${was.source ?? "OpenCode's built-in default"}) to ${now.effect}.`,
+          `init left out \`"${key}": "${key === BROAD ? "allow" : "ask"}"\` because it would weaken your ${was.effect} for \`${command}\` (from ${was.source ?? "OpenCode's built-in default"}) to ${now.effect}.`,
         );
         break;
       }
       if (!dropped) break;
+    }
+    // Hard invariant: over the personal and global layers alone, save and init never resolve to
+    // allow after our write. Drop the broad allow, keep the asks.
+    for (let round = 0; round < 4; round += 1) {
+      const { layers: next } = nextLayers();
+      let fixed = false;
+      for (const [label, command] of [
+        ["save", SAVE_CMD],
+        ["init", INIT_CMD],
+      ] as const) {
+        if (decide(next, command).effect !== "allow") continue;
+        const askKey = `dynamic-skills ${label} *`;
+        if (BROAD in entries) {
+          delete entries[BROAD];
+          notes.push(
+            `init left out \`"${BROAD}": "allow"\` because \`dynamic-skills ${label}\` would otherwise resolve to allow in your personal config.`,
+          );
+        } else if (!(askKey in entries)) {
+          entries[askKey] = "ask";
+          notes.push(
+            `init kept the \`${label}\` ask entry so \`dynamic-skills ${label}\` never resolves to allow.`,
+          );
+        } else continue;
+        fixed = true;
+        break;
+      }
+      if (!fixed) break;
+    }
+    // Our write can still turn a deny in the current project's files into an ask there: say so.
+    const full: Layer[] = [...before, ...currentLayer, ...after];
+    const fullNext: Layer[] = [
+      ...before,
+      { path: chosen, doc: nextLayers().layers.find((l) => l.path === chosen)!.doc },
+      ...after,
+    ];
+    for (const [label, command] of [
+      ["save", SAVE_CMD],
+      ["init", INIT_CMD],
+    ] as const) {
+      const was = decide(full, command);
+      const now = decide(fullNext, command);
+      if (
+        was.effect === "deny" &&
+        now.effect !== "deny" &&
+        was.source !== null &&
+        inProject({ path: was.source, doc: {} })
+      ) {
+        notes.push(
+          `the project's deny for \`dynamic-skills ${label}\` (${was.source}) becomes ${now.effect} in this project because of this personal init; nothing else was changed for it.`,
+        );
+      }
     }
   }
 

@@ -680,7 +680,9 @@ describe("opencode installer", () => {
         : await setup(FIXTURE_V2, V2_VERSION, vars);
     await rm(join(w.home, ".config/opencode/opencode.json"), { force: true });
     for (const [rel, doc] of Object.entries(layers)) {
-      const f = join(w.home, rel);
+      const f = rel.startsWith("@project/")
+        ? join(w.project, rel.slice("@project/".length))
+        : join(w.home, rel);
       await mkdir(dirname(f), { recursive: true });
       await writeFile(f, JSON.stringify(doc));
     }
@@ -690,13 +692,27 @@ describe("opencode installer", () => {
       "dynamic-skills status --session x",
     ];
     const read = async (): Promise<never[]> => layerDocs(w, variant);
+    const personalOnly = async (): Promise<never[]> => {
+      const out: never[] = [];
+      for (const f of layerPaths(w.env, variant).filter((x) => !x.startsWith(w.project))) {
+        try {
+          out.push(JSON.parse(await readFile(f, "utf8")) as never);
+        } catch {
+          /* absent */
+        }
+      }
+      return out;
+    };
     const before = await read();
     const p = await plan(w, "personal");
-    await applyPlan(p, { dryRun: false, force: false });
+    const res = await applyPlan(p, { dryRun: false, force: false });
     const after = await read();
+    const personal = await personalOnly();
     const rank: Record<string, number> = { allow: 0, ask: 1, deny: 2 };
     return {
       p,
+      res,
+      personal,
       weaker: cmds.filter(
         (c) =>
           rank[effectiveDecision(after, variant, c)]! <
@@ -740,14 +756,50 @@ describe("opencode installer", () => {
     expect(notes.match(/`dynamic-skills save` is denied/g) ?? []).toHaveLength(0);
   });
 
-  it("N2: a broad deny in the very file init writes is kept, without a conflict", async () => {
+  it("N2/M1: a broad deny in the very file init writes is kept; the broad allow is left out, so apply has no conflict", async () => {
     const r = await personalCase("v1", {
       ".config/opencode/opencode.json": {
         permission: { bash: { "dynamic-skills *": "deny" } },
       },
     });
     expect(r.weaker).toEqual([]);
+    expect(r.res.some((x) => x.action === "conflict")).toBe(false);
     expect(effectiveDecision(r.after, "v1", "dynamic-skills save --session x")).toBe("deny");
+    expect(r.p.notes.join("\n")).toMatch(/init left out/);
+  });
+
+  it("C1: a project's broad deny never makes the personal file drop its asks (invariant: never allow)", async () => {
+    const r = await personalCase("v1", {
+      "@project/opencode.json": { permission: { bash: { "dynamic-skills *": "deny" } } },
+    });
+    for (const c of [
+      "dynamic-skills save --session x --scope project",
+      "dynamic-skills init --harness opencode --scope personal",
+    ]) {
+      expect(effectiveDecision(r.personal, "v1", c)).toBe("ask");
+    }
+    expect(effectiveDecision(r.personal, "v1", "dynamic-skills status --session x")).toBe("allow");
+    expect(r.p.notes.join("\n")).toMatch(/the project's deny for `dynamic-skills save`/);
+    expect(r.p.notes.join("\n")).not.toMatch(/init left out/);
+  });
+
+  it("I1: a deny on another dynamic-skills command (assess) is not turned into allow", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/opencode.json": {
+        permission: { bash: { "*": "ask", "dynamic-skills assess *": "deny" } },
+      },
+    });
+    expect(effectiveDecision(r.personal, "v1", "dynamic-skills assess --task t")).toBe("deny");
+    expect(r.p.notes.join("\n")).toMatch(/init left out .*dynamic-skills assess x/);
+  });
+
+  it("I1: an exact bare-command deny (dynamic-skills status) keeps protecting it", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/opencode.json": {
+        permission: { bash: { "*": "ask", "dynamic-skills status": "deny" } },
+      },
+    });
+    expect(effectiveDecision(r.personal, "v1", "dynamic-skills status")).toBe("deny");
     expect(r.p.notes.join("\n")).toMatch(/init left out/);
   });
 

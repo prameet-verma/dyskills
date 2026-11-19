@@ -46,7 +46,7 @@ prompt. A redirection (for example `2>&1`, including a heredoc), `$(...)`, backt
 `["bash", "-lc", "<script>"]` command. No `dynamic-skills` rule matches that, and an unmatched
 command is allowed by default, so `dynamic-skills save ... 2>&1` runs without the prompt. Under
 `workspace-write` it still runs inside the sandbox, where writes to `~/.agents`, `~/.codex` and an
-existing `.agents` directory fail; only `danger-full-access` is fully exposed. (`workspace-write` also makes `<root>/.codex` read-only, so `dynamic-skills init --scope project` run from inside such a session cannot write `.codex/rules`; run it in a terminal.) The bootstrap skill
+existing `.agents` directory fail; only `danger-full-access` is fully exposed. (`workspace-write` also makes `<root>/.codex` read-only when it exists, so `dynamic-skills init --scope project` run from inside such a session cannot write `.codex/rules`; run it in a terminal.) The bootstrap skill
 tells the agent to run every `dynamic-skills` command bare (it also forbids pipes and chaining, to
 be conservative), but that is an instruction, not an enforcement: the rules are a consent prompt for
 ordinary use, not a barrier against an agent that adds a redirection. A `forbidden` rule has the

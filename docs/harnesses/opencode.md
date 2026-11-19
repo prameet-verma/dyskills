@@ -49,9 +49,10 @@ personal or global config is not shared with teammates, so the ask is still writ
 file must make `save` and `init` ask for everyone, never allow) and `init` notes that your personal
 deny becomes an ask in this project, because the project ask overrides the same key. In personal
 scope `init` compares the decision for `save`, `init` and a read-only command such as
-`dynamic-skills status` before and after, over all layers: any entry that would weaken a deny (or
+`dynamic-skills status` before and after (plus every existing `deny` rule on a `dynamic-skills` command), over your personal and global config only, never the current project's files: any entry that would weaken a deny (or
 turn a `save`/`init` ask into an allow), such as the broad `"dynamic-skills *": "allow"` or an ask
-that would overwrite a deny, is left out and noted. Comments and trailing commas in your config are kept.
+that would overwrite a deny, is left out and noted. `save` and `init` never resolve to `allow` over that
+config. If the personal write turns a deny in the current project into an ask, `init` only notes it. Comments and trailing commas in your config are kept.
 
 ## Consent rules
 

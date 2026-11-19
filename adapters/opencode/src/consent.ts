@@ -364,3 +364,24 @@ export function consentNotes(
   }
   return notes;
 }
+
+/**
+ * Probe commands for every `deny` rule on `dynamic-skills ...` in `layers`, built from the pattern
+ * itself: a pattern with no wildcard is the bare command, otherwise each `*` or `?` becomes `x`.
+ *
+ * @param layers - Config layers.
+ * @param variant - The detected OpenCode line.
+ * @returns Distinct probe commands.
+ */
+export function denyProbes(layers: readonly Layer[], variant: string | null): string[] {
+  const out = new Set<string>();
+  const query = variant === "v2" ? "shell" : "bash";
+  for (const layer of layers) {
+    for (const r of docRules(layer.doc, variant, null)) {
+      if (r.effect !== "deny" || !r.pattern.startsWith("dynamic-skills")) continue;
+      if (!wildcardMatch(query, r.action)) continue;
+      out.add(/[*?]/.test(r.pattern) ? r.pattern.replace(/[*?]/g, "x") : r.pattern);
+    }
+  }
+  return [...out];
+}
