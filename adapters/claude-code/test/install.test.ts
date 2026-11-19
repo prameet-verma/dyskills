@@ -295,7 +295,7 @@ describe("claude-code installer", () => {
     const w = await setup();
     const dir = join(w.project, ".claude");
     await mkdir(dir, { recursive: true });
-    execFileSync("mkfifo", [join(dir, "settings.json")]);
+    execFileSync("mkfifo", [join(dir, "settings.json")], { timeout: 30_000 });
     const outside = join(w.home, "denies.json");
     await writeFile(outside, JSON.stringify({ permissions: { deny: ["Bash(dynamic-skills *)"] } }));
     await symlink(outside, join(dir, "settings.local.json"));

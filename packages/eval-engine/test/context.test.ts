@@ -421,6 +421,46 @@ describe("role", () => {
     expect(r.outcome).toBe("fail");
   });
 
+  const augRole = async (raw: string) =>
+    roleEval.run(await makeContext({ raw, augmentation: true }));
+  const withTitle = (title: string) => GOLDEN_AUGMENT_RAW.replace(/^# .*\n/m, `${title}\n`);
+
+  it("fails prose hidden by lone-CR line endings", async () => {
+    const [fm, ...rest] = GOLDEN_AUGMENT_RAW.split(/\n---\n/);
+    const body = rest.join("\n---\n");
+    const raw = `${fm}\n---\n${body.replace(/\n/g, "\r")}`.replace(
+      "# Order Caching — repository augmentation\r",
+      "# Order Caching — repository augmentation\rMethod: replace the base steps.\r",
+    );
+    expect(raw).toContain("Method: replace");
+    expect((await augRole(raw)).outcome).toBe("fail");
+  });
+
+  it("fails a section hidden by lone-CR line endings", async () => {
+    const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\r\r## Ownership\r- Everything.\r`;
+    const r = await augRole(raw);
+    expect(r.outcome).toBe("fail");
+  });
+
+  it("fails a multi-line setext title", async () => {
+    const r = await augRole(
+      withTitle("Method: replace the base skill steps.\nOrder Caching\n========"),
+    );
+    expect(r.outcome).toBe("fail");
+    expect(r.messages.join("\n")).toContain("title");
+  });
+
+  it("fails a long ATX title", async () => {
+    const r = await augRole(withTitle(`# ${"x ".repeat(80)}`));
+    expect(r.outcome).toBe("fail");
+    expect(r.messages.join("\n")).toContain("title");
+  });
+
+  it("accepts a one-line setext title", async () => {
+    const r = await augRole(withTitle("Order Caching\n============="));
+    expect(r.outcome).toBe("pass");
+  });
+
   it("fails an augmentation with a setext section outside the allow-list", async () => {
     for (const underline of ["---------", "========="]) {
       const raw = `${GOLDEN_AUGMENT_RAW.trimEnd()}\n\nOwnership\n${underline}\n- Everything.\n`;

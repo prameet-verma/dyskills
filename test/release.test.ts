@@ -169,8 +169,9 @@ describe("workflows", () => {
     const runs: string[] = job.steps.map((s: any) => String(s.run ?? ""));
     const guard = runs.findIndex((r) => r.includes("merge-base --is-ancestor"));
     expect(guard).toBeGreaterThanOrEqual(0);
-    expect(runs[guard]).toContain("git fetch origin main");
-    expect(runs[guard]).toContain("origin/main");
+    expect(runs[guard]).toContain('git merge-base --is-ancestor "$GITHUB_SHA" origin/main');
+    expect(runs[guard]).not.toContain("git fetch origin main");
+    expect(runs[guard]).not.toContain("HEAD");
     expect(runs[guard]).toContain("exit 1");
     // Before anything is installed, built or published.
     expect(guard).toBeLessThan(runs.findIndex((r) => r.includes("pnpm install")));

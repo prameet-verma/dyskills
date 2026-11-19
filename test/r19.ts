@@ -1,3 +1,7 @@
-/** A package runner (with any option tokens such as `-y`, `--yes`, `--`) aimed at dynamic-skills. */
+/**
+ * A package runner (`npx`, `pnpx`, `bunx`, `pnpm dlx`, `yarn dlx`, `npm exec|x`, `bun x`) followed,
+ * on the same line, by a `dynamic-skills` token (optionally quoted, after any flags or option
+ * values). Single spaces or tabs separate the runner words, so the scan is linear.
+ */
 export const R19_RUNNER =
-  /\b(?:npx|pnpx|bunx|pnpm\s+dlx|yarn\s+dlx|npm\s+exec)(?:\s+-{1,2}\S*)*\s+dynamic-skills\b/;
+  /\b(?:npx|pnpx|bunx|pnpm[ \t]+dlx|yarn[ \t]+dlx|npm[ \t]+(?:exec|x)|bun[ \t]+x)\b[^\n]*?(?<![\w-])['"]?dynamic-skills\b/;

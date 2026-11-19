@@ -97,6 +97,9 @@ interface Section {
   subheadings: string[];
 }
 
+/** Longest title an augmentation may carry (R26: the title must not become a prose channel). */
+const MAX_TITLE_CHARS = 120;
+
 /** Heading comparison form: trimmed, lowercase, trailing `:` removed (PRD §8.1). */
 function normaliseHeading(h: string): string {
   // A loop, not `/:+$/`: that regex is quadratic on a long colon run that does not end the heading.
@@ -121,9 +124,13 @@ function sectionsOf(body: string): Section[] {
 }
 
 /** The sections of a body plus the non-blank lines that sit before the first section. */
-function parseBody(body: string): { sections: Section[]; preamble: string[] } {
+function parseBody(body: string): {
+  sections: Section[];
+  preamble: string[];
+  title: { rows: number; text: string } | null;
+} {
   const preamble: string[] = [];
-  const lines = body.split(/\r?\n/);
+  const lines = body.split(/\r\n|\r|\n/);
   const fenced: boolean[] = new Array<boolean>(lines.length).fill(false);
   let open: { run: string; at: number } | null = null;
   lines.forEach((line, i) => {
@@ -144,7 +151,7 @@ function parseBody(body: string): { sections: Section[]; preamble: string[] } {
   // text is the run joined with spaces. Both underline kinds count, so a setext heading cannot
   // slip a section past the augmentation allow-list. One forward pass: `start` is the first line
   // of the current paragraph run, so each line is looked at a constant number of times.
-  const setextText = new Map<number, { text: string; level: number }>(); // first line -> heading
+  const setextText = new Map<number, { text: string; level: number; rows: number }>(); // first line -> heading
   const consumed = new Set<number>(); // every line of a setext heading, underline included
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -157,7 +164,11 @@ function parseBody(body: string): { sections: Section[]; preamble: string[] } {
         .slice(start, i)
         .map((l) => l.trim())
         .join(" ");
-      setextText.set(start, { text, level: line.trimStart().startsWith("=") ? 1 : 2 });
+      setextText.set(start, {
+        text,
+        level: line.trimStart().startsWith("=") ? 1 : 2,
+        rows: i - start,
+      });
       for (let j = start; j <= i; j++) consumed.add(j);
       start = -1;
     } else if (
@@ -173,14 +184,17 @@ function parseBody(body: string): { sections: Section[]; preamble: string[] } {
   }
   const sections: Section[] = [];
   let titled = false; // a leading level-1 heading is the title and opens no section
-  const openSection = (heading: string, level: number): void => {
-    if (level === 1 && sections.length === 0 && !titled) titled = true;
-    else sections.push({ heading: normaliseHeading(heading), lines: [], subheadings: [] });
+  let title: { rows: number; text: string } | null = null;
+  const openSection = (heading: string, level: number, rows = 1): void => {
+    if (level === 1 && sections.length === 0 && !titled) {
+      titled = true;
+      title = { rows, text: heading };
+    } else sections.push({ heading: normaliseHeading(heading), lines: [], subheadings: [] });
   };
   lines.forEach((text, i) => {
     const setext = setextText.get(i);
     if (setext !== undefined) {
-      openSection(setext.text, setext.level);
+      openSection(setext.text, setext.level, setext.rows);
       return;
     }
     if (consumed.has(i)) return;
@@ -196,7 +210,7 @@ function parseBody(body: string): { sections: Section[]; preamble: string[] } {
     else if (current !== undefined) current.lines.push({ text, fenced: isFenced });
     else if (text.trim() !== "") preamble.push(text);
   });
-  return { sections, preamble };
+  return { sections, preamble, title };
 }
 
 /** ATX heading text: trimmed, without a closing `#` run (which must follow a space). */
@@ -457,7 +471,7 @@ export const roleEval: GenerationEval = {
   id: "role",
   mandatory: false,
   async run(ctx) {
-    const { sections, preamble } = parseBody(ctx.skill.body);
+    const { sections, preamble, title } = parseBody(ctx.skill.body);
     const failures: string[] = [];
     if (ctx.augmentation === null) {
       const missing = REQUIRED_SECTIONS.filter((h) => !hasContent(sections, h));
@@ -480,6 +494,11 @@ export const roleEval: GenerationEval = {
       failures.push(
         `augmentation has text before the first section (only the # title line is allowed): ${preamble[0]?.trim().slice(0, 60)}`,
       );
+    }
+    // The title is the one line allowed before the first section, so it cannot carry prose.
+    const t = title as { rows: number; text: string } | null;
+    if (t !== null && (t.rows > 1 || t.text.length > MAX_TITLE_CHARS)) {
+      failures.push(`augmentation title must be one line of at most ${MAX_TITLE_CHARS} characters`);
     }
     const allowedNorm = new Set(allowed.map(normaliseHeading));
     const headings = sections.flatMap((s) => [s.heading, ...s.subheadings]);

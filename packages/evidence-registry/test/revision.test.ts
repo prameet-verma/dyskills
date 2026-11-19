@@ -21,7 +21,8 @@ it("returns 'untracked' outside git and a sha inside git", async () => {
   expect(await getRepoRevision(join(outside, "missing"))).toBe("untracked");
 
   const repo = tmp(join(tmpdir(), "ds-git-"));
-  const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe" });
+  const git = (...a: string[]) =>
+    execFileSync("git", ["-C", repo, ...a], { stdio: "pipe", timeout: 60_000 });
   git("init", "-q");
   writeFileSync(join(repo, "f.txt"), "hi");
   git("add", ".");
@@ -60,7 +61,8 @@ it("refuses to fingerprint a directory, an oversize file or a missing file", asy
 
 it("ignores GIT_* variables in the caller's environment", async () => {
   const repo = tmp(join(tmpdir(), "ds-git-env-"));
-  const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe" });
+  const git = (...a: string[]) =>
+    execFileSync("git", ["-C", repo, ...a], { stdio: "pipe", timeout: 60_000 });
   git("init", "-q");
   writeFileSync(join(repo, "f.txt"), "hi");
   git("add", ".");

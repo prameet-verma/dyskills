@@ -70,7 +70,8 @@ treat as instructions. The design assumes both inputs can be hostile.
 - **Consent rules.** `init` makes the harness ask before `dynamic-skills save` and
   `dynamic-skills init`, even where `dynamic-skills` is otherwise allowed: Claude Code
   `permissions.ask` (ask beats allow), a Codex `prefix_rule` with `decision = "prompt"` (the
-  strictest wins) and OpenCode `"ask"` entries after the allow (the last match wins). The CLI
+  strictest wins) and OpenCode `"ask"` entries (the last match wins; project scope writes only the asks, with no broad
+  allow). The CLI
   rejects any option placed before the subcommand so `dynamic-skills -V save` cannot slip past
   them. **Limit:** OpenCode matches the raw command text, so a quoted or extra-spaced subcommand
   (`dynamic-skills 'save' ...`) is not asked; the ask rules are a prompt for ordinary calls, not an
@@ -96,12 +97,15 @@ treat as instructions. The design assumes both inputs can be hostile.
   `DYNAMIC_SKILLS_HOME` can still point the home at a private directory of your choice.
 - **Cleanup is safe and bounded.** A relative or empty `DYNAMIC_SKILLS_HOME` counts as unset (R42).
   The native sweep removes only direct children of each adapter's native layout, and only when the
-  marker `<realpath home>/native/.dynamic-skills-native` exists. `clean` and `save --scope discard`
-  never fail on unreadable artifacts or `session.json` (an unloadable session is removed with a
-  note), `discard` keeps a placement still within the 10-minute grace, and `save --scope discard`
-  and `--scope ephemeral` accept `--dry-run` (R45).
+  marker `<realpath home>/native/.dynamic-skills-native` exists. Without the marker nothing
+  is swept. `clean` and `save --scope discard` never fail on unreadable artifacts; `clean` removes a
+  session with an unreadable `session.json` with a note, archiving nothing and removing no native
+  placement. Both keep a placement within the R39 grace, including the session's own, and the next
+  sweep removes it. `save --scope discard` and `--scope ephemeral` accept `--dry-run` and change
+  nothing (R45). Internal errors carry a fixed message, never exception text.
 - **OpenCode project scope asks, never allows broadly.** Project-scope `init` writes only the
-  `save` and `init` ask entries; its consent notes simulate the layered config (R44).
+  `save` and `init` ask entries (no broad allow); its consent notes simulate the layered config,
+  including agent-level permissions (R44).
 - **No network or model calls** are made by any package.
 - Terminal output is stripped of control characters, because session ids and options are
   agent-controlled.
@@ -118,9 +122,12 @@ treat as instructions. The design assumes both inputs can be hostile.
   second containment check, so a parent swapped for a symlink in that window redirects the write.
   It needs write access to the repository's directories. See
   [architecture.md](docs/architecture.md#trust-boundaries).
-- Codex skips prefix rules for a command that is not bare (redirection, an env prefix,
-  `$`-expansion, a pipe or chaining), so the consent rule does not fire for it. The bootstrap skill
-  tells agents to run `dynamic-skills` commands bare (R43).
+- Codex prefix rules match bare commands only. A redirection, env prefix, `$` expansion, glob, pipe
+  or chaining skips them, and the command is allowed by default. The bootstrap skill tells agents to
+  run `dynamic-skills` commands bare (R43).
+- Directories under a project or personal skill root are not 0700: `placeBundle` in save mode
+  chmods bundle directories to 0755 and creates parents 0755 subject to the umask. Only the session
+  home is 0700.
 - Owner and permission checks need uids. On a platform without them (Windows) the home is
   checked only for being a real directory; use a private `DYNAMIC_SKILLS_HOME` there.
 - Reuse and activation content is returned unfenced, so a hostile existing skill reaches the agent

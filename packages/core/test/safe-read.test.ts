@@ -36,7 +36,7 @@ describe("readSafeFile", () => {
 
   it("returns promptly on a FIFO", async () => {
     const fifo = join(dir, "fifo");
-    execFileSync("mkfifo", [fifo]);
+    execFileSync("mkfifo", [fifo], { timeout: 30_000 });
     expect(await readSafeFile(fifo)).toEqual({ ok: false, reason: "not-a-file" });
     await symlink(fifo, join(dir, "SKILL.md"));
     expect(await readSafeFile(join(dir, "SKILL.md"), { realBasename: "SKILL.md" })).toEqual({

@@ -379,3 +379,26 @@ describe("frontmatter and portability rules match the D7 evals", () => {
     }
   });
 });
+
+describe("brief rules round 1", () => {
+  it("states the augmentation title and heading rules", async () => {
+    const b = await build({ augmentation: aug() });
+    expect(b).toContain(
+      "Write nothing except the single `# title` line before the first `##` section",
+    );
+    expect(b).toContain("no other heading at any level (`###` included)");
+  });
+
+  it("matches structural.ts on the remaining portability details", async () => {
+    const b = await build();
+    for (const t of [
+      "no stray entries next to the skill directory in skills/",
+      "${CLAUDE_",
+      "no fence opened with !",
+      "no / in metadata keys",
+      "in an inline code span counts as prose",
+    ]) {
+      expect(b).toContain(t);
+    }
+  });
+});

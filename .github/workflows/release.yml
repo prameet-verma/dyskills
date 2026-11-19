@@ -51,7 +51,6 @@ jobs:
       # A tag can point at any commit; only a commit already on main may be published.
       - name: Verify the tag commit is on main
         run: |
-          git fetch origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "::error::tag $GITHUB_REF_NAME ($GITHUB_SHA) is not an ancestor of origin/main"
             exit 1

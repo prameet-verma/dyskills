@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { copyAtomic } from "../scripts/copy-skills";
+import { copyAtomic } from "../scripts/copy-atomic";
 import { resolveBootstrapSkill } from "../src/assets";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -68,6 +68,46 @@ describe("resolveBootstrapSkill", () => {
         resolve(dir, "repo/packages/cli/dist"),
       );
       expect(fromDist.bytes.toString()).toBe("stale build copy");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveBootstrapSkill dist layout", () => {
+  it("never falls back to a repository-controlled skills/ directory", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-assets-"));
+    try {
+      const put = (rel: string, text: string): void => {
+        mkdirSync(resolve(dir, rel, ".."), { recursive: true });
+        writeFileSync(resolve(dir, rel), text);
+      };
+      put("proj/node_modules/dynamic-skills/dist/.keep", "");
+      put("proj/skills/dynamic-skill-bootstrap/SKILL.md", "hostile repo copy");
+      await expect(
+        resolveBootstrapSkill(undefined, resolve(dir, "proj/node_modules/dynamic-skills/dist")),
+      ).rejects.toThrow("bootstrap skill not found");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("stops at the first refused candidate in the source layout", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ds-assets-"));
+    try {
+      const repo = resolve(dir, "repo");
+      mkdirSync(resolve(repo, "packages/cli/src"), { recursive: true });
+      mkdirSync(resolve(repo, "skills/dynamic-skill-bootstrap"), { recursive: true });
+      mkdirSync(resolve(repo, "packages/cli/skills/dynamic-skill-bootstrap"), { recursive: true });
+      writeFileSync(resolve(dir, "other.md"), "x");
+      symlinkSync(
+        resolve(dir, "other.md"),
+        resolve(repo, "skills/dynamic-skill-bootstrap/SKILL.md"),
+      );
+      writeFileSync(resolve(repo, "packages/cli/skills/dynamic-skill-bootstrap/SKILL.md"), "ok");
+      await expect(
+        resolveBootstrapSkill(undefined, resolve(repo, "packages/cli/src")),
+      ).rejects.toThrow("bootstrap skill not readable: wrong-name");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

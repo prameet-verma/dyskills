@@ -481,11 +481,13 @@ export const portabilityEval: GenerationEval = {
       for (const { re, label: what } of RENDERED_SYNTAX) {
         if (re.test(line)) found.add(tag(label, what));
       }
-      if (ESCAPED_POSITIONAL.test(line) && !fenced) {
+      if (ESCAPED_POSITIONAL.test(line)) {
         warned.add(
           tag(
             label,
-            "escaped positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts",
+            fenced
+              ? "positional placeholder in code"
+              : "escaped positional placeholder in prose: write money without $ (50 USD); \\$ is not a neutral escape across hosts",
           ),
         );
       }

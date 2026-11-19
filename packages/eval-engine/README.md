@@ -28,7 +28,8 @@ behavioural smoke recorder; it implements PRD §5.5
   before the agent reads it: inline shell execution (a backtick span or fenced block opened with
   an exclamation mark), an arguments placeholder, a host environment placeholder, and a
   positional placeholder (`$1`) in prose, where an inline code span counts as prose. A positional
-  placeholder inside a fenced code block only warns. Layout failures: a nested `SKILL.md`, any
+  placeholder inside a fenced code block only warns, and a single-backslash escape (`\$1`) is not
+  a pass either: it warns in prose and in code. Layout failures: a nested `SKILL.md`, any
   dot-prefixed entry, any other entry beside the bundle in its skills directory (operating-system
   junk files such as `.DS_Store` are ignored there, never inside the bundle), and a bundle too
   large to scan. The exact patterns live next to the code in `src/evals/structural.ts`.
@@ -54,7 +55,9 @@ behavioural smoke recorder; it implements PRD §5.5
 - `scopeEval`: the description shares a content word with the task.
 - `roleEval`: sections open at level-1 and level-2 headings, ATX (up to three spaces of
   indent) or underlined setext (a multi-line setext heading is one heading); a leading h1 is
-  the title. Level 3-6 headings stay inside their section, so `groundingEval` still checks the
+  the title. For an augmentation the title must be one line (ATX or a one-line setext) of at most
+  120 characters, and any other non-blank line before the first section fails, so nothing hides
+  above the allow-list; lines end at `\r\n`, `\r` or `\n`. Level 3-6 headings stay inside their section, so `groundingEval` still checks the
   bullets under them. Five role sections for a new skill; for an augmentation, task contract,
   project context and optional additions only, and every heading of any level must be one of
   those names.

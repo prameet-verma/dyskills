@@ -212,10 +212,12 @@ const FRONTMATTER_RULES = [
   "Frontmatter rules: allowed keys only name, description, license, compatibility, metadata (never allowed-tools);",
   "name is 1-64 chars of lowercase letters, digits and single dashes and equals the skill directory name;",
   "description is 1-1,024 chars; compatibility is at most 500 chars; metadata is a string-to-string map.",
-  "Portability rules (the evals fail the skill otherwise): no $ARGUMENTS and no ${...} host variables;",
-  "no $<digit> anywhere in prose, so write money as 5 USD, not $5; no !` inline shell execution;",
+  "no / in metadata keys (no host-namespaced keys).",
+  "Portability rules (the evals fail the skill otherwise): no $ARGUMENTS and no ${CLAUDE_*} host variables;",
+  "no $<digit> in prose, and a $1 in an inline code span counts as prose, so write money as 5 USD, not $5;",
+  "no !` inline shell execution and no fence opened with !;",
   "no harness names (products, instruction files such as CLAUDE.md or AGENTS.md, harness directories, harness tool names, slash commands);",
-  "write a single SKILL.md and no other nested SKILL.md, no dot-files and no stray entries in the skill directory.",
+  "write a single SKILL.md (no nested SKILL.md), no dot-files in the bundle and no stray entries next to the skill directory in skills/.",
 ];
 
 const CITATION_RULES = [
@@ -268,6 +270,7 @@ export function buildCompilationBrief(input: CompilationBriefInput): string {
     out.push(
       `Write an augmentation of the base skill ${aug.baseName}. Emit only the missing project context, task contract and methodology delta.`,
       `Allowed sections, as ## headings: ${AUGMENTATION_REQUIRED_SECTIONS.map((x) => `## ${x}`).join(", ")} (both required, non-empty); optional: ${AUGMENTATION_OPTIONAL_SECTIONS.map((x) => `## ${x}`).join(", ")}. No other ## heading is allowed.`,
+      "Write nothing except the single `# title` line before the first `##` section (one line, at most 120 characters), and use no other heading at any level (`###` included).",
       `## Task contract must contain a line "Already covered by ${aug.baseName}: ..." (from the covered aspects) and a line "Adds: ..." (from the missing aspects).`,
       `Frontmatter must include metadata.augments: ${aug.baseName} and metadata.augments-sha256: "${s(aug.baseSha256)}" (keep the quotes).`,
       `The description must start with "Augments ${aug.baseName} with".`,

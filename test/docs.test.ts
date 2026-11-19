@@ -150,6 +150,12 @@ describe("R19 runner guard", () => {
     "npm exec -- dynamic-skills init",
     "pnpm dlx dynamic-skills",
     "bunx --bun dynamic-skills",
+    "npm x dynamic-skills init",
+    "bun x dynamic-skills",
+    "npx 'dynamic-skills' init",
+    'npx "dynamic-skills" init',
+    "npx --package foo dynamic-skills",
+    "npx -p dynamic-skills@1 dynamic-skills init",
   ])("matches %s", (text) => {
     expect(text).toMatch(R19_RUNNER);
   });
@@ -161,5 +167,14 @@ describe("R19 runner guard", () => {
     "npx -y cowsay",
   ])("does not match %s", (text) => {
     expect(text).not.toMatch(R19_RUNNER);
+  });
+});
+
+describe("R19 runner guard performance", () => {
+  it("does not backtrack exponentially on a long flag run", () => {
+    const text = `npx${" -a".repeat(5000)} x`;
+    const t = Date.now();
+    R19_RUNNER.test(text);
+    expect(Date.now() - t).toBeLessThan(1000);
   });
 });

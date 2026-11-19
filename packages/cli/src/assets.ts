@@ -22,14 +22,19 @@ export async function resolveBootstrapSkill(
 ): Promise<{ path: string; bytes: Buffer }> {
   const published = resolve(moduleDir, "..", BOOTSTRAP);
   const repository = resolve(moduleDir, "../../..", BOOTSTRAP);
+  // Only from source is the repository copy a candidate: from `dist/` the directory three levels
+  // up is wherever the package was installed (often a user project), and its `skills/` is
+  // repository-controlled.
   const order =
-    candidates ??
-    (basename(moduleDir) === "src" ? [repository, published] : [published, repository]);
+    candidates ?? (basename(moduleDir) === "src" ? [repository, published] : [published]);
   let refused: string | undefined;
   for (const path of order) {
     const read = await readSafeFile(path, { realBasename: "SKILL.md" });
     if (read.ok) return { path, bytes: read.bytes };
-    if (read.reason !== "missing") refused ??= `${read.reason} at ${path}`;
+    if (read.reason !== "missing") {
+      refused = `${read.reason} at ${path}`;
+      break;
+    }
   }
   throw new Error(
     refused === undefined

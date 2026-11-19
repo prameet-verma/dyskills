@@ -123,15 +123,16 @@ skills.
 `init` makes every harness ask before `dynamic-skills save` and `dynamic-skills init`, even where
 `dynamic-skills` is otherwise allowed: Claude Code `permissions.ask` (ask beats allow), a Codex
 `prefix_rule` with `decision = "prompt"` (the strictest decision wins) and OpenCode `"ask"` entries
-placed after the allow (the last match wins). The harness's approval prompt is the user's consent
+(the last match wins; project scope writes only the asks, see below). The harness's approval prompt is the user's consent
 to persist a skill (PRD §11.2). The CLI rejects any program option placed before the subcommand,
 so `dynamic-skills -V save` cannot slip past the rules. A headless run that must save runs the
 command in a terminal, or relaxes the rule as each adapter README describes. OpenCode matches raw
 command text, so a quoted subcommand is a known limit ([ADR 0007](adr/0007-harness-adapter-interface.md)).
 
-Two further limits are documented, not enforced. Codex skips prefix rules for a command that is not
-bare (redirection, an env prefix, `$`-expansion, a pipe or chaining), so the bootstrap skill tells
-agents to run `dynamic-skills` commands bare (Ruling R43). OpenCode project-scope `init` writes
+Two further limits are documented, not enforced. Codex prefix rules match bare commands only: a
+redirection, an env prefix, `$` expansion, a glob, a pipe or chaining skips them, and the command is
+then allowed by default. The bootstrap skill tells agents to run `dynamic-skills` commands bare
+(Ruling R43). OpenCode project-scope `init` writes
 only the `save` and `init` ask entries, with no broad `dynamic-skills *` allow, and its consent
 notes simulate the layered config (global, then the project root, then `.opencode`, including
 agent-level permissions); personal scope is unchanged (Ruling R44).
@@ -152,8 +153,9 @@ directories the store creates are tightened: a missing home is created 0700, and
 loses any group or other bits, but an existing home keeps its mode and is never chmodded (it may
 be a user-provided `DYNAMIC_SKILLS_HOME`, even `$HOME`; Ruling R23). Every directory the CLI
 creates inside the session home (including the parents `applyPlan` creates there) is mode 0700,
-and every session file is 0600. Directories created in a project or personal skill root follow the
-umask; the claim covers the session home only. A `DYNAMIC_SKILLS_HOME` that is relative (or empty)
+and every session file is 0600. The claim covers the session home only: `placeBundle` in save mode
+chmods the bundle directories to 0755, and the project or personal skill-root parents it creates
+are 0755 subject to the umask. A `DYNAMIC_SKILLS_HOME` that is relative (or empty)
 counts as unset and the default home is used (Ruling R42).
 
 | Path                    | Written by                                                                                        | Content                                                                                                                                                                                               |
@@ -182,13 +184,15 @@ a real directory and the placement lies inside it.
 
 The sweep is narrow (Ruling R42): it removes only direct children of each adapter's native layout
 (the same layout `clean` uses), and only when the marker `<realpath home>/native/.dynamic-skills-native`
-exists (`placeNative` creates it). Without the marker it removes nothing, so a home that points at
-a directory holding other data is never swept.
+exists (`placeNative` creates it). Without the marker nothing is swept; with it, only direct children
+of each adapter's native layout are removed.
 
-`clean` and `save --scope discard` never fail on unreadable artifacts or an unreadable `session.json`
-(Ruling R45): reports are built defensively, and an unloadable session is removed with a note.
-`discard` keeps a placement whose real-clock mtime is within the same ten-minute grace, with a note.
-`save --scope discard` and `--scope ephemeral` accept `--dry-run` and change nothing.
+`clean` and `save --scope discard` never fail on unreadable artifacts (Ruling R45): reports are built
+defensively. `clean` removes a session whose `session.json` is unreadable, with a note; it archives
+nothing and removes no native placement for it. Both `clean` and discard keep a placement whose
+real-clock mtime is within the ten-minute grace (R39), including the session's own; the next sweep
+removes it. `save --scope discard` and `--scope ephemeral` accept `--dry-run` and change nothing.
+An internal failure reports a fixed `INTERNAL` message without the exception text.
 
 ## SLA clock model
 

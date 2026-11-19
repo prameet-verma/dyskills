@@ -113,7 +113,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     const home = await tmp();
     await mkdir(join(repo, ".claude/skills/x"), { recursive: true });
     const fifo = join(repo, ".claude/skills/x/SKILL.md");
-    execFileSync("mkfifo", [fifo]);
+    execFileSync("mkfifo", [fifo], { timeout: 30_000 });
     try {
       const r = await within(2000, scanExistingSkills({ repo, home, etcDir: join(home, "etc") }));
       expect(r.skills).toEqual([]);
@@ -145,7 +145,7 @@ describe("scanExistingSkills hostile repository (never hangs or bloats)", () => 
     const repo = await tmp();
     const home = await tmp();
     const fifo = join(repo, "AGENTS.md");
-    execFileSync("mkfifo", [fifo]);
+    execFileSync("mkfifo", [fifo], { timeout: 30_000 });
     await symlink("/dev/zero", join(repo, "CLAUDE.md"));
     try {
       const r = await within(2000, scanExistingSkills({ repo, home, etcDir: join(home, "etc") }));

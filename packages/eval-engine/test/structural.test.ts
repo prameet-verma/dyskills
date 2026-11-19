@@ -597,6 +597,11 @@ describe("rendered syntax and placeholders (portability)", () => {
     expect(r).toEqual({ outcome: "warning", messages: ["positional placeholder in code"] });
   });
 
+  it("warns on a backslash-escaped positional placeholder inside a fence", async () => {
+    const r = await run("```sh\necho \\$1\n```");
+    expect(r).toEqual({ outcome: "warning", messages: ["positional placeholder in code"] });
+  });
+
   it("does not treat an unclosed fence as code", async () => {
     expect((await run("```sh\nPass $1 here")).outcome).toBe("fail");
   });
