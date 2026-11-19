@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { mkdir, readFile, readdir, realpath, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { placeBundle } from "@dynamic-skills/adapter-sdk";
 import type { HostProbe } from "@dynamic-skills/adapter-sdk";
@@ -186,11 +185,6 @@ describe("option values and --repo", () => {
     const id = await recorded();
     const r = await h.runWith(["save", "--session", "--scope=project"], { probe });
     expect(r.out.error).toBe("USAGE");
-    // The session is not read: `--session` swallowed the next flag, so it must not be looked up.
-    const r2 = await h.runWith(["status", "--session", "-x"], { probe });
-    expect(r2.stderr).toMatch(/USAGE/);
-    const r3 = await h.run(["assess", "--task", "--explicit"]);
-    expect(r3.out.error).toBe("USAGE");
     expect(await exists(sessionDir(id))).toBe(true);
   });
 });
@@ -213,24 +207,150 @@ describe("INTERNAL errors carry a fixed message (R45)", () => {
 });
 
 describe("save rollback removes the directories it created (R45)", () => {
-  it("rmdirs up to createdRoot, stops at a non-empty directory", async () => {
+  /** Saves for claude-code + codex; the first placement is real, the second one fails. */
+  async function failingSecond(): Promise<Awaited<ReturnType<Harness["run"]>>> {
     const id = await recorded();
     expect((await h.runWith(["activate", "--session", id], { probe })).exitCode).toBe(0);
-    const claude = join(h.repo, ".claude");
     let n = 0;
     hooks.place = async (input, real) => {
-      if (n++ === 0) {
-        const placed = await real(input);
-        return { ...placed, createdRoot: await realpath(claude) } as any;
-      }
+      if (n++ === 0) return real(input);
       throw Object.assign(new Error("boom"), { code: "EIO" });
     };
-    const r = await h.runWith(
+    return h.runWith(
       ["save", "--session", id, "--scope", "project", "--harness", "claude-code,codex"],
       { probe },
     );
+  }
+
+  it("leaves no .claude in a fresh repo", async () => {
+    const r = await failingSecond();
     expect(r.out.error).toBe("INTERNAL");
-    expect(await exists(claude)).toBe(false);
+    expect(r.out.message).toBe("unexpected internal error; see `status` (EIO)");
     expect(await readdir(h.repo)).not.toContain(".claude");
+  });
+
+  it("keeps a pre-existing empty .claude", async () => {
+    await mkdir(join(h.repo, ".claude"));
+    await failingSecond();
+    expect(await readdir(join(h.repo, ".claude"))).toEqual([]);
+  });
+
+  it("leaves no skills directory behind a symlinked .claude", async () => {
+    await mkdir(join(h.repo, "cfg"));
+    await symlink("cfg", join(h.repo, ".claude"));
+    await failingSecond();
+    expect(await readdir(join(h.repo, "cfg"))).toEqual([]);
+  });
+});
+
+describe("save --scope discard on an unreadable session (R45)", () => {
+  it("removes the session; a dry run only reports", async () => {
+    const id = await analysed(h);
+    await writeFile(join(sessionDir(id), "session.json"), "{ corrupt");
+    const dry = await h.runWith(["save", "--session", id, "--scope", "discard", "--dry-run"], {
+      probe,
+    });
+    expect(dry.exitCode).toBe(0);
+    expect(dry.out).toMatchObject({ dryRun: true, removed: false });
+    expect(await exists(sessionDir(id))).toBe(true);
+    const r = await h.runWith(["save", "--session", id, "--scope", "discard"], { probe });
+    expect(r.exitCode).toBe(0);
+    expect(r.out.removed).toBe(true);
+    expect(await exists(sessionDir(id))).toBe(false);
+  });
+
+  it("another command on an unreadable session points at clean, with no content", async () => {
+    const id = await analysed(h);
+    await writeFile(join(sessionDir(id), "session.json"), "API_KEY=sk-secret-123");
+    const r = await h.run(["compile", "--session", id]);
+    expect(r.out.error).toBe("INTERNAL");
+    expect(r.out.message).toMatch(/run `clean/);
+    expect(JSON.stringify(r.out) + r.stderr).not.toMatch(/sk-secret-123|API_KEY/);
+  });
+});
+
+describe("option values that start with a dash (R45)", () => {
+  it("accepts free text and --opt=value tokens", async () => {
+    const a = await h.run(["assess", "--task", "-fix the flaky test"]);
+    expect(a.exitCode).toBe(0);
+    const b = await h.run(["assess", "--task=--force push to a fork and add caching"]);
+    expect(b.exitCode).toBe(0);
+    const id = await recorded();
+    const file = await h.doc("o.txt", "Plan: invalidate the cache.");
+    const n = await h.run([
+      "eval",
+      "record",
+      "--session",
+      id,
+      "--output",
+      file,
+      "--verdict",
+      "fail",
+      "--notes",
+      "-- missing edge case",
+    ]);
+    expect(n.out.error).not.toBe("USAGE");
+  });
+
+  it("still refuses a value that is one of the command's own flags", async () => {
+    expect((await h.run(["save", "--session", "--scope=project"])).out.error).toBe("USAGE");
+    const r = await h.runWith(["init", "--harness", "claude-code", "--repo=--dry-run"], { probe });
+    expect(r.out.error).toBe("USAGE");
+    expect(r.out.message).toMatch(/--repo is not a directory/);
+  });
+});
+
+describe("a concurrent clean cannot leave a dead placement (R45)", () => {
+  it("re-places once when clean removes it between placeBundle and the refresh", async () => {
+    const y = await recorded();
+    const ry = await h.runWith(["activate", "--session", y], { vars: NATIVE_ON });
+    const dir = ry.out.native.path as string;
+    await utimes(dir, 1_000_000_000, 1_000_000_000);
+    const x = await recorded();
+    // `recorded` ran an assess whose sweep sees Y's reference; the placement is still there.
+    expect(await exists(dir)).toBe(true);
+    await utimes(dir, 1_000_000_000, 1_000_000_000);
+    let fired = false;
+    hooks.place = async (input, real) => {
+      const placed = await real(input);
+      if (!fired && input.mode === "native" && placed.action === "unchanged") {
+        fired = true;
+        const c = await h.run(["clean", "--session", y]);
+        expect(c.exitCode).toBe(0);
+        expect(await exists(dir)).toBe(false);
+      }
+      return placed;
+    };
+    const rx = await h.runWith(["activate", "--session", x], { vars: NATIVE_ON });
+    expect(fired).toBe(true);
+    expect(rx.exitCode).toBe(0);
+    // Either an existing placement or a limitation, never a dead path.
+    if (rx.out.native !== null)
+      expect(await exists(join(rx.out.native.path, "SKILL.md"))).toBe(true);
+    else expect(rx.out.limitations.join(" ")).toMatch(/Native registration skipped/);
+  });
+});
+
+describe("timeout handling (R45)", () => {
+  it("a failed report write at the deadline leaves skills/ and session.json untouched", async () => {
+    const id = await recorded();
+    await mkdir(join(sessionDir(id), "reports", "discovery.json"), { recursive: true });
+    h.clock.t += 2 * HOUR;
+    const r = await h.run(["activate", "--session", id]);
+    expect(r.exitCode).toBe(1);
+    expect(await exists(join(sessionDir(id), "skills"))).toBe(true);
+    expect((await h.readJson(id, "session.json")).status).not.toBe("timeout");
+  });
+
+  it("an already timed-out session gets its skills/ removed again", async () => {
+    const id = await recorded();
+    const file = join(sessionDir(id), "session.json");
+    const state = JSON.parse(await readFile(file, "utf8"));
+    state.status = "timeout";
+    await writeFile(file, JSON.stringify(state));
+    expect(await exists(join(sessionDir(id), "skills"))).toBe(true);
+    const r = await h.run(["activate", "--session", id]);
+    expect(r.exitCode).toBe(3);
+    expect(await exists(join(sessionDir(id), "skills"))).toBe(false);
   });
 });

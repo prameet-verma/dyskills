@@ -1,5 +1,5 @@
 import { lstat, readFile, readdir, rmdir } from "node:fs/promises";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   BundleLayoutError,
   bundleManifest,
@@ -36,8 +36,10 @@ interface Created {
   sha256: string;
   /** The root did not exist before this call, so an empty root is removed again on rollback. */
   rootWasNew: boolean;
-  /** Topmost directory `placeBundle` created for this bundle, when the SDK reports it. */
-  createdRoot?: string;
+  /** Realpath of the placed bundle, as the SDK reports it. */
+  realPath?: string;
+  /** Realpaths of the directories `placeBundle` created, deepest first. */
+  createdDirs?: string[];
 }
 
 /** The single skill directory under the session's `skills/`; anything else is an invalid bundle. */
@@ -92,23 +94,23 @@ async function findMachinePath(
 /** Takes back every bundle this call created, newest first; never throws. */
 async function rollback(created: Created[]): Promise<void> {
   for (const c of [...created].reverse()) {
-    await removePlacedBundle(c.path, c.sha256, c.root);
-    if (c.createdRoot !== undefined) {
-      // Empty parents the placement created, deepest first, never `rm -r`: stop at the first
-      // directory that is not empty (or not ours) and at `createdRoot` itself.
-      let dir = dirname(c.path);
-      while (dir === c.createdRoot || dir.startsWith(`${c.createdRoot}${sep}`)) {
-        if (
-          !(await rmdir(dir).then(
-            () => true,
-            () => false,
-          ))
-        )
-          break;
-        if (dir === c.createdRoot) break;
-        dir = dirname(dir);
-      }
-    } else if (c.rootWasNew) await rmdir(c.root).catch(() => undefined);
+    await removePlacedBundle(
+      c.realPath ?? c.path,
+      c.sha256,
+      c.realPath === undefined ? c.root : dirname(c.realPath),
+    );
+    // Only the directories this call created (realpaths, deepest first); never `rm -r`, and stop
+    // at the first one that is not empty or cannot be removed.
+    for (const dir of c.createdDirs ?? []) {
+      if (
+        !(await rmdir(dir).then(
+          () => true,
+          () => false,
+        ))
+      )
+        break;
+    }
+    if (c.createdDirs === undefined && c.rootWasNew) await rmdir(c.root).catch(() => undefined);
   }
 }
 
@@ -288,10 +290,8 @@ export const saveCommand: SessionCommandDef = {
             path: placed.path,
             sha256: placed.manifest.sha256,
             rootWasNew,
-            // FW1's SDK reports the topmost directory it created; older SDKs do not.
-            ...(typeof (placed as { createdRoot?: unknown }).createdRoot === "string"
-              ? { createdRoot: (placed as unknown as { createdRoot: string }).createdRoot }
-              : {}),
+            ...(placed.realPath !== undefined ? { realPath: placed.realPath } : {}),
+            ...(placed.createdDirs !== undefined ? { createdDirs: placed.createdDirs } : {}),
           });
         }
         // AC 20: what was written is what was evaluated.

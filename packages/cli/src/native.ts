@@ -185,7 +185,15 @@ export async function sweepNativePlacements(
   });
   for (const tmp of staleTemps) {
     if (Date.now() >= deadline) break;
-    await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+    try {
+      // The listing is a snapshot: the layout may have become a symlink since (Ruling R42).
+      const parent = dirname(tmp);
+      if ((await realpath(parent)) !== parent) continue;
+      if (!(await lstat(tmp)).isDirectory()) continue;
+      await rm(tmp, { recursive: true, force: true });
+    } catch {
+      // Vanished or unreadable: left for the next sweep.
+    }
   }
   if (placements.length === 0) return [];
   const { byDir, unparsable } = await readNativeReferences(realHome);
@@ -313,16 +321,18 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
         );
       }
     }
-    const placed = await placeBundle({
-      srcDir: skillDir,
-      destRoot: root,
-      name,
-      mode: "native",
-      // The realpath fixed when the host environment was built: `placeBundle` re-resolves its
-      // `within`, so a `native` swapped for a symlink after the check above still lands outside.
-      within: env.sessionHome,
-      ...(input.testHooks === undefined ? {} : { testHooks: input.testHooks }),
-    });
+    const place = (): ReturnType<typeof placeBundle> =>
+      placeBundle({
+        srcDir: skillDir,
+        destRoot: root,
+        name,
+        mode: "native",
+        // The realpath fixed when the host environment was built: `placeBundle` re-resolves its
+        // `within`, so a `native` swapped for a symlink after the check above still lands outside.
+        within: env.sessionHome,
+        ...(input.testHooks === undefined ? {} : { testHooks: input.testHooks }),
+      });
+    let placed = await place();
     if (placed.action === "conflict") return none(conflictLimitation(placed.reason, name));
     // Ruling R42: the sweep acts only in a native directory this tool made. `wx` never follows a
     // symlink and never overwrites; an existing marker (EEXIST) is the normal case.
@@ -330,9 +340,26 @@ export async function placeNative(input: PlaceNativeInput): Promise<PlaceNativeR
       () => undefined,
     );
     if (placed.action === "unchanged") {
-      // Reuse restarts the grace period; best effort.
-      const t = new Date();
-      await utimes(placed.path, t, t).catch(() => undefined);
+      // Reuse restarts the grace period (Ruling R45). Another session's `clean` may have removed
+      // the placement between `placeBundle` and here; a vanished directory is placed again once,
+      // and a second failure is a skip, never a path that no longer exists.
+      const refresh = async (): Promise<boolean> => {
+        const t = new Date();
+        try {
+          await utimes(placed.path, t, t);
+          return (await lstat(placed.path)).isDirectory();
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+          return true; // best effort: any other failure leaves the (existing) placement as is
+        }
+      };
+      if (!(await refresh())) {
+        placed = await place();
+        if (placed.action === "conflict") return none(conflictLimitation(placed.reason, name));
+        if (placed.action === "unchanged" && !(await refresh())) {
+          return none("Native registration skipped: the placement was removed by another session.");
+        }
+      }
     }
     return {
       created: placed.action === "create",

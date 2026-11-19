@@ -76,7 +76,7 @@ export class CliError extends Error {
 
 /** Process-level inputs of one invocation, injectable so tests never touch the real home. */
 export interface CliEnv {
-  /** Session storage root; defaults to `resolveHome()`. */
+  /** Session storage root; defaults to `DYNAMIC_SKILLS_HOME` when absolute, else the temp-dir default. */
   home?: string;
   /** Working directory that relative `--repo` and `--file` values resolve against. */
   cwd?: string;

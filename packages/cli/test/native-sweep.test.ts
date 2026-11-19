@@ -293,6 +293,21 @@ describe("native sweep safety", () => {
     expect(await exists(outside)).toBe(true);
   });
 
+  it("does not remove a stale temp directory behind a symlinked layout (R42)", async () => {
+    const root = await nativeRoot();
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, ".dynamic-skills-native"), "");
+    const outside = join(h.tmp, "elsewhere");
+    const tmpDir = join(outside, ".some-skill.tmp-deadbeef");
+    await mkdir(join(tmpDir, "x"), { recursive: true });
+    const stale = new Date(Date.now() - 2 * HOUR);
+    await utimes(tmpDir, stale, stale);
+    await mkdir(join(root, "claude-code/.claude"), { recursive: true });
+    await symlink(outside, join(root, "claude-code/.claude/skills"));
+    await native.sweepNativePlacements(h.home, h.clock.t);
+    expect(await exists(tmpDir)).toBe(true);
+  });
+
   it("re-checks the mtime right before removal (R45)", async () => {
     const lay = await layout();
     const dir = join(lay, "some-skill");

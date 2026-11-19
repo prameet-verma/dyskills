@@ -37,6 +37,9 @@ export async function endAbandonedSession(
   await writeTerminalReports(store, state, at);
 }
 
+const GRACE_NOTE =
+  "the native placement was placed or refreshed within the last 10 minutes; it was kept";
+
 /**
  * Decides whether the native placement of `state` may be removed, and why not (Ruling R38).
  * The native root must be a real directory under the real home (never a symlink, which could
@@ -84,7 +87,7 @@ async function nativeRemovalBlocker(
   // reference yet; a placement inside the R39 grace window (real clock) is kept.
   const placed = await lstat(dir).catch(() => null);
   if (placed !== null && inPlacementGrace(placed.mtimeMs)) {
-    return "the native placement was placed or refreshed within the last 10 minutes; it was kept";
+    return GRACE_NOTE;
   }
   const refs = await readNativeReferences(store.home, { exclude: state.id });
   if (refs.unparsable > 0) {
@@ -127,7 +130,13 @@ export async function discardSession(
     const within = join(await realpath(store.home).catch(() => store.home), "native");
     const why = await nativeRemovalBlocker(store, { ...state, native: state.native }, within);
     if (why !== null) notes.push(why);
-    else await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
+    else {
+      // Ruling R45: look again right before removing; another session may have reused the
+      // placement since the check above (a microsecond window remains, see cli-reference).
+      const again = await lstat(state.native.dir).catch(() => null);
+      if (again !== null && inPlacementGrace(again.mtimeMs)) notes.push(GRACE_NOTE);
+      else await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);
+    }
   }
   await store.remove(state.id);
   return { archived, notes };
