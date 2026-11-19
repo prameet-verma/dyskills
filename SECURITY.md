@@ -72,8 +72,8 @@ treat as instructions. The design assumes both inputs can be hostile.
   `permissions.ask` (ask beats allow), a Codex `prefix_rule` with `decision = "prompt"` (the
   strictest wins) and OpenCode `"ask"` entries (the last match wins; project scope writes only the asks, with no broad
   allow). The CLI
-  rejects any option placed before the subcommand so `dynamic-skills -V save` cannot slip past
-  them. **Limit:** OpenCode matches the raw command text, so a quoted or extra-spaced subcommand
+  rejects any option placed before the subcommand, so `dynamic-skills -V save` does not change
+  which rule matches. **Limit:** OpenCode matches the raw command text, so a quoted or extra-spaced subcommand
   (`dynamic-skills 'save' ...`) is not asked; the ask rules are a prompt for ordinary calls, not an
   enforcement boundary. A headless run cannot answer a prompt, so a save there is a terminal run
   of `dynamic-skills save` or a relaxed rule, as each [harness guide](docs/harnesses/claude-code.md)
@@ -103,9 +103,15 @@ treat as instructions. The design assumes both inputs can be hostile.
   placement. Both keep a placement within the R39 grace, including the session's own, and the next
   sweep removes it. `save --scope discard` and `--scope ephemeral` accept `--dry-run` and change
   nothing (R45). Internal errors carry a fixed message, never exception text.
-- **OpenCode project scope asks, never allows broadly.** Project-scope `init` writes only the
-  `save` and `init` ask entries (no broad allow); its consent notes simulate the layered config,
-  including agent-level permissions (R44).
+- **OpenCode `init` never weakens a deny.** Project-scope `init` writes only the `save` and
+  `init` ask entries (no broad allow, R44). It omits an ask whose command a project config file
+  already denies, and keeps writing it when the deny is only in your personal config, so
+  teammates who load the committed file are still asked; your personal deny then becomes ask in
+  that project, with a note. Personal-scope `init` is judged over your personal and global config
+  only: it leaves out any entry that would weaken an existing deny, and it never makes `save` or
+  `init` resolve to allow (if your own config already allows them, it notes that). Consent notes
+  simulate the layered config, including agent-level permissions; the simulation is an
+  approximation (R46, see [the OpenCode guide](docs/harnesses/opencode.md)).
 - **No network or model calls** are made by any package.
 - Terminal output is stripped of control characters, because session ids and options are
   agent-controlled.

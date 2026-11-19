@@ -15,6 +15,12 @@ import {
 } from "../src/index";
 /** Absolute, load-tolerant ceiling; a quadratic scan misses it by orders of magnitude. */
 const CEILING_MS = 3000;
+/**
+ * Ceiling for the linear-time guards on ~90k-character inputs. A quadratic regression on that
+ * size takes seconds, so 1 s still catches it while tolerating a heavily loaded machine (a 200 ms
+ * ceiling flaked at load average 26).
+ */
+const LINEAR_CEILING_MS = 1000;
 import { GOLDEN_AUGMENT_RAW, GOLDEN_RAW, ROOT, makeContext } from "./helpers";
 
 const ALL: GenerationEval[] = [
@@ -192,7 +198,7 @@ describe("grounding", () => {
     const t0 = performance.now();
     await groundingEval.run(ctx);
     await roleEval.run(ctx);
-    expect(performance.now() - t0).toBeLessThan(200);
+    expect(performance.now() - t0).toBeLessThan(LINEAR_CEILING_MS);
   });
 
   it("fails zero-width and emphasis-split citation openers", async () => {
@@ -219,7 +225,7 @@ describe("grounding", () => {
     const t0 = performance.now();
     await groundingEval.run(ctx);
     await roleEval.run(ctx);
-    expect(performance.now() - t0).toBeLessThan(200);
+    expect(performance.now() - t0).toBeLessThan(LINEAR_CEILING_MS);
   });
 
   it("stays linear on an unterminated tag followed by whitespace", async () => {
@@ -323,7 +329,7 @@ describe("assumptions", () => {
     const ctx = await makeContext({ evidence });
     const t0 = performance.now();
     await assumptionsEval.run(ctx);
-    expect(performance.now() - t0).toBeLessThan(200);
+    expect(performance.now() - t0).toBeLessThan(LINEAR_CEILING_MS);
   });
 
   it("applies the version rule", async () => {

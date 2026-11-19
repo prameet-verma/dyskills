@@ -125,7 +125,7 @@ skills.
 `prefix_rule` with `decision = "prompt"` (the strictest decision wins) and OpenCode `"ask"` entries
 (the last match wins; project scope writes only the asks, see below). The harness's approval prompt is the user's consent
 to persist a skill (PRD §11.2). The CLI rejects any program option placed before the subcommand,
-so `dynamic-skills -V save` cannot slip past the rules. A headless run that must save runs the
+so `dynamic-skills -V save` does not change which rule matches. A headless run that must save runs the
 command in a terminal, or relaxes the rule as each adapter README describes. OpenCode matches raw
 command text, so a quoted subcommand is a known limit ([ADR 0007](adr/0007-harness-adapter-interface.md)).
 
@@ -136,9 +136,13 @@ prefix, a glob, or control flow and subshells skip the rules, and a `prompt` or 
 not fire for such a command. Under `workspace-write` it still runs inside the sandbox; only
 `danger-full-access` leaves it fully exposed. The bootstrap skill tells agents to run
 `dynamic-skills` commands bare (Ruling R43). OpenCode project-scope `init` writes
-only the `save` and `init` ask entries, with no broad `dynamic-skills *` allow, and its consent
-notes simulate the layered config (global, then the project root, then `.opencode`, including
-agent-level permissions); personal scope is unchanged (Ruling R44).
+only the `save` and `init` ask entries, with no broad `dynamic-skills *` allow (Ruling R44). `init`
+never weakens a deny (Ruling R46): in project scope it omits an ask only for a deny in a project
+config file, so the committed file still asks teammates; in personal scope it is judged over the
+personal and global config only, leaves out any entry that would weaken a deny, and never makes
+`save` or `init` resolve to allow. Consent notes simulate the layered config, including
+agent-level permissions; this is an approximation, described in the
+[OpenCode guide](harnesses/opencode.md).
 
 ## Session directory
 

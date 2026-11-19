@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { bundleManifest } from "../../packages/adapter-sdk/src/index";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -332,10 +332,18 @@ describe("AC 28 ephemeral isolation", () => {
       expect(placed.length).toBe(1);
       expect(await w.exists(join(skills, placed[0] as string, "SKILL.md"))).toBe(true);
       expect(await w.hashRoots()).toEqual(rootsBefore);
+      // Ruling R45: clean keeps a placement still inside the R39 grace (real-clock mtime under
+      // 10 minutes old). Age it past the grace so this clean is the one that removes it.
+      const old = new Date(Date.now() - 60 * 60 * 1000);
+      await utimes(join(skills, placed[0] as string), old, old);
       await ok(["clean", ...sid(id)], env);
       // The placed skill (directory and files) is gone. Only the empty `--add-dir` skeleton that
-      // placement created stays (mode 0700); nothing else, and nothing that held the skill.
-      expect(await hashTree(nativeDir)).toEqual({
+      // placement created stays (mode 0700), plus the R42 sweep marker; nothing that held the skill.
+      const after = await hashTree(nativeDir);
+      const { "/.dynamic-skills-native": marker, ...rest } = after;
+      expect(marker).toMatch(/^\d{3} /);
+      expect(marker).not.toMatch(/dir$/);
+      expect(rest).toEqual({
         ...before,
         "/claude-code/": "700 dir",
         "/claude-code/.claude/": "700 dir",
