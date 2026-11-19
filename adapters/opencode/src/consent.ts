@@ -14,6 +14,8 @@ interface Rule {
   effect: string;
   /** True for OpenCode's built-in default, which no config layer wrote. */
   builtin?: boolean;
+  /** Which rule group the rule came from: the global rules or an agent's own. */
+  group?: "global" | "agent";
 }
 
 const isObj = (v: JsonValue | undefined): v is JsonObject =>
@@ -121,7 +123,13 @@ const isDocumentedOptOut = (label: string, pattern: string): boolean =>
  * @param agent - The agent whose permission produced the result, or `null` for the global rules.
  * @returns The note text.
  */
-function noteFor(label: string, rule: Rule, source: string | null, agent: string | null): string {
+function noteFor(
+  label: string,
+  rule: Rule,
+  source: string | null,
+  agent: string | null,
+  ownWrite: boolean,
+): string {
   const who = agent === null ? "" : ` for agent \`${agent}\``;
   const from = source === null ? "OpenCode's built-in default" : source;
   if (rule.effect === "allow" && isDocumentedOptOut(label, rule.pattern)) {
@@ -133,7 +141,9 @@ function noteFor(label: string, rule: Rule, source: string | null, agent: string
   return (
     `D6 consent for \`dynamic-skills ${label}\` will not apply${who} once OpenCode merges its configuration layers: ` +
     `${describe(rule)} from ${from} wins (OpenCode evaluates the last matching rule). ` +
-    "Move or remove that rule so the consent entry is evaluated last."
+    (ownWrite
+      ? "That rule is an entry init itself writes; fix the earlier or later layer that conflicts with it, or edit the entry, rather than moving it."
+      : "Move or remove that rule so the consent entry is evaluated last.")
   );
 }
 
@@ -175,6 +185,10 @@ export interface ConsentLayers {
   before?: readonly Layer[];
   /** Layers OpenCode merges after the written file (later layers). */
   after?: readonly Layer[];
+  /** Probe labels (`save`, `init`) whose deny is already explained by an `init` note. */
+  skip?: ReadonlySet<string>;
+  /** Patterns of the entries `init` itself writes; the advice never tells the user to move those. */
+  own?: ReadonlySet<string>;
 }
 
 /** Agent entries of a document: `agent`, and on the v2 line also `agents` (spike section 5). */
@@ -227,17 +241,23 @@ function resolve(
   const migrate = variant === "v2";
   let rules: Rule[] = [];
   if (isObj(effective)) {
-    rules = docRules(effective, variant, null);
-    if (agent !== null) rules = [...rules, ...docRules(effective, variant, agent)];
+    rules = docRules(effective, variant, null).map((r) => ({ ...r, group: "global" as const }));
+    if (agent !== null) {
+      rules = [
+        ...rules,
+        ...docRules(effective, variant, agent).map((r) => ({ ...r, group: "agent" as const })),
+      ];
+    }
   }
   const rule = evaluate(migrate ? "shell" : "bash", command, rules);
   if (rule.builtin === true) return { rule, source: null };
   for (let i = layers.length - 1; i >= 0; i--) {
-    const own = [
-      ...(agent === null ? [] : docRules(layers[i]!.doc, variant, agent)),
-      ...docRules(layers[i]!.doc, variant, null),
-    ];
-    if (own.some((r) => r.action === rule.action && r.pattern === rule.pattern)) {
+    const own = docRules(layers[i]!.doc, variant, rule.group === "agent" ? agent : null);
+    if (
+      own.some(
+        (r) => r.action === rule.action && r.pattern === rule.pattern && r.effect === rule.effect,
+      )
+    ) {
       return { rule, source: layers[i]!.path };
     }
   }
@@ -321,13 +341,25 @@ export function consentNotes(
   const notes: string[] = [];
   for (const probe of PROBES) {
     const global = resolve(all, variant, probe.command, null);
-    if (global.rule.effect !== "ask") {
-      notes.push(noteFor(probe.label, global.rule, global.source, null));
+    const ownWrite = (r: Rule, source: string | null): boolean =>
+      source === path && (layers.own?.has(r.pattern) ?? false);
+    const covered = (r: Rule): boolean =>
+      r.effect === "deny" && (layers.skip?.has(probe.label) ?? false);
+    if (global.rule.effect !== "ask" && !covered(global.rule)) {
+      notes.push(
+        noteFor(
+          probe.label,
+          global.rule,
+          global.source,
+          null,
+          ownWrite(global.rule, global.source),
+        ),
+      );
     }
     for (const name of agents) {
       const r = resolve(all, variant, probe.command, name);
       if (r.rule.effect === "ask" || describe(r.rule) === describe(global.rule)) continue;
-      notes.push(noteFor(probe.label, r.rule, r.source, name));
+      notes.push(noteFor(probe.label, r.rule, r.source, name, ownWrite(r.rule, r.source)));
     }
   }
   return notes;

@@ -133,7 +133,7 @@ function at(v: JsonValue | undefined, path: string[]): JsonValue | undefined {
 const parseDoc = (text: string): JsonValue =>
   parse(text, [], { allowTrailingComma: true }) as JsonValue;
 
-/** Ids longer than any native header limit, so a header can never stand in for the id. */
+/** Ids longer than any native header limit, so a header cannot stand in for the id. */
 const SAMPLE_ID = (key: string): string => `${key}-sample-identifier`;
 
 function sampleQuestions(): NativeQuestionInput[] {
@@ -204,12 +204,13 @@ function callSize(call: JsonObject, nativeIds: string[]): number {
 }
 
 /**
- * Registers the adapter compatibility cases (13, plus the untested-version case and, when `consent` is set, the consent case) under `describe("adapter compat: <name>")`.
- * Call it from a test file. The cases build their own tmp worlds (home copy, project with `.git`,
+ * Registers the 14 adapter compatibility cases, plus a consent case when `consent` is set, under
+ * `describe("adapter compat: <name>")`. Call it from a test file. The cases build their own tmp worlds (home copy, project with `.git`,
  * a session home reached through a symlink alias, an etc dir) and a fake probe; nothing real is
  * read or written. Native-question payloads are inspected generically: a call's size is
- * `call.questions.length` when present, and option labels are found as arrays of strings or
- * `{ label }` objects.
+ * `call.questions.length` when present, option labels are found as arrays of strings or
+ * `{ label }` objects, and each `idMap` key must be a value of a payload object that also carries
+ * the mapped question's text and option labels.
  */
 export function defineAdapterCompatSuite(t: CompatTarget): void {
   const { adapter } = t;

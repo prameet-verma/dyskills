@@ -623,7 +623,7 @@ describe("opencode installer", () => {
     return out;
   }
 
-  it("R46: a personal save deny is kept by project init (cross-layer), with a note", async () => {
+  it("N1: a personal-only save deny does not stop the project ask; teammates get ask, with a note", async () => {
     const w = await setup(FIXTURE_V1, V1_VERSION);
     const C = personalConfigDir(w.env);
     await writeFile(
@@ -632,19 +632,150 @@ describe("opencode installer", () => {
     );
     const p = await plan(w, "project");
     expect(mergeWrite(p).patch).toEqual({
+      permission: {
+        bash: { "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" },
+      },
+    });
+    expect(p.notes.join("\n")).toMatch(
+      /your personal deny for `dynamic-skills save` .* becomes ask in this project, because the project ask overrides the same key/,
+    );
+    await applyPlan(p, { dryRun: false, force: false });
+    // A teammate has none of the personal layers: the project files alone must ask.
+    const teammate: never[] = [];
+    for (const f of layerPaths(w.env, "v1").filter((x) => x.startsWith(w.project))) {
+      try {
+        teammate.push(JSON.parse(await readFile(f, "utf8")) as never);
+      } catch {
+        /* absent */
+      }
+    }
+    expect(effectiveDecision(teammate, "v1", "dynamic-skills save --session x")).toBe("ask");
+    expect(effectiveDecision(teammate, "v1", "dynamic-skills init --harness opencode")).toBe("ask");
+  });
+
+  it("N1: a deny in a project layer is kept (the ask is omitted)", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    await writeFile(
+      join(w.project, "opencode.json"),
+      JSON.stringify({ permission: { bash: { "dynamic-skills save *": "deny" } } }),
+    );
+    const p = await plan(w, "project");
+    expect(mergeWrite(p).patch).toEqual({
       permission: { bash: { "dynamic-skills init *": "ask" } },
     });
     const notes = p.notes.join("\n");
-    expect(notes).toMatch(
-      /`dynamic-skills save` is denied by .*opencode\.json.*init kept the deny/,
-    );
-    expect(notes).not.toMatch(/`dynamic-skills init` is denied by/);
-    await applyPlan(p, { dryRun: false, force: false });
-    const docs = await layerDocs(w);
-    expect(effectiveDecision(docs, "v1", "dynamic-skills save --session x")).toBe("deny");
-    expect(effectiveDecision(docs, "v1", "dynamic-skills init --harness opencode")).toBe("ask");
+    expect(notes).toMatch(/`dynamic-skills save` is denied by .*init kept the deny/);
+    expect(notes.match(/`dynamic-skills save` is denied/g)).toHaveLength(1);
+    expect(notes).not.toMatch(/your personal deny for/);
   });
 
+  async function personalCase(
+    variant: "v1" | "v2",
+    layers: Record<string, unknown>,
+    vars: Record<string, string> = {},
+  ) {
+    const w =
+      variant === "v1"
+        ? await setup(FIXTURE_V1, V1_VERSION, vars)
+        : await setup(FIXTURE_V2, V2_VERSION, vars);
+    await rm(join(w.home, ".config/opencode/opencode.json"), { force: true });
+    for (const [rel, doc] of Object.entries(layers)) {
+      const f = join(w.home, rel);
+      await mkdir(dirname(f), { recursive: true });
+      await writeFile(f, JSON.stringify(doc));
+    }
+    const cmds = [
+      "dynamic-skills save --session x --scope project",
+      "dynamic-skills init --harness opencode --scope personal",
+      "dynamic-skills status --session x",
+    ];
+    const read = async (): Promise<never[]> => layerDocs(w, variant);
+    const before = await read();
+    const p = await plan(w, "personal");
+    await applyPlan(p, { dryRun: false, force: false });
+    const after = await read();
+    const rank: Record<string, number> = { allow: 0, ask: 1, deny: 2 };
+    return {
+      p,
+      weaker: cmds.filter(
+        (c) =>
+          rank[effectiveDecision(after, variant, c)]! <
+          rank[effectiveDecision(before, variant, c)]!,
+      ),
+      after,
+    };
+  }
+
+  it("N2: OPENCODE_CONFIG_DIR plus a global broad deny is never weakened, with notes", async () => {
+    const r = await personalCase(
+      "v1",
+      { ".config/opencode/opencode.json": { permission: { bash: { "*": "deny" } } } },
+      { OPENCODE_CONFIG_DIR: "{home}/custom" },
+    );
+    expect(r.weaker).toEqual([]);
+    expect(effectiveDecision(r.after, "v1", "dynamic-skills save --session x")).toBe("deny");
+    expect(r.p.notes.join("\n")).toMatch(/init left out `"dynamic-skills \*": "allow"`/);
+    expect(r.p.notes.join("\n")).not.toMatch(/Move or remove/);
+  });
+
+  it("N2: a broad deny in config.json is never weakened, with notes", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/config.json": { permission: { bash: { "*": "deny" } } },
+    });
+    expect(r.weaker).toEqual([]);
+    expect(r.p.notes.join("\n")).toMatch(/init left out/);
+  });
+
+  it("N2: a save deny in config.json is never weakened, with notes", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/config.json": {
+        permission: { bash: { "dynamic-skills save *": "deny" } },
+      },
+    });
+    expect(r.weaker).toEqual([]);
+    expect(effectiveDecision(r.after, "v1", "dynamic-skills save --session x")).toBe("deny");
+    const notes = r.p.notes.join("\n");
+    expect(notes).toMatch(/init left out `"dynamic-skills save \*": "ask"`/);
+    expect(notes).toMatch(/init left out `"dynamic-skills \*": "allow"`/);
+    expect(notes.match(/`dynamic-skills save` is denied/g) ?? []).toHaveLength(0);
+  });
+
+  it("N2: a broad deny in the very file init writes is kept, without a conflict", async () => {
+    const r = await personalCase("v1", {
+      ".config/opencode/opencode.json": {
+        permission: { bash: { "dynamic-skills *": "deny" } },
+      },
+    });
+    expect(r.weaker).toEqual([]);
+    expect(effectiveDecision(r.after, "v1", "dynamic-skills save --session x")).toBe("deny");
+    expect(r.p.notes.join("\n")).toMatch(/init left out/);
+  });
+
+  it("N2: the personal write still works and allows read-only commands when nothing conflicts", async () => {
+    const r = await personalCase("v1", {});
+    expect(r.weaker).toEqual([]);
+    expect(r.p.notes.join("\n")).not.toMatch(/init left out/);
+  });
+
+  it("M-a: an agent's winning rule is attributed to the agent's file, matching its effect", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const C = personalConfigDir(w.env);
+    const globalFile = join(C, "opencode.json");
+    await writeFile(
+      globalFile,
+      JSON.stringify({
+        permission: { bash: { "*": "ask", "dynamic-skills save *": "ask" } },
+        agent: { build: { permission: { bash: { "dynamic-skills *": "allow" } } } },
+      }),
+    );
+    await writeFile(
+      join(w.project, "opencode.json"),
+      JSON.stringify({ permission: { bash: { "dynamic-skills *": "ask" } } }),
+    );
+    const notes = (await plan(w, "project")).notes.filter((n) => n.includes("for agent `build`"));
+    expect(notes.length).toBeGreaterThan(0);
+    for (const n of notes) expect(n).toContain(`from ${globalFile} wins`);
+  });
   it("R46: a same-file dynamic-skills * deny is kept, nothing is written, no conflict", async () => {
     const w = await setup(FIXTURE_V1, V1_VERSION);
     const file = join(w.project, ".opencode/opencode.json");

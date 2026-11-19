@@ -191,40 +191,106 @@ export async function planOpenCodeInstall(
   const after = await layersOf(at < 0 ? [] : order.slice(at + 1));
 
   const notes: string[] = [];
-  let entries: Record<string, string> = { ...PROJECT_BASH_ENTRIES };
+  const SAVE_CMD = "dynamic-skills save --session x --scope project";
+  const INIT_CMD = "dynamic-skills init --harness opencode --scope personal";
+  const STATUS_CMD = "dynamic-skills status --session x";
+  const RANK: Record<string, number> = { allow: 0, ask: 1, deny: 2 };
+  const decide = (layers: readonly Layer[], command: string) =>
+    resolveCommand(layers, variant, command);
+  const currentLayer: Layer[] =
+    chosenRead.doc === undefined ? [] : [{ path: chosen, doc: chosenRead.doc }];
+  const skip = new Set<string>();
+  const entries: Record<string, string> = project
+    ? { ...PROJECT_BASH_ENTRIES }
+    : { ...BASH_ENTRIES };
+
   if (project) {
-    // Ruling R46: never weaken an existing deny. Evaluate over the earlier layers plus the chosen
-    // document as it is now (without our patch); a deny keeps its place, so that ask is omitted.
-    const current: Layer[] = [
-      ...before,
-      ...(chosenRead.doc === undefined ? [] : [{ path: chosen, doc: chosenRead.doc }]),
-    ];
+    // Rulings R46 (amended): the committed file protects everyone who loads it. A deny in a
+    // project layer (root project files, `.opencode`) is never weakened, so that ask is omitted. A
+    // deny that lives only in a personal or global layer is not shared with teammates, so the ask
+    // is still written (and the note says the personal deny becomes an ask here).
+    const inProject = (l: Layer): boolean =>
+      l.path.startsWith(`${P}/`) || l.path.startsWith(`${P}\\`);
+    const projectLayers: Layer[] = [...before.filter(inProject), ...currentLayer];
+    const allLayers: Layer[] = [...before, ...currentLayer];
     for (const [label, command] of [
-      ["save", "dynamic-skills save --session x --scope project"],
-      ["init", "dynamic-skills init --harness opencode --scope personal"],
+      ["save", SAVE_CMD],
+      ["init", INIT_CMD],
     ] as const) {
-      const r = resolveCommand(current, variant, command);
-      if (r.effect !== "deny") continue;
-      delete entries[`dynamic-skills ${label} *`];
-      notes.push(
-        `\`dynamic-skills ${label}\` is denied by ${r.source ?? chosen} (\`"${r.pattern}": "deny"\`); init kept the deny and did not write the \`${label}\` ask entry.`,
-      );
+      const shared = decide(projectLayers, command);
+      if (shared.effect === "deny") {
+        delete entries[`dynamic-skills ${label} *`];
+        skip.add(label);
+        notes.push(
+          `\`dynamic-skills ${label}\` is denied by ${shared.source ?? chosen} (\`"${shared.pattern}": "deny"\`); init kept the deny and did not write the \`${label}\` ask entry.`,
+        );
+      } else {
+        const own = decide(allLayers, command);
+        if (own.effect === "deny") {
+          notes.push(
+            `your personal deny for \`dynamic-skills ${label}\` (${own.source ?? "a personal layer"}) becomes ask in this project, because the project ask overrides the same key; teammates get ask, never allow.`,
+          );
+        }
+      }
     }
-  } else {
-    entries = { ...BASH_ENTRIES };
   }
 
-  const patch: JsonObject = project
-    ? { permission: { bash: { ...entries } } }
-    : {
-        permission: {
-          bash: { ...BASH_ENTRIES },
-          external_directory: { [`${H}/*`]: "allow" },
-          edit: { [`${H}/*`]: "allow" },
-        },
-      };
+  const buildPatch = (): JsonObject => {
+    if (project) return { permission: { bash: { ...entries } } };
+    const permission: JsonObject = {
+      external_directory: { [`${H}/*`]: "allow" },
+      edit: { [`${H}/*`]: "allow" },
+    };
+    if (Object.keys(entries).length > 0) permission.bash = { ...entries };
+    return {
+      permission: {
+        ...(permission.bash === undefined ? {} : { bash: permission.bash }),
+        external_directory: permission.external_directory as JsonValue,
+        edit: permission.edit as JsonValue,
+      },
+    };
+  };
 
-  if (!project || Object.keys(entries).length > 0) {
+  if (!project) {
+    // Ruling R46 (amended): never weaken an earlier or later layer's decision for save, init or a
+    // read-only command. Leave out the entries responsible and say so.
+    const base: Layer[] = [...before, ...currentLayer, ...after];
+    const probes: [string, string][] = [
+      ["save", SAVE_CMD],
+      ["init", INIT_CMD],
+      ["status", STATUS_CMD],
+    ];
+    for (let round = 0; round < 4; round += 1) {
+      const doc = mergeJson(chosenRead.doc, buildPatch(), { promote: PROMOTE }).value;
+      const next: Layer[] = [...before, { path: chosen, doc }, ...after];
+      let dropped = false;
+      for (const [label, command] of probes) {
+        const was = decide(base, command);
+        const now = decide(next, command);
+        if ((RANK[now.effect] ?? 0) >= (RANK[was.effect] ?? 0)) continue;
+        // A read-only command may go from ask to allow (that is what the broad allow is for).
+        if (label === "status" && was.effect !== "deny") continue;
+        const askKey = `dynamic-skills ${label} *`;
+        const key =
+          label !== "status" && was.effect === "deny" && askKey in entries
+            ? askKey
+            : "dynamic-skills *";
+        if (!(key in entries)) continue;
+        delete entries[key];
+        dropped = true;
+        if (label !== "status") skip.add(label);
+        notes.push(
+          `init left out \`"${key}": "${key === askKey ? "ask" : "allow"}"\` because it would weaken your ${was.effect} for \`dynamic-skills ${label}\` (from ${was.source ?? "OpenCode's built-in default"}) to ${now.effect}.`,
+        );
+        break;
+      }
+      if (!dropped) break;
+    }
+  }
+
+  const patch = buildPatch();
+  const hasWrite = project ? Object.keys(entries).length > 0 : true;
+  if (hasWrite) {
     writes.push({
       kind: "jsonc-merge",
       path: chosen,
@@ -264,11 +330,17 @@ export async function planOpenCodeInstall(
   // Rulings R34/R44: simulate OpenCode's layered merge (mergeDeep key order), with the file init
   // writes in its own slot, and report (never block) when another rule outranks the consent
   // entries we are about to write. An approximation: see consentNotes for what is not modelled.
-  const merged =
-    project && Object.keys(entries).length === 0
-      ? (chosenRead.doc ?? {})
-      : mergeJson(chosenRead.doc, patch, { promote: PROMOTE }).value;
-  notes.push(...consentNotes(merged, variant, chosen, { before, after }));
+  const merged = hasWrite
+    ? mergeJson(chosenRead.doc, patch, { promote: PROMOTE }).value
+    : (chosenRead.doc ?? {});
+  notes.push(
+    ...consentNotes(merged, variant, chosen, {
+      before,
+      after,
+      skip,
+      own: new Set(Object.keys(BASH_ENTRIES)),
+    }),
+  );
 
   const verify: VerifyCommand[] =
     variant === "v2"

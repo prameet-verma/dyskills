@@ -50,7 +50,7 @@ A scalar `permission.bash`, `permission.edit` or `permission.external_directory`
 at one of those three paths survives as the wildcard rule. **A scalar `permission` itself (the
 whole block, e.g. `"permission": "ask"`) is not promoted — it is a merge conflict, and nothing is
 written.** Any other mismatch (for example, in personal scope, an existing `"dynamic-skills *": "deny"`) is also a
-conflict. In project scope an existing deny is never weakened (Ruling R46): an ask entry is omitted when `save` or `init` already resolves to `deny`, and a note says so.
+conflict. `init` never weakens a deny others share (Ruling R46, amended). Project scope omits an ask entry when `save` or `init` already resolves to `deny` in a _project_ layer (root project files, `.opencode/`), with a note; a deny only in a personal or global layer still gets the ask (so teammates never get allow) and the note says your personal deny becomes ask in this project. Personal scope compares the decisions for `save`, `init` and a read-only command before and after and leaves out, with a note, any entry (the broad allow, or an ask overwriting a deny) that would weaken one.
 
 ## Consent entries (D6)
 

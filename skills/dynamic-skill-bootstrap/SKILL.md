@@ -5,7 +5,7 @@ description: Use before starting a task that needs specialised or project-specif
 
 # Dynamic skill bootstrap
 
-Routing only: run `dynamic-skills <command>` and follow its output. If the command is not found, stop and tell the user to install it; never fetch it with a package runner. Run every command bare: no redirection (not even `2>&1` or `2>/dev/null`), env prefix, `$` expansion, pipe (`| jq`) or chaining (`cd x &&`), which can skip host consent rules. Every command prints one JSON object on stdout and a status block on stderr; you see both. Show the status block when it matters.
+Routing only: run `dynamic-skills <command>` and follow its output. If the command is not found, stop and tell the user to install it; never fetch it with a package runner. Run every command bare: no redirection (not even `2>&1` or `2>/dev/null`), env prefix, `$` expansion, pipe (`| jq`) or chaining (`cd x &&`), which can skip host consent rules. Every command except `status` prints one JSON object on stdout and a status block on stderr; you see both. Show the status block when it matters.
 
 ## Ownership
 

@@ -41,10 +41,17 @@ run `dynamic-skills init --harness opencode --scope personal`.
 A scalar `permission.bash`, `permission.edit` or `permission.external_directory` (for example
 `"bash": "ask"`) is promoted to `{ "*": <scalar>, ... }` first, so your blanket rule survives. A
 scalar `permission` itself, or (personal scope) an existing `"dynamic-skills *": "deny"`, is a
-conflict and nothing is written. In project scope an existing deny is never weakened (Ruling R46):
-if `save` or `init` already resolves to `deny` over the earlier layers plus the target file, that
-ask entry is omitted, so the deny stays in force, and `init` notes it; when both are denied nothing
-is written to the config. Comments and trailing commas in your config are kept.
+conflict and nothing is written. `init` never weakens a deny that
+others share (Ruling R46, amended). In project scope, a deny for `save` or `init` in a _project_
+layer (the root project files or `.opencode/`) keeps its place: that ask entry is omitted and `init`
+notes it; when both are denied nothing is written to the config. A deny that lives only in your
+personal or global config is not shared with teammates, so the ask is still written (the committed
+file must make `save` and `init` ask for everyone, never allow) and `init` notes that your personal
+deny becomes an ask in this project, because the project ask overrides the same key. In personal
+scope `init` compares the decision for `save`, `init` and a read-only command such as
+`dynamic-skills status` before and after, over all layers: any entry that would weaken a deny (or
+turn a `save`/`init` ask into an allow), such as the broad `"dynamic-skills *": "allow"` or an ask
+that would overwrite a deny, is left out and noted. Comments and trailing commas in your config are kept.
 
 ## Consent rules
 
@@ -148,7 +155,8 @@ supported yet (`SAVE_UNSUPPORTED`).
 - **Quoted or double-spaced commands bypass the ask** (Ruling R35, above).
 - **Config in an unusual shape.** `"permission": "ask"` as a whole, or a `deny` for
   `dynamic-skills *` in personal scope, is reported as a conflict and nothing is written; edit the
-  file and rerun. In project scope the deny is kept and the ask entries it covers are not written (R46).
+  file and rerun. In project scope a deny in a project layer is kept and its ask is not written; in personal scope the
+  entries that would weaken a deny are left out (R46).
 - **V2 `permissions` key.** Do not add it by hand next to the V1 form: V1 hard-fails on a top-level
   V2 `permissions` key, and on 2.x its entries outrank the migrated rules.
 - **Verification.** Only 2.x is verified after `init` (`opencode debug paths`); 1.x has no
