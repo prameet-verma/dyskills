@@ -133,6 +133,9 @@ function at(v: JsonValue | undefined, path: string[]): JsonValue | undefined {
 const parseDoc = (text: string): JsonValue =>
   parse(text, [], { allowTrailingComma: true }) as JsonValue;
 
+/** Ids longer than any native header limit, so a header can never stand in for the id. */
+const SAMPLE_ID = (key: string): string => `${key}-sample-identifier`;
+
 function sampleQuestions(): NativeQuestionInput[] {
   const opts = (id: string, n: number) =>
     Array.from({ length: n }, (_, i) => ({
@@ -140,15 +143,33 @@ function sampleQuestions(): NativeQuestionInput[] {
       description: `Choice ${i + 1} of ${id}`,
     }));
   return [
-    { id: "qa", text: "Question A?", options: opts("qa", 2) },
-    { id: "qb", text: "Question B?" },
-    { id: "qc", text: "Question C?", multiSelect: true, options: opts("qc", 4) },
-    ...["qd", "qe", "qf", "qg"].map((id) => ({
-      id,
-      text: `Question ${id.slice(1).toUpperCase()}?`,
-      options: opts(id, 2),
+    { id: SAMPLE_ID("qa"), text: "Question A?", options: opts("qa", 2) },
+    { id: SAMPLE_ID("qb"), text: "Question B?" },
+    { id: SAMPLE_ID("qc"), text: "Question C?", multiSelect: true, options: opts("qc", 4) },
+    ...["qd", "qe", "qf", "qg"].map((key) => ({
+      id: SAMPLE_ID(key),
+      text: `Question ${key.slice(1).toUpperCase()}?`,
+      options: opts(key, 2),
     })),
   ];
+}
+
+/** Every plain object reachable in `v` (including `v`). */
+function objectsIn(v: unknown, out: JsonObject[] = []): JsonObject[] {
+  if (Array.isArray(v)) v.forEach((x) => objectsIn(x, out));
+  else if (typeof v === "object" && v !== null) {
+    out.push(v as JsonObject);
+    Object.values(v).forEach((x) => objectsIn(x, out));
+  }
+  return out;
+}
+
+/** Every string reachable in `v`. */
+function stringsIn(v: unknown, out: string[] = []): string[] {
+  if (typeof v === "string") out.push(v);
+  else if (Array.isArray(v)) v.forEach((x) => stringsIn(x, out));
+  else if (typeof v === "object" && v !== null) Object.values(v).forEach((x) => stringsIn(x, out));
+  return out;
 }
 
 /** Every array reachable in `v`. */
@@ -431,8 +452,8 @@ export function defineAdapterCompatSuite(t: CompatTarget): void {
       const qs = sampleQuestions();
       const plan = adapter.questions(qs);
       expect(plan.tool).toBe(t.expect.questionTool);
-      expect(plan.textOnly).toContain("qb");
-      const cText = plan.textOnly.includes("qc");
+      expect(plan.textOnly).toContain(SAMPLE_ID("qb"));
+      const cText = plan.textOnly.includes(SAMPLE_ID("qc"));
       expect(cText).toBe(!t.expect.multiSelect || 4 > t.expect.maxOptions);
       const nativeIds = Object.keys(plan.idMap);
       const mapped = Object.values(plan.idMap);
@@ -445,17 +466,29 @@ export function defineAdapterCompatSuite(t: CompatTarget): void {
         mapped.filter((id) => plan.textOnly.includes(id)),
         "no question is both native and text-only",
       ).toEqual([]);
-      const mentioned = new Set<string>();
-      const collect = (v: unknown): void => {
-        if (typeof v === "string") mentioned.add(v);
-        else if (Array.isArray(v)) v.forEach(collect);
-        else if (typeof v === "object" && v !== null) Object.values(v).forEach(collect);
-      };
-      for (const call of plan.calls) collect(call);
-      for (const nativeId of nativeIds) {
-        expect(mentioned.has(nativeId), `idMap key ${nativeId} appears as a string in a call`).toBe(
-          true,
+      // Tie every idMap entry to the payload: the object that carries the native id as a value must
+      // also carry the mapped question's text and its option labels, in order.
+      for (const [nativeId, originalId] of Object.entries(plan.idMap)) {
+        const q = qs.find((x) => x.id === originalId)!;
+        const owner = objectsIn(plan.calls).find((o) =>
+          Object.values(o).some((v) => v === nativeId),
         );
+        expect(owner, `idMap key ${nativeId} is a value in a payload object`).toBeDefined();
+        const strings = stringsIn(owner);
+        expect(
+          strings.some((x) => x.includes(q.text)),
+          `${nativeId}: its payload object carries the text of ${originalId}`,
+        ).toBe(true);
+        const labels = q.options?.map((o) => o.label) ?? [];
+        if (labels.length > 0) {
+          expect(
+            arraysIn(owner).some((arr) => {
+              const got = arr.map(labelOf);
+              return got.length === labels.length && got.every((l, i) => l === labels[i]);
+            }),
+            `${nativeId}: its payload object carries the option labels of ${originalId} in order`,
+          ).toBe(true);
+        }
       }
       let carried = 0;
       for (const call of plan.calls) {

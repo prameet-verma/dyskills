@@ -27,9 +27,14 @@ for (const target of targets) {
     versionOutput: target.versionOutput,
     vars: { XDG_CONFIG_HOME: "{home}/.config" },
     scan: ({ repo, home, vars, etcDir }) => scanExistingSkills({ repo, home, vars, etcDir }),
-    consent: async ({ world, command }) => {
+    consent: async ({ world, scope, command }) => {
       const docs = [];
-      for (const f of layerPaths(world.env, target.variant)) {
+      // Project scope: judge the project layers alone (OpenCode's built-in default is allow), so a
+      // personal "ask" cannot hide a missing project consent entry.
+      const files = layerPaths(world.env, target.variant).filter(
+        (f) => scope === "personal" || f.startsWith(world.project),
+      );
+      for (const f of files) {
         try {
           docs.push(parse(await readFile(f, "utf8"), [], { allowTrailingComma: true }));
         } catch {

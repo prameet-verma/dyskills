@@ -39,16 +39,19 @@ decision, so no allow rule can override them: Codex asks before a skill is saved
 configuration is changed, and that prompt is your consent. The CLI rejects any option placed
 before the subcommand, so `dynamic-skills -V save` does not change which rule matches.
 
-**Known limit (Ruling R43): the rules match bare commands only.** Codex matches a `prefix_rule`
-against the command's words only when it can split the command line into plain words. A
-redirection (for example `2>&1`), a `VAR=` prefix, `$VAR`, `$(...)`, a glob, a pipe or chaining
-makes Codex fall back to the whole `["bash", "-lc", "<script>"]` command. No `dynamic-skills` rule
-matches that, and an unmatched command is allowed by default in `workspace-write` and in
-`danger-full-access`, so `dynamic-skills save ... 2>&1` runs without the prompt. The bootstrap skill
-tells the agent to run every `dynamic-skills` command bare, but that is an instruction, not an
-enforcement: the rules are a consent prompt for ordinary use, not a barrier against an agent that
-adds a redirection. If that matters to you, run Codex in a read-only sandbox or deny the command
-outright, and run `save` and `init` yourself in a terminal.
+**Known limit (Ruling R43): the rules match plain commands only.** Codex splits a script of plain
+words joined by `&&`, `||`, `;` or `|` and checks each command against the rules, so those still
+prompt. A redirection (for example `2>&1`, including a heredoc), `$(...)`, backticks, `$VAR`, a
+`VAR=` prefix, a glob, or control flow or a subshell makes Codex fall back to the whole
+`["bash", "-lc", "<script>"]` command. No `dynamic-skills` rule matches that, and an unmatched
+command is allowed by default, so `dynamic-skills save ... 2>&1` runs without the prompt. Under
+`workspace-write` it still runs inside the sandbox, where writes to `~/.agents`, `~/.codex` and an
+existing `.agents` directory fail; only `danger-full-access` is fully exposed. The bootstrap skill
+tells the agent to run every `dynamic-skills` command bare (it also forbids pipes and chaining, to
+be conservative), but that is an instruction, not an enforcement: the rules are a consent prompt for
+ordinary use, not a barrier against an agent that adds a redirection. A `forbidden` rule has the
+same limit, so denying the command in rules does not help. If that matters to you, use a read-only
+sandbox, or run `save` and `init` yourself in a terminal.
 
 ### The opt-in allow rule is a trust decision
 
@@ -123,8 +126,8 @@ an augmentation is not supported yet (`SAVE_UNSUPPORTED`).
   skill under `.agents/skills` may not be listed either. Trust the project, or use personal scope.
 - **Allow rule trust decision.** If `dynamic-skills` is unexpectedly unsandboxed, check
   `command -v dynamic-skills` and remove the allow rule from `dynamic-skills.rules`.
-- **Save ran without a prompt.** The command was not bare (a redirection such as `2>&1`, an env
-  prefix, `$` expansion, a pipe or chaining); see the known limit under Consent rules.
+- **Save ran without a prompt.** The command was not bare (a redirection such as `2>&1` or a heredoc,
+  `$(...)`, backticks, an env prefix, `$VAR`, a glob, control flow or a subshell); see the known limit under Consent rules.
 - **Prompt rules in `exec`.** `save` and `init` are rejected, not prompted. Use a terminal.
 - **Plan-mode questions.** If the agent asks in text instead of with a form, it is not in Plan mode
   or it is a subagent; this is expected.

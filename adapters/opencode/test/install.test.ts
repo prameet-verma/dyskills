@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,6 +7,7 @@ import { applyPlan, type InstallPlan, type PlannedWrite } from "@dynamic-skills/
 import { makeWorld, REPO_ROOT, type World } from "@dynamic-skills/adapter-sdk/testkit";
 import { openCodeAdapter, OPENCODE_TESTED_VERSIONS, personalConfigDir } from "../src/index";
 import { effectiveDecision } from "../src/consent";
+import { readConfigDocument } from "../src/config-file";
 import { layerPaths } from "../src/install";
 
 const FIXTURE_V1 = join(REPO_ROOT, "fixtures/harness-homes/opencode-v1/home");
@@ -531,16 +533,6 @@ describe("opencode installer", () => {
     expect(effectiveDecision(present, "v1", "dynamic-skills assess --task t")).toBe("ask");
   });
 
-  it("R44: a personal deny with a project that adds only asks yields no note", async () => {
-    const w = await setup(FIXTURE_V1, V1_VERSION);
-    const C = personalConfigDir(w.env);
-    await writeFile(
-      join(C, "opencode.json"),
-      JSON.stringify({ permission: { bash: { "*": "ask", "dynamic-skills save *": "deny" } } }),
-    );
-    expect((await plan(w, "project")).notes.join("\n")).not.toMatch(/D6 consent/);
-  });
-
   it("R44: an agent-level bash allow in any layer produces a note", async () => {
     const w = await setup(FIXTURE_V1, V1_VERSION);
     const C = personalConfigDir(w.env);
@@ -617,5 +609,135 @@ describe("opencode installer", () => {
     const p = await plan(w, "personal");
     expect(p.notes.join("\n")).toMatch(/too large; init did not read it/);
     expect(p.notes.join("\n")).not.toMatch(/rejects the V2/);
+  });
+
+  async function layerDocs(w: World, variant: "v1" | "v2" = "v1"): Promise<never[]> {
+    const out: never[] = [];
+    for (const f of layerPaths(w.env, variant)) {
+      try {
+        out.push(JSON.parse(await readFile(f, "utf8")) as never);
+      } catch {
+        /* absent layer */
+      }
+    }
+    return out;
+  }
+
+  it("R46: a personal save deny is kept by project init (cross-layer), with a note", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const C = personalConfigDir(w.env);
+    await writeFile(
+      join(C, "opencode.json"),
+      JSON.stringify({ permission: { bash: { "*": "ask", "dynamic-skills save *": "deny" } } }),
+    );
+    const p = await plan(w, "project");
+    expect(mergeWrite(p).patch).toEqual({
+      permission: { bash: { "dynamic-skills init *": "ask" } },
+    });
+    const notes = p.notes.join("\n");
+    expect(notes).toMatch(
+      /`dynamic-skills save` is denied by .*opencode\.json.*init kept the deny/,
+    );
+    expect(notes).not.toMatch(/`dynamic-skills init` is denied by/);
+    await applyPlan(p, { dryRun: false, force: false });
+    const docs = await layerDocs(w);
+    expect(effectiveDecision(docs, "v1", "dynamic-skills save --session x")).toBe("deny");
+    expect(effectiveDecision(docs, "v1", "dynamic-skills init --harness opencode")).toBe("ask");
+  });
+
+  it("R46: a same-file dynamic-skills * deny is kept, nothing is written, no conflict", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const file = join(w.project, ".opencode/opencode.json");
+    await mkdir(dirname(file), { recursive: true });
+    const before = JSON.stringify({ permission: { bash: { "dynamic-skills *": "deny" } } });
+    await writeFile(file, before);
+    const p = await plan(w, "project");
+    expect(p.writes.some((x) => x.kind === "jsonc-merge")).toBe(false);
+    expect(p.notes.join("\n")).toMatch(/`dynamic-skills save` is denied by .*init kept the deny/);
+    expect(p.notes.join("\n")).toMatch(/`dynamic-skills init` is denied by .*init kept the deny/);
+    const res = await applyPlan(p, { dryRun: false, force: false });
+    expect(res.some((r) => r.action === "conflict")).toBe(false);
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(effectiveDecision(await layerDocs(w), "v1", "dynamic-skills save --session x")).toBe(
+      "deny",
+    );
+  });
+
+  it("M1: without any global ask, project init alone makes save and init ask (default is allow)", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    await rm(join(personalConfigDir(w.env), "opencode.json"));
+    const p = await plan(w, "project");
+    await applyPlan(p, { dryRun: false, force: false });
+    const docs = await layerDocs(w);
+    expect(effectiveDecision(docs, "v1", "dynamic-skills save --session x")).toBe("ask");
+    expect(effectiveDecision(docs, "v1", "dynamic-skills init --harness opencode")).toBe("ask");
+    expect(effectiveDecision(docs, "v1", "dynamic-skills assess --task t")).toBe("allow");
+    expect(p.notes.join("\n")).not.toMatch(/D6 consent/);
+  });
+
+  it("M2: with two agents where only the second allows bash, only the second is named", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    await writeFile(
+      join(personalConfigDir(w.env), "opencode.json"),
+      JSON.stringify({
+        permission: { bash: "ask" },
+        agent: {
+          build: { permission: { bash: { "git *": "allow" } } },
+          deploy: { permission: { bash: "allow" } },
+        },
+      }),
+    );
+    const notes = (await plan(w, "project")).notes.join("\n");
+    expect(notes).toMatch(/will not apply for agent `deploy`/);
+    expect(notes).not.toMatch(/agent `build`/);
+  });
+
+  it("M2: on v2 an `agents` entry is simulated too", async () => {
+    const w = await setup(FIXTURE_V2, V2_VERSION);
+    await writeFile(
+      join(personalConfigDir(w.env), "opencode.json"),
+      JSON.stringify({ agents: { ship: { permission: { bash: "allow" } } } }),
+    );
+    expect((await plan(w, "project")).notes.join("\n")).toMatch(/for agent `ship`/);
+    const w1 = await setup(FIXTURE_V1, V1_VERSION);
+    await writeFile(
+      join(personalConfigDir(w1.env), "opencode.json"),
+      JSON.stringify({ agents: { ship: { permission: { bash: "allow" } } } }),
+    );
+    expect((await plan(w1, "project")).notes.join("\n")).not.toMatch(/for agent `ship`/);
+  });
+
+  it("M4: a defeat note names the file the winning rule comes from, not the written file", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const personalFile = join(personalConfigDir(w.env), "opencode.json");
+    await writeFile(
+      personalFile,
+      JSON.stringify({ permission: { bash: { "*": "ask" }, "*": "allow" } }),
+    );
+    const notes = (await plan(w, "project")).notes.filter((n) => n.startsWith("D6 consent"));
+    expect(notes).toHaveLength(2);
+    for (const n of notes) {
+      expect(n).toContain(`from ${personalFile} wins`);
+      expect(n).not.toContain(".opencode/opencode.jsonc");
+    }
+  });
+
+  it("M5: readConfigDocument refuses a directory and a FIFO without blocking", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const dir = join(w.root, "adir");
+    await mkdir(dir);
+    expect((await readConfigDocument(dir, true)).refused).toBe("not a regular file");
+    const fifo = join(w.root, "afifo");
+    execFileSync("mkfifo", [fifo]);
+    expect((await readConfigDocument(fifo, false)).refused).toBe("not a regular file");
+    expect((await readConfigDocument(fifo, true)).refused).toBe("not a regular file");
+  });
+
+  it("M5: a symlinked .opencode directory in project scope is noted", async () => {
+    const w = await setup(FIXTURE_V1, V1_VERSION);
+    const real = join(w.root, "elsewhere");
+    await mkdir(real);
+    await symlink(real, join(w.project, ".opencode"));
+    expect((await plan(w, "project")).notes.join("\n")).toMatch(/\.opencode is a symlink/);
   });
 });

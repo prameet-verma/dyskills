@@ -49,12 +49,12 @@ A scalar `permission.bash`, `permission.edit` or `permission.external_directory`
 `{ "*": <scalar>, ... }` before the new entries are added, so a user's blanket `"ask"` or `"allow"`
 at one of those three paths survives as the wildcard rule. **A scalar `permission` itself (the
 whole block, e.g. `"permission": "ask"`) is not promoted — it is a merge conflict, and nothing is
-written.** Any other mismatch (for example an existing `"dynamic-skills *": "deny"`) is also a
-conflict.
+written.** Any other mismatch (for example, in personal scope, an existing `"dynamic-skills *": "deny"`) is also a
+conflict. In project scope an existing deny is never weakened (Ruling R46): an ask entry is omitted when `save` or `init` already resolves to `deny`, and a note says so.
 
 ## Consent entries (D6)
 
-`permission.bash` always ends with, in this order (the last match wins):
+Personal scope: `permission.bash` ends with, in this order (the last match wins):
 
 ```jsonc
 { "dynamic-skills *": "allow", "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
@@ -70,7 +70,7 @@ example: `"dynamic-skills save --session *": "allow"` and `"dynamic-skills init 
 
 OpenCode matches the command exactly as written, not its parsed intent. `dynamic-skills 'save' …`
 (quoted), `dynamic-skills "init" …` (quoted) and `dynamic-skills  save` (extra space) all match our
-broad `"dynamic-skills *": "allow"` instead of the ask, because the glob compares literal text. We
+broad `"dynamic-skills *": "allow"` (personal scope), or no rule at all (project scope, default allow), instead of the ask, because the glob compares literal text. We
 do **not** widen the ask patterns to catch these (for example to `*save*`), because that would also
 prompt on unrelated commands such as `assess --task "save …"`.
 

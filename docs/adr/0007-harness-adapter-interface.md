@@ -38,7 +38,7 @@ design"; risks 1, 5 and 15). The core packages may not name harnesses.
   OpenCode `"ask"` entries after the allow). The CLI rejects any option before the subcommand
   (R31) so argument order cannot change which rule matches. The Codex allow rule is opt-in
   (`allowRule`, R25) and gives `save` no sandbox escape (R32). OpenCode matches raw command text,
-  so a quoted subcommand escapes its ask rules (R35, a documented limit); Codex matches prefix rules only against bare commands: a redirection, env prefix, `$` expansion, glob, pipe or chaining makes it evaluate the whole `bash -lc` script, which no rule covers and which is allowed by default (R43, a documented limit; the bootstrap skill instructs bare commands); `init` evaluates the
+  so a quoted subcommand escapes its ask rules (R35, a documented limit); Codex splits plain-word scripts joined by `&&`, `||`, `;` or `|`, but a redirection, `$(…)`, backticks, `$VAR`, env prefix, glob, or control flow or subshell makes it evaluate the whole `bash -lc` script, which no rule covers and which is allowed by default (R43, a documented limit; the bootstrap skill instructs bare commands); `init` evaluates the
   merged config with last-match semantics and notes any rule that defeats consent (R34).
 
 ## Consequences

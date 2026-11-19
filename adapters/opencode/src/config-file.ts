@@ -36,12 +36,20 @@ export async function readConfigDocument(
     const info = link.isSymbolicLink() ? await stat(path) : link;
     if (!info.isFile()) return { doc: undefined, refused: "not a regular file" };
     if (info.size > MAX_CONFIG_BYTES) return { doc: undefined, refused: "too large" };
-    const flags = followSymlinks ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW;
+    // O_NONBLOCK: a path swapped for a FIFO after the lstat must not block the open.
+    const flags =
+      (followSymlinks ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW) |
+      constants.O_NONBLOCK;
     const handle = await open(path, flags);
     try {
-      const buf = Buffer.alloc(MAX_CONFIG_BYTES + 1);
+      const opened = await handle.stat();
+      if (!opened.isFile()) return { doc: undefined, refused: "not a regular file" };
+      if (opened.size > MAX_CONFIG_BYTES) return { doc: undefined, refused: "too large" };
+      const buf = Buffer.alloc(Math.min(opened.size, MAX_CONFIG_BYTES) + 1);
       const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-      if (bytesRead > MAX_CONFIG_BYTES) return { doc: undefined, refused: "too large" };
+      if (bytesRead > MAX_CONFIG_BYTES || bytesRead > opened.size) {
+        return { doc: undefined, refused: "too large" };
+      }
       const errors: ParseError[] = [];
       const value = parse(buf.subarray(0, bytesRead).toString("utf8"), errors, {
         allowTrailingComma: true,

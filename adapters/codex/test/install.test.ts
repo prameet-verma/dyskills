@@ -294,6 +294,13 @@ describe("codex install plan", () => {
         expect(notes).toContain("workspace-write");
         expect(notes).toContain("danger-full-access");
         expect(notes).toMatch(/known limit/);
+        expect(notes).toContain("heredoc");
+        expect(notes).toContain("backticks");
+        expect(notes).toContain("subshell");
+        expect(notes).toMatch(/plain words joined by .*are still split and checked/);
+        expect(notes).not.toMatch(/a pipe or chaining makes/);
+        expect(notes).toMatch(/workspace-write.*inside the sandbox/);
+        expect(notes).toMatch(/only .?danger-full-access.? is fully exposed/);
       }
     }
   });
@@ -304,7 +311,12 @@ describe("codex install plan", () => {
       "utf8",
     );
     expect(skill).toContain("Run every command bare: no redirection");
-    expect(skill).toMatch(/env prefix, `\$` expansion, pipe or chaining/);
+    expect(skill).toMatch(/env prefix, `\$` expansion, pipe \(`\| jq`\) or chaining \(`cd x &&`\)/);
+    expect(skill).toContain("`2>/dev/null`");
+    expect(skill).toContain("`clean` is always safe.");
+    expect(skill).not.toContain("metrics are archived");
+    expect(skill).not.toContain("prints plain text");
+    expect(skill).not.toContain("Generated artifacts are ephemeral");
     for (const m of skill.matchAll(/2>&1/g)) {
       expect(skill.slice(Math.max(0, m.index! - 11), m.index!)).toBe("(not even `");
     }

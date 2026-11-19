@@ -260,16 +260,22 @@ describe("consentNotes", () => {
     expect(effectiveDecision([personal, broadOnly], "v1", "dynamic-skills save --session x")).toBe(
       "allow",
     );
-    const notes = consentNotes(broadOnly, "v1", PATH, { before: [personal] });
+    const notes = consentNotes(broadOnly, "v1", PATH, {
+      before: [{ path: "/p/personal.json", doc: personal }],
+    });
     expect(notes).toHaveLength(2);
     expect(notes[0]).toMatch(/D6 consent for `dynamic-skills save`/);
   });
 
   it("R44: later layers are simulated too (a project allow after the written personal file)", () => {
     const later: JsonValue = { permission: { bash: { "dynamic-skills *": "allow" } } };
-    expect(consentNotes(CLEAN_V1, "v1", PATH, { after: [later] })).toEqual([]);
+    expect(
+      consentNotes(CLEAN_V1, "v1", PATH, { after: [{ path: "/p/project.json", doc: later }] }),
+    ).toEqual([]);
     const fresh: JsonValue = { permission: { bash: { "dynamic-skills save *": "ask" } } };
-    const notes = consentNotes(fresh, "v1", PATH, { after: [later] });
+    const notes = consentNotes(fresh, "v1", PATH, {
+      after: [{ path: "/p/project.json", doc: later }],
+    });
     expect(notes.some((n) => n.includes("`dynamic-skills save`"))).toBe(true);
   });
 
@@ -295,5 +301,24 @@ describe("consentNotes", () => {
       agent: { plan: { permission: { bash: { "*": "allow" } } } },
     };
     expect(consentNotes(doc, "v2", PATH).length).toBe(2);
+  });
+
+  it("M1: with no matching rule the built-in default is allow, so a missing ask is a defeat", () => {
+    expect(effectiveDecision([], "v1", "dynamic-skills save --session x")).toBe("allow");
+    const onlyInit: JsonValue = { permission: { bash: { "dynamic-skills init *": "ask" } } };
+    expect(effectiveDecision([onlyInit], "v1", "dynamic-skills save --session x")).toBe("allow");
+    const notes = consentNotes(onlyInit, "v1", PATH);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/D6 consent for `dynamic-skills save`/);
+    expect(notes[0]).toContain("built-in default");
+  });
+
+  it("M4: the note names the layer a winning rule came from", () => {
+    const personal: JsonValue = { permission: { bash: { "*": "ask" }, "*": "allow" } };
+    const written: JsonValue = { permission: { bash: { "dynamic-skills save *": "ask" } } };
+    const notes = consentNotes(written, "v1", "/w/project.json", {
+      before: [{ path: "/w/personal.json", doc: personal }],
+    });
+    expect(notes[0]).toContain("from /w/personal.json wins");
   });
 });

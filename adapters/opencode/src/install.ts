@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type {
   HostEnv,
@@ -10,7 +11,7 @@ import type {
 } from "@dynamic-skills/adapter-sdk";
 import { mergeJson } from "@dynamic-skills/adapter-sdk";
 import { chooseConfigFile, readConfigDocument } from "./config-file";
-import { consentNotes } from "./consent";
+import { consentNotes, resolveCommand, type Layer } from "./consent";
 import {
   analystAgentFile,
   BASH_ENTRIES,
@@ -177,8 +178,44 @@ export async function planOpenCodeInstall(
   const fallback = project ? join(base, "opencode.jsonc") : join(C, "opencode.jsonc");
   const chosen = await chooseConfigFile(candidates, fallback);
 
+  const chosenRead = await readConfigDocument(chosen, false);
+  const order = layerPaths(env, variant);
+  const at = order.indexOf(chosen);
+  const readLayer = async (path: string): Promise<Layer | undefined> => {
+    const doc = (await readConfigDocument(path, true)).doc;
+    return doc === undefined ? undefined : { path, doc };
+  };
+  const layersOf = async (paths: string[]): Promise<Layer[]> =>
+    (await Promise.all(paths.map(readLayer))).filter((l): l is Layer => l !== undefined);
+  const before = await layersOf(at < 0 ? order : order.slice(0, at));
+  const after = await layersOf(at < 0 ? [] : order.slice(at + 1));
+
+  const notes: string[] = [];
+  let entries: Record<string, string> = { ...PROJECT_BASH_ENTRIES };
+  if (project) {
+    // Ruling R46: never weaken an existing deny. Evaluate over the earlier layers plus the chosen
+    // document as it is now (without our patch); a deny keeps its place, so that ask is omitted.
+    const current: Layer[] = [
+      ...before,
+      ...(chosenRead.doc === undefined ? [] : [{ path: chosen, doc: chosenRead.doc }]),
+    ];
+    for (const [label, command] of [
+      ["save", "dynamic-skills save --session x --scope project"],
+      ["init", "dynamic-skills init --harness opencode --scope personal"],
+    ] as const) {
+      const r = resolveCommand(current, variant, command);
+      if (r.effect !== "deny") continue;
+      delete entries[`dynamic-skills ${label} *`];
+      notes.push(
+        `\`dynamic-skills ${label}\` is denied by ${r.source ?? chosen} (\`"${r.pattern}": "deny"\`); init kept the deny and did not write the \`${label}\` ask entry.`,
+      );
+    }
+  } else {
+    entries = { ...BASH_ENTRIES };
+  }
+
   const patch: JsonObject = project
-    ? { permission: { bash: { ...PROJECT_BASH_ENTRIES } } }
+    ? { permission: { bash: { ...entries } } }
     : {
         permission: {
           bash: { ...BASH_ENTRIES },
@@ -187,46 +224,50 @@ export async function planOpenCodeInstall(
         },
       };
 
-  writes.push({
-    kind: "jsonc-merge",
-    path: chosen,
-    patch,
-    promote: PROMOTE,
-    committable,
-    within,
-    purpose: project
-      ? "ask before save and init"
-      : "allow dynamic-skills and ask before save and init",
-  });
+  if (!project || Object.keys(entries).length > 0) {
+    writes.push({
+      kind: "jsonc-merge",
+      path: chosen,
+      patch,
+      promote: PROMOTE,
+      committable,
+      within,
+      purpose: project
+        ? "ask before save and init"
+        : "allow dynamic-skills and ask before save and init",
+    });
+  }
 
-  const notes: string[] = [];
   if (project) notes.push(PROJECT_EXTERNAL_DIR_NOTE, PROJECT_READONLY_NOTE);
   else notes.push(CROSS_SCOPE_NOTE);
   notes.push(CONSENT_NOTE, QUOTED_SUBCOMMAND_NOTE);
   if (variant === "v1" && (await hasTopLevelPermissionsKey(chosen))) {
     notes.push(`OpenCode 1.x rejects the V2 \`permissions\` key in ${chosen}.`);
   }
-
-  const chosenRead = await readConfigDocument(chosen, false);
   if (chosenRead.refused !== undefined) {
     notes.push(
       `${chosen} is ${chosenRead.refused === "symlink" ? "a symlink" : chosenRead.refused}; init did not read it and will not write to it (the apply step refuses it). Replace it with a regular file under 8 MB, or pass --force only where it applies.`,
     );
   }
+  if (project) {
+    try {
+      if ((await lstat(join(P, ".opencode"))).isSymbolicLink()) {
+        notes.push(
+          `${join(P, ".opencode")} is a symlink; init refuses to write through a symlinked parent in project scope. Replace it with a real directory.`,
+        );
+      }
+    } catch {
+      // No .opencode directory yet.
+    }
+  }
 
   // Rulings R34/R44: simulate OpenCode's layered merge (mergeDeep key order), with the file init
   // writes in its own slot, and report (never block) when another rule outranks the consent
-  // entries we are about to write.
-  const currentDoc = chosenRead.doc;
-  const merged = mergeJson(currentDoc, patch, { promote: PROMOTE }).value;
-  const order = layerPaths(env, variant);
-  const at = order.indexOf(chosen);
-  const readLayer = async (path: string): Promise<JsonValue | undefined> =>
-    (await readConfigDocument(path, true)).doc;
-  const docs = async (paths: string[]): Promise<JsonValue[]> =>
-    (await Promise.all(paths.map(readLayer))).filter((d): d is JsonValue => d !== undefined);
-  const before = await docs(at < 0 ? order : order.slice(0, at));
-  const after = await docs(at < 0 ? [] : order.slice(at + 1));
+  // entries we are about to write. An approximation: see consentNotes for what is not modelled.
+  const merged =
+    project && Object.keys(entries).length === 0
+      ? (chosenRead.doc ?? {})
+      : mergeJson(chosenRead.doc, patch, { promote: PROMOTE }).value;
   notes.push(...consentNotes(merged, variant, chosen, { before, after }));
 
   const verify: VerifyCommand[] =
