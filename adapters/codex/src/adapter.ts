@@ -14,7 +14,13 @@ import {
   type VerifyCommand,
 } from "@dynamic-skills/adapter-sdk";
 import { resolveSkillRoots } from "@dynamic-skills/bootstrapper";
-import { CODEX_AGENT_FILE, CODEX_AGENT_NAME, analystToml, rulesText } from "./templates";
+import {
+  BARE_COMMAND_NOTE,
+  CODEX_AGENT_FILE,
+  CODEX_AGENT_NAME,
+  analystToml,
+  rulesText,
+} from "./templates";
 import { codexQuestions } from "./questions";
 
 /** Codex versions this adapter was tested against. */
@@ -117,6 +123,7 @@ export const codexAdapter: HarnessAdapter = {
       "Restart Codex to load the rules.",
       "`dynamic-skills save` and `init` ask for approval (a prompt rule); `codex exec` cannot approve and an allow rule cannot override a prompt rule (strictest wins); a non-interactive save means running `dynamic-skills save` in a terminal outside Codex (removing the prompt rule only lets it run in the exec sandbox, which most likely blocks writing `.agents/`, or without consent if the allow rule is on).",
     ];
+    notes.push(BARE_COMMAND_NOTE);
     if (!opts.allowRule) {
       notes.push(
         "`--codex-allow-rule` lets `dynamic-skills` commands other than `save` and `init` run outside the sandbox; `save` and `init` always ask, then run with the session's current permissions. Saving into `.agents/skills` from inside the sandbox may need the agent to request escalated permissions, or running `dynamic-skills save` in a terminal.",

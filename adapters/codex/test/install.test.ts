@@ -282,6 +282,37 @@ describe("codex install plan", () => {
     });
   });
 
+  it("R43: documents that non-bare commands skip the prefix rules, in both scopes", async () => {
+    const w = await world();
+    for (const scope of ["personal", "project"] as const) {
+      for (const allow of [false, true]) {
+        const notes = (await plan(w, scope, allow)).notes.join("\n");
+        expect(notes).toContain("bare command");
+        expect(notes).toContain("`2>&1`");
+        expect(notes).toContain("`$(…)`");
+        expect(notes).toMatch(/allowed by default/);
+        expect(notes).toContain("workspace-write");
+        expect(notes).toContain("danger-full-access");
+        expect(notes).toMatch(/known limit/);
+      }
+    }
+  });
+
+  it("R43: the bootstrap skill tells agents to run dynamic-skills bare and never invites 2>&1", async () => {
+    const skill = await readFile(
+      join(HERE, "../../../skills/dynamic-skill-bootstrap/SKILL.md"),
+      "utf8",
+    );
+    expect(skill).toContain("Run every command bare: no redirection");
+    expect(skill).toMatch(/env prefix, `\$` expansion, pipe or chaining/);
+    for (const m of skill.matchAll(/2>&1/g)) {
+      expect(skill.slice(Math.max(0, m.index! - 11), m.index!)).toBe("(not even `");
+    }
+    expect(skill).toMatch(
+      /`activate` exit 2: report `reason`, follow `fallback`\. `BUNDLE_INVALID` from `evaluate`, `activate` or `eval record`: fix the bundle and run `evaluate` again/,
+    );
+  });
+
   it("leaves default.rules, config.toml and AGENTS.md byte-identical and is idempotent", async () => {
     for (const scope of ["personal", "project"] as const) {
       for (const allow of [false, true]) {

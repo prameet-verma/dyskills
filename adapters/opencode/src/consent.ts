@@ -116,45 +116,141 @@ const isDocumentedOptOut = (label: string, pattern: string): boolean =>
  * @param path - The config file path.
  * @returns The note text.
  */
-function noteFor(label: string, rule: Rule, path: string): string {
+function noteFor(label: string, rule: Rule, path: string, agent: string | null): string {
+  const who = agent === null ? "" : ` for agent \`${agent}\``;
   if (rule.effect === "allow" && isDocumentedOptOut(label, rule.pattern)) {
-    return `Consent for \`dynamic-skills ${label}\` is lifted by your rule ${describe(rule)} in ${path} (a documented opt-out, not a defeat).`;
+    return `Consent for \`dynamic-skills ${label}\` is lifted${who} by your rule ${describe(rule)} in the merged OpenCode configuration (a documented opt-out, not a defeat; config file: ${path}).`;
   }
   if (rule.effect === "deny") {
-    return `\`dynamic-skills ${label}\` is denied, not asked, by ${describe(rule)} in ${path} (stricter than the consent entry, not a defeat).`;
+    return `\`dynamic-skills ${label}\` is denied${who}, not asked, by ${describe(rule)} in the merged OpenCode configuration (stricter than the consent entry, not a defeat; config file: ${path}).`;
   }
   return (
-    `D6 consent for \`dynamic-skills ${label}\` will not apply in ${path}: ` +
+    `D6 consent for \`dynamic-skills ${label}\` will not apply${who} once OpenCode merges its configuration layers (config file: ${path}): ` +
     `${describe(rule)} wins there (OpenCode evaluates the last matching rule). ` +
     "Move or remove that rule so the consent entry is evaluated last."
   );
 }
 
 /**
+ * remeda's `mergeDeep`, as OpenCode merges its configuration layers: for each key of `src`, two
+ * objects merge recursively, anything else (including arrays and scalars) replaces. The result is
+ * `{ ...dest, ...merged }`, so a key already in `dest` keeps its earlier position and only new
+ * keys are appended. That position is what the last-match evaluation sees (Ruling R44).
+ *
+ * @param dest - The earlier layer.
+ * @param src - The later layer.
+ * @returns The merged value.
+ */
+export function mergeDeep(
+  dest: JsonValue | undefined,
+  src: JsonValue | undefined,
+): JsonValue | undefined {
+  if (src === undefined) return dest;
+  if (!isObj(dest) || !isObj(src)) return src;
+  const out: JsonObject = { ...dest };
+  for (const [k, v] of Object.entries(src)) {
+    const prior = out[k];
+    out[k] = isObj(prior) && isObj(v) ? (mergeDeep(prior, v) as JsonValue) : v;
+  }
+  return out;
+}
+
+/** Layers merged before and after the document `init` writes (Ruling R44). */
+export interface ConsentLayers {
+  /** Config documents OpenCode merges before the written file (earlier layers). */
+  before?: readonly JsonValue[];
+  /** Config documents OpenCode merges after the written file (later layers). */
+  after?: readonly JsonValue[];
+}
+
+/**
+ * Evaluates `command` against the layered configuration: the layers are merged with
+ * {@link mergeDeep} in OpenCode's order, then the last matching rule wins.
+ *
+ * @param effective - The merged document.
+ * @param variant - The detected OpenCode line.
+ * @param command - The command text.
+ * @param agent - An agent name whose `permission` is appended after the global rules, or `null`.
+ * @returns The winning rule (`"ask"` when nothing matches).
+ */
+function ruleFor(
+  effective: JsonObject,
+  variant: string | null,
+  command: string,
+  agent: string | null,
+): Rule {
+  const migrate = variant === "v2";
+  const v1Rules = rulesFromPermission(effective.permission, migrate);
+  const global = migrate
+    ? [...v1Rules, ...rulesFromNativePermissions(effective.permissions)]
+    : v1Rules;
+  let rules = global;
+  if (agent !== null) {
+    const agents = effective.agent;
+    const entry = isObj(agents) ? agents[agent] : undefined;
+    rules = [
+      ...global,
+      ...rulesFromPermission(isObj(entry) ? entry.permission : undefined, migrate),
+    ];
+  }
+  return evaluate(migrate ? "shell" : "bash", command, rules);
+}
+
+/**
+ * Decision OpenCode reaches for `command` over the layered configuration (global rules only).
+ *
+ * @param docs - Config documents in OpenCode's merge order (earliest first).
+ * @param variant - The detected OpenCode line.
+ * @param command - The command text.
+ * @returns `"ask"`, `"allow"`, `"deny"` or whatever the winning rule says.
+ */
+export function effectiveDecision(
+  docs: readonly JsonValue[],
+  variant: string | null,
+  command: string,
+): string {
+  const effective = docs.reduce<JsonValue | undefined>((acc, d) => mergeDeep(acc, d), undefined);
+  return isObj(effective) ? ruleFor(effective, variant, command, null).effect : "ask";
+}
+
+/**
  * Mirrors OpenCode's own rule evaluation (last matching rule wins) for `dynamic-skills save` and
- * `dynamic-skills init` against the config document `init` is about to write, after its merge: the
- * V1 `permission` object's own rules on the V1 line; on the V2 line, those same rules migrated
+ * `dynamic-skills init`, over the configuration as OpenCode would see it: the document `init` is
+ * about to write (after its merge) combined with the other config layers by `mergeDeep` key-order
+ * semantics (Ruling R44), in OpenCode's layer order (global, project root, `.opencode`). The V1
+ * `permission` object's own rules apply on the V1 line; on the V2 line, those same rules migrated
  * (`bash` renamed to `shell`) followed by the native `permissions` array, which OpenCode always
- * evaluates after every V1-derived rule regardless of where it sits in the document (Ruling R34).
+ * evaluates after every V1-derived rule (Ruling R34). Each agent's own `permission` is appended
+ * after the global rules and is checked too.
  *
  * @param merged - The document after the planned merge is applied (as `mergeJson` would produce
  *   it).
  * @param variant - The detected OpenCode line.
  * @param path - The config file path, named in the note.
- * @returns One note per probed command whose consent ask is overridden by another rule; empty
- *   when both commands still ask.
+ * @param layers - The other layers, before and after `merged`.
+ * @returns One note per probed command (and agent) whose consent ask is overridden; empty when
+ *   every probe still asks.
  */
-export function consentNotes(merged: JsonValue, variant: string | null, path: string): string[] {
+export function consentNotes(
+  merged: JsonValue,
+  variant: string | null,
+  path: string,
+  layers: ConsentLayers = {},
+): string[] {
   if (!isObj(merged)) return [];
-  const migrate = variant === "v2";
-  const v1Rules = rulesFromPermission(merged.permission, migrate);
-  const rules = migrate ? [...v1Rules, ...rulesFromNativePermissions(merged.permissions)] : v1Rules;
-  const queryAction = migrate ? "shell" : "bash";
+  const docs = [...(layers.before ?? []), merged, ...(layers.after ?? [])];
+  const effective = docs.reduce<JsonValue | undefined>((acc, d) => mergeDeep(acc, d), undefined);
+  if (!isObj(effective)) return [];
+  const agents = isObj(effective.agent) ? Object.keys(effective.agent) : [];
   const notes: string[] = [];
   for (const probe of PROBES) {
-    const rule = evaluate(queryAction, probe.command, rules);
-    if (rule.effect === "ask") continue;
-    notes.push(noteFor(probe.label, rule, path));
+    const global = ruleFor(effective, variant, probe.command, null);
+    if (global.effect !== "ask") notes.push(noteFor(probe.label, global, path, null));
+    for (const name of agents) {
+      const rule = ruleFor(effective, variant, probe.command, name);
+      if (rule.effect === "ask" || describe(rule) === describe(global)) continue;
+      notes.push(noteFor(probe.label, rule, path, name));
+    }
   }
   return notes;
 }

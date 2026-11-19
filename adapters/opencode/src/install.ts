@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { parse, type ParseError } from "jsonc-parser";
 import type {
   HostEnv,
   InstallOptions,
@@ -11,11 +9,13 @@ import type {
   VerifyCommand,
 } from "@dynamic-skills/adapter-sdk";
 import { mergeJson } from "@dynamic-skills/adapter-sdk";
-import { chooseConfigFile } from "./config-file";
+import { chooseConfigFile, readConfigDocument } from "./config-file";
 import { consentNotes } from "./consent";
 import {
   analystAgentFile,
   BASH_ENTRIES,
+  PROJECT_BASH_ENTRIES,
+  PROJECT_READONLY_NOTE,
   commandFile,
   CONSENT_NOTE,
   CROSS_SCOPE_NOTE,
@@ -58,22 +58,16 @@ function isJsonObject(v: JsonValue | undefined): v is JsonObject {
 }
 
 /**
- * Parses `path` as JSON or JSONC (comments and trailing commas allowed). A missing file,
- * unreadable file, or a document `jsonc-parser` cannot make sense of is `undefined`, never an
- * error: every caller treats an undefined document the same as "nothing written yet".
+ * Parses `path` as JSON or JSONC (comments and trailing commas allowed), refusing a symlink and
+ * anything over the 8 MB cap before it is read. A missing, unreadable or refused file, or a
+ * document `jsonc-parser` cannot make sense of, is `undefined`, never an error: every caller
+ * treats an undefined document the same as "nothing written yet".
  *
  * @param path - Config file path.
  * @returns The parsed value, or `undefined`.
  */
 async function readJsoncDocument(path: string): Promise<JsonValue | undefined> {
-  try {
-    const text = await readFile(path, "utf8");
-    const errors: ParseError[] = [];
-    const value = parse(text, errors, { allowTrailingComma: true }) as JsonValue | undefined;
-    return errors.length > 0 ? undefined : value;
-  } catch {
-    return undefined;
-  }
+  return (await readConfigDocument(path, false)).doc;
 }
 
 /**
@@ -88,6 +82,39 @@ async function readJsoncDocument(path: string): Promise<JsonValue | undefined> {
 export async function hasTopLevelPermissionsKey(path: string): Promise<boolean> {
   const doc = await readJsoncDocument(path);
   return isJsonObject(doc) && Object.hasOwn(doc, "permissions");
+}
+
+/**
+ * Every config file OpenCode merges, in merge order (Ruling R44): the global config directory's
+ * `config.json`, `opencode.json`, `opencode.jsonc`; then `OPENCODE_CONFIG_DIR`'s two files when it
+ * is set (on v1 it adds to the global directory, on v2 it replaces it); then the project root's
+ * `opencode.json`, `opencode.jsonc`; then `.opencode/opencode.json`, `.opencode/opencode.jsonc`.
+ *
+ * @param env - Host environment.
+ * @param variant - Detected OpenCode line.
+ * @returns The paths, earliest layer first.
+ */
+export function layerPaths(env: HostEnv, variant: string | null): string[] {
+  const xdg = env.vars.XDG_CONFIG_HOME;
+  const globalDir = join(
+    xdg !== undefined && xdg !== "" && isAbsolute(xdg) ? xdg : join(env.userHome, ".config"),
+    "opencode",
+  );
+  const configured = personalConfigDir(env);
+  const out: string[] = [];
+  const dirs = variant === "v2" ? [configured] : [globalDir, configured];
+  for (const [i, dir] of dirs.entries()) {
+    if (dirs.indexOf(dir) !== i) continue;
+    const names =
+      dir === globalDir
+        ? ["config.json", "opencode.json", "opencode.jsonc"]
+        : ["opencode.json", "opencode.jsonc"];
+    out.push(...names.map((n) => join(dir, n)));
+  }
+  const P = env.projectRoot;
+  out.push(join(P, "opencode.json"), join(P, "opencode.jsonc"));
+  out.push(join(P, ".opencode", "opencode.json"), join(P, ".opencode", "opencode.jsonc"));
+  return out;
 }
 
 /**
@@ -151,7 +178,7 @@ export async function planOpenCodeInstall(
   const chosen = await chooseConfigFile(candidates, fallback);
 
   const patch: JsonObject = project
-    ? { permission: { bash: { ...BASH_ENTRIES } } }
+    ? { permission: { bash: { ...PROJECT_BASH_ENTRIES } } }
     : {
         permission: {
           bash: { ...BASH_ENTRIES },
@@ -167,22 +194,40 @@ export async function planOpenCodeInstall(
     promote: PROMOTE,
     committable,
     within,
-    purpose: "allow dynamic-skills and ask before save and init",
+    purpose: project
+      ? "ask before save and init"
+      : "allow dynamic-skills and ask before save and init",
   });
 
   const notes: string[] = [];
-  if (project) notes.push(PROJECT_EXTERNAL_DIR_NOTE);
+  if (project) notes.push(PROJECT_EXTERNAL_DIR_NOTE, PROJECT_READONLY_NOTE);
   else notes.push(CROSS_SCOPE_NOTE);
   notes.push(CONSENT_NOTE, QUOTED_SUBCOMMAND_NOTE);
   if (variant === "v1" && (await hasTopLevelPermissionsKey(chosen))) {
     notes.push(`OpenCode 1.x rejects the V2 \`permissions\` key in ${chosen}.`);
   }
 
-  // Ruling R34: simulate the merge OpenCode's own evaluator would see, and report (never block)
-  // when another rule would outrank the consent entries we are about to write.
-  const currentDoc = await readJsoncDocument(chosen);
+  const chosenRead = await readConfigDocument(chosen, false);
+  if (chosenRead.refused !== undefined) {
+    notes.push(
+      `${chosen} is ${chosenRead.refused === "symlink" ? "a symlink" : chosenRead.refused}; init did not read it and will not write to it (the apply step refuses it). Replace it with a regular file under 8 MB, or pass --force only where it applies.`,
+    );
+  }
+
+  // Rulings R34/R44: simulate OpenCode's layered merge (mergeDeep key order), with the file init
+  // writes in its own slot, and report (never block) when another rule outranks the consent
+  // entries we are about to write.
+  const currentDoc = chosenRead.doc;
   const merged = mergeJson(currentDoc, patch, { promote: PROMOTE }).value;
-  notes.push(...consentNotes(merged, variant, chosen));
+  const order = layerPaths(env, variant);
+  const at = order.indexOf(chosen);
+  const readLayer = async (path: string): Promise<JsonValue | undefined> =>
+    (await readConfigDocument(path, true)).doc;
+  const docs = async (paths: string[]): Promise<JsonValue[]> =>
+    (await Promise.all(paths.map(readLayer))).filter((d): d is JsonValue => d !== undefined);
+  const before = await docs(at < 0 ? order : order.slice(0, at));
+  const after = await docs(at < 0 ? [] : order.slice(at + 1));
+  notes.push(...consentNotes(merged, variant, chosen, { before, after }));
 
   const verify: VerifyCommand[] =
     variant === "v2"

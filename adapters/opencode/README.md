@@ -101,7 +101,7 @@ A project's own `.opencode/opencode.json(c)` or a root `opencode.json(c)` is eva
 personal config. On OpenCode 1.x, the project and personal config files are deep-merged, so a
 project file with `permission.bash: "allow"` or a top-level `permission["*"]: "allow"` can override
 the _personal_ asks for work done in that project. Run `dynamic-skills init --harness opencode
---scope project` there too if that project should keep the consent entries.
+--scope project` there too if that project should keep the consent entries. Project scope writes only the save and init `ask` entries (no broad `"dynamic-skills *": "allow"`, Ruling R44), so it cannot turn a personal deny into an allow; read-only commands then rely on a personal `init`.
 
 ## Questions
 

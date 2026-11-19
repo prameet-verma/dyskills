@@ -34,7 +34,7 @@ Personal scope, under the config directory `C` (an absolute `OPENCODE_CONFIG_DIR
   `permission.external_directory` allowing `<session home>/*`.
 
 Project scope, under `<repo>/.opencode/` (committable): the same three files, plus a merge into the
-project's OpenCode config holding only `permission.bash`, which carries no machine path. Reading the
+project's OpenCode config holding only the two `permission.bash` asks (see Consent rules), which carry no machine path. Reading the
 session home from OpenCode 1.x still needs the personal-scope `external_directory` allow, so also
 run `dynamic-skills init --harness opencode --scope personal`.
 
@@ -45,16 +45,31 @@ written. Comments and trailing commas in your config are kept.
 
 ## Consent rules
 
-`init` appends, in this order (the last match wins):
+Personal scope appends, in this order (the last match wins):
 
 ```jsonc
 { "dynamic-skills *": "allow", "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
 ```
 
-OpenCode asks before a skill is saved or the configuration is changed. `init` simulates the merged
-config with OpenCode's own last-match evaluation and adds a note (never a conflict) when another
-rule outranks the ask, such as a top-level `permission["*"]: "allow"` placed after `bash` (Ruling
-R34). On a project that has its own `opencode.json`, OpenCode 1.x deep-merges it over your personal
+Project scope appends only the two asks, never the broad allow (Ruling R44):
+
+```jsonc
+{ "dynamic-skills save *": "ask", "dynamic-skills init *": "ask" }
+```
+
+OpenCode merges its config layers key by key (remeda `mergeDeep`): a key already present keeps its
+earlier position and new keys are appended, and the last match wins. A project-layer
+`"dynamic-skills *": "allow"` would therefore land after a personal `"dynamic-skills save *": "deny"`
+and win. Writing only the asks avoids that: a project install cannot turn a personal deny into an
+allow. The cost is that a project-only install no longer pre-allows read-only `dynamic-skills`
+commands, so with a personal `"*": "ask"` they prompt; run a personal `init` as well to allow them.
+
+OpenCode asks before a skill is saved or the configuration is changed. `init` simulates the layered
+config (global `config.json`, `opencode.json(c)`, `OPENCODE_CONFIG_DIR`, the root project files, then
+`.opencode/`, merged with `mergeDeep` key order, plus each agent's `permission` appended after the
+global rules) with OpenCode's own last-match evaluation and adds a note (never a conflict) whenever
+the result for `save` or `init` is not `ask`, for example when another rule outranks the ask, such as a top-level `permission["*"]: "allow"` placed after `bash` (Rulings
+R34, R44). On a project that has its own `opencode.json`, OpenCode 1.x deep-merges it over your personal
 config, so a project `"bash": "allow"` can override the personal asks there; run `init --scope
 project` in that repository too if it should keep them.
 

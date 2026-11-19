@@ -1,8 +1,12 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "jsonc-parser";
 import { scanExistingSkills } from "@dynamic-skills/bootstrapper";
 import { defineAdapterCompatSuite } from "@dynamic-skills/adapter-sdk/testkit";
 import { openCodeAdapter } from "../src/index";
+import { effectiveDecision } from "../src/consent";
+import { layerPaths } from "../src/install";
 
 const fixtureHome = (name: string): string =>
   join(
@@ -23,6 +27,17 @@ for (const target of targets) {
     versionOutput: target.versionOutput,
     vars: { XDG_CONFIG_HOME: "{home}/.config" },
     scan: ({ repo, home, vars, etcDir }) => scanExistingSkills({ repo, home, vars, etcDir }),
+    consent: async ({ world, command }) => {
+      const docs = [];
+      for (const f of layerPaths(world.env, target.variant)) {
+        try {
+          docs.push(parse(await readFile(f, "utf8"), [], { allowTrailingComma: true }));
+        } catch {
+          /* layer absent */
+        }
+      }
+      return effectiveDecision(docs, target.variant, command);
+    },
     expect: {
       version: target.versionOutput,
       variant: target.variant,

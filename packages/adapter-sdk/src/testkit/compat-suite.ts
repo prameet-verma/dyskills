@@ -45,6 +45,14 @@ export interface CompatTarget {
     vars: Record<string, string | undefined>;
     etcDir: string;
   }) => Promise<{ skills: { name: string; path: string }[] }>;
+  /**
+   * Optional consent probe: after `init` has been applied to the world for `scope`, returns what
+   * the harness would decide for `command` (a full command line such as
+   * `dynamic-skills save --session x --scope project`): `"ask"` or `"prompt"` when the user is
+   * asked, anything else (`"allow"`, `"deny"`, ...) otherwise. When set, the suite requires `save`
+   * and `init` to resolve to ask/prompt in both scopes.
+   */
+  consent?: (o: { world: World; scope: InstallScope; command: string }) => Promise<string>;
   /** What the adapter must report. */
   expect: {
     version: string;
@@ -175,7 +183,7 @@ function callSize(call: JsonObject, nativeIds: string[]): number {
 }
 
 /**
- * Registers the 13 adapter compatibility cases under `describe("adapter compat: <name>")`.
+ * Registers the adapter compatibility cases (13, plus the untested-version case and, when `consent` is set, the consent case) under `describe("adapter compat: <name>")`.
  * Call it from a test file. The cases build their own tmp worlds (home copy, project with `.git`,
  * a session home reached through a symlink alias, an etc dir) and a fake probe; nothing real is
  * read or written. Native-question payloads are inspected generically: a call's size is
@@ -430,7 +438,25 @@ export function defineAdapterCompatSuite(t: CompatTarget): void {
       const mapped = Object.values(plan.idMap);
       const all = [...mapped, ...plan.textOnly].sort();
       expect(all).toEqual(qs.map((q) => q.id).sort());
-      expect(new Set(nativeIds).size).toBe(nativeIds.length);
+      expect(new Set(mapped).size, "each question maps from exactly one native id").toBe(
+        mapped.length,
+      );
+      expect(
+        mapped.filter((id) => plan.textOnly.includes(id)),
+        "no question is both native and text-only",
+      ).toEqual([]);
+      const mentioned = new Set<string>();
+      const collect = (v: unknown): void => {
+        if (typeof v === "string") mentioned.add(v);
+        else if (Array.isArray(v)) v.forEach(collect);
+        else if (typeof v === "object" && v !== null) Object.values(v).forEach(collect);
+      };
+      for (const call of plan.calls) collect(call);
+      for (const nativeId of nativeIds) {
+        expect(mentioned.has(nativeId), `idMap key ${nativeId} appears as a string in a call`).toBe(
+          true,
+        );
+      }
       let carried = 0;
       for (const call of plan.calls) {
         const size = callSize(call, nativeIds);
@@ -448,6 +474,41 @@ export function defineAdapterCompatSuite(t: CompatTarget): void {
         ).toBe(true);
       }
     });
+
+    it("warns about an untested version", { timeout: CASE_TIMEOUT }, async () => {
+      const output = t.versionOutput.replace(t.expect.version, "0.0.1");
+      expect(output, "versionOutput contains the expected version").not.toBe(t.versionOutput);
+      await withWorld({ ...t, versionOutput: output }, async (w) => {
+        const d = await adapter.detect(w.env);
+        expect(d.installed).toBe(true);
+        expect(d.tested).toBe(false);
+        expect(d.warnings.length).toBeGreaterThan(0);
+      });
+    });
+
+    if (t.consent !== undefined) {
+      const probe = t.consent;
+      it("save and init resolve to ask", { timeout: CASE_TIMEOUT }, async () => {
+        for (const scope of SCOPES) {
+          await withWorld(t, async (w) => {
+            const res = await applyPlan(await planFor(t, w, scope), {
+              dryRun: false,
+              force: false,
+            });
+            expect(res.some((r) => r.action === "conflict")).toBe(false);
+            for (const command of [
+              `dynamic-skills save --session x --scope project --harness ${adapter.id}`,
+              `dynamic-skills init --harness ${adapter.id}`,
+            ]) {
+              const decision = await probe({ world: w, scope, command });
+              expect(["ask", "prompt"], `${scope}: ${command} resolves to ${decision}`).toContain(
+                decision,
+              );
+            }
+          });
+        }
+      });
+    }
 
     it("native activation root", { timeout: CASE_TIMEOUT }, async () => {
       expect(adapter.nativeActivation).toBe(t.expect.nativeActivation);

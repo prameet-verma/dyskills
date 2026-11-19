@@ -5,7 +5,7 @@ description: Use before starting a task that needs specialised or project-specif
 
 # Dynamic skill bootstrap
 
-Routing only: run `dynamic-skills <command>` and follow its output. If the command is not found, stop and tell the user to install it; never fetch it with a package runner. Every command prints one JSON object on stdout and a status block on stderr (`status` prints plain text). Show the status block when it matters.
+Routing only: run `dynamic-skills <command>` and follow its output. If the command is not found, stop and tell the user to install it; never fetch it with a package runner. Run every command bare: no redirection (not even `2>&1`), env prefix, `$` expansion, pipe or chaining, which can skip host consent rules. Every command prints one JSON object on stdout and a status block on stderr (`status` prints plain text); you see both. Show the status block when it matters.
 
 ## Ownership
 
@@ -23,7 +23,7 @@ You own the decision to synthesise and the quality of what you submit; the comma
 - Never edit `skills/` or `evals/smoke.json` in the session after `evaluate` except through another `evaluate`: an edited bundle is refused with `BUNDLE_INVALID`.
 - Never modify the base skill or any existing skill or instruction file.
 - Exit code 3: stop synthesis, continue the original task.
-- `activate` exit 2: report `reason`, follow `fallback`. `evaluate` or `eval record` with `BUNDLE_INVALID`: fix the bundle and run `evaluate` again (unless `fallback` is set). `clean` is always safe: metrics are archived.
+- `activate` exit 2: report `reason`, follow `fallback`. `BUNDLE_INVALID` from `evaluate`, `activate` or `eval record`: fix the bundle and run `evaluate` again (unless `fallback` is set). `clean` is always safe: metrics are archived.
 - `ANALYSIS_LIMIT`: proceed with what was consolidated. Never run `context request` once `submissionsRemaining` is 0.
 - Any output with a non-null `fallback` (including `BASE_CHANGED`) means the CLI has ended the session: stop synthesis, tell the user and continue the task (after a changed base, with the existing skill as it now is).
 
