@@ -1,4 +1,14 @@
-import { mkdir, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  rename,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -306,6 +316,23 @@ describe("native sweep safety", () => {
     await symlink(outside, join(root, "claude-code/.claude/skills"));
     await native.sweepNativePlacements(h.home, h.clock.t);
     expect(await exists(tmpDir)).toBe(true);
+  });
+
+  it("re-checks the layout before removing a stale temp directory (R42)", async () => {
+    const lay = await layout();
+    const tmpDir = join(lay, ".some-skill.tmp-deadbeef");
+    await mkdir(join(tmpDir, "x"), { recursive: true });
+    const stale = new Date(Date.now() - 2 * HOUR);
+    await utimes(tmpDir, stale, stale);
+    const outside = join(h.tmp, "moved-layout");
+    await native.sweepNativePlacements(h.home, h.clock.t, {
+      // The layout is swapped for a symlink after the listing.
+      beforeRemoveTemp: async () => {
+        await rename(lay, outside);
+        await symlink(outside, lay);
+      },
+    });
+    expect(await exists(join(outside, ".some-skill.tmp-deadbeef/x"))).toBe(true);
   });
 
   it("re-checks the mtime right before removal (R45)", async () => {

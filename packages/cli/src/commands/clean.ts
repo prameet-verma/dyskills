@@ -132,7 +132,7 @@ export async function discardSession(
     if (why !== null) notes.push(why);
     else {
       // Ruling R45: look again right before removing; another session may have reused the
-      // placement since the check above (a microsecond window remains, see cli-reference).
+      // placement since the check above (a short window remains while the bundle is hashed and removed, see cli-reference).
       const again = await lstat(state.native.dir).catch(() => null);
       if (again !== null && inPlacementGrace(again.mtimeMs)) notes.push(GRACE_NOTE);
       else await removePlacedBundle(state.native.dir, state.native.manifestSha256, within);

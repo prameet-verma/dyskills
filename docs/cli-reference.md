@@ -350,10 +350,13 @@ it is exactly `<realpath home>/native/<harness>/.claude/skills/<name>` and `<hom
 plain directory, never a symlink (Ruling R38); a kept placement is explained in `notes`. Another
 session referencing the directory or anything inside it also keeps it. A placement whose file time
 is within the last 10 minutes is kept too, with a note (Ruling R45), because another session may be
-activating it. The check is repeated right before the removal. A window of microseconds remains
-between that check and the removal; if `clean` wins it, the other session's `activate` notices the
-vanished directory when it refreshes the placement, places it again once, and otherwise reports a
-limitation instead of a path that no longer exists.
+activating it. The check is repeated right before the removal. A window remains between that
+check and the removal itself: `removePlacedBundle` hashes the bundle first, so it lasts from under a
+millisecond to tens of milliseconds. If another session's whole refresh lands inside it, that
+session keeps a reference to a placement that is gone: the harness does not list the skill, the
+agent still has `loadOrder`, and the next `activate` places it again. If the refresh comes after
+the removal, `activate` notices the vanished directory, places it again once, and otherwise reports
+a limitation.
 
 ### `save --session <id> --scope project|personal|ephemeral|discard [--harness <list>] [--dry-run]`
 
@@ -473,27 +476,27 @@ that match `dynamic-skills init` cannot be bypassed.
 
 ## Error codes
 
-| Code                      | Exit | Meaning                                                                                                                                                                                                                               | Saved?    |
-| ------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `USAGE`                   | 1    | Bad flag, empty value, unreadable `--file`, blank answer                                                                                                                                                                              | no        |
-| `SESSION_NOT_FOUND`       | 1    | No such session (a symlinked session directory counts as unknown)                                                                                                                                                                     | no        |
-| `SESSION_LOCKED`          | 1    | Another command holds the session lock                                                                                                                                                                                                | no        |
-| `HOME_UNSAFE`             | 1    | The session home or `sessions/` is a symlink, not a directory, or another user's                                                                                                                                                      | no        |
-| `INVALID_STATE`           | 1    | The state machine refuses the command; `expected` lists the allowed steps                                                                                                                                                             | no        |
-| `SCHEMA_INVALID`          | 1    | A document failed strict validation; `issues: [{path, message}]`                                                                                                                                                                      | no        |
-| `VERDICT_INVALID`         | 1    | The sufficiency verdict failed validation against the scan, mode or explicit flag                                                                                                                                                     | no        |
-| `ANALYSIS_LIMIT`          | 1    | `context submit` or `context request` after 4 accepted analyses                                                                                                                                                                       | no        |
-| `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)                                                                                                                                                                   | yes       |
-| `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                                                                                                                                                                          | yes       |
-| `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate` (also at `save`)                                                                                                                                                       | see below |
-| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (a 4th `evaluate`)                                                                                                                                                                          | yes       |
-| `INIT_CONFLICT`           | 1    | `init` found a conflict or stopped mid-apply; `reason` is `conflict` or `apply-failed`, `harnesses` the report                                                                                                                        | no        |
-| `HARNESS_NOT_DETECTED`    | 1    | `init` without `--harness` found no supported harness                                                                                                                                                                                 | no        |
-| `SAVE_CONFLICT`           | 1    | `save` found a name in use, a machine path, or a placement conflict; `reason`, `conflicts` or `path`                                                                                                                                  | no        |
-| `SAVE_DENIED`             | 1    | The host or file system denied a `save` write (`EACCES`, `EPERM`, `EROFS`); `path`                                                                                                                                                    | no        |
-| `SAVE_UNSUPPORTED`        | 1    | `save` of an augmentation (Phase 3)                                                                                                                                                                                                   | no        |
-| `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                                                                                                                                                                    | yes       |
-| `INTERNAL`                | 1    | An unexpected failure. For an error that is not one of the CLI's own, the message is the fixed text ``unexpected internal error; see `status` `` plus an errno code in parentheses when there is one; never exception or file content | no        |
+| Code                      | Exit | Meaning                                                                                                                                                                                                                                | Saved?    |
+| ------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `USAGE`                   | 1    | Bad flag, empty value, unreadable `--file`, blank answer                                                                                                                                                                               | no        |
+| `SESSION_NOT_FOUND`       | 1    | No such session (a symlinked session directory counts as unknown)                                                                                                                                                                      | no        |
+| `SESSION_LOCKED`          | 1    | Another command holds the session lock                                                                                                                                                                                                 | no        |
+| `HOME_UNSAFE`             | 1    | The session home or `sessions/` is a symlink, not a directory, or another user's                                                                                                                                                       | no        |
+| `INVALID_STATE`           | 1    | The state machine refuses the command; `expected` lists the allowed steps                                                                                                                                                              | no        |
+| `SCHEMA_INVALID`          | 1    | A document failed strict validation; `issues: [{path, message}]`                                                                                                                                                                       | no        |
+| `VERDICT_INVALID`         | 1    | The sufficiency verdict failed validation against the scan, mode or explicit flag                                                                                                                                                      | no        |
+| `ANALYSIS_LIMIT`          | 1    | `context submit` or `context request` after 4 accepted analyses                                                                                                                                                                        | no        |
+| `BASE_CHANGED`            | 1    | The base skill no longer hashes to the pinned sha256 (at `compile`)                                                                                                                                                                    | yes       |
+| `ACTIVATION_REFUSED`      | 2    | `activate` refused; `reason` says why, `fallback` what to do                                                                                                                                                                           | yes       |
+| `BUNDLE_INVALID`          | 2    | The bundle is invalid, over a cap, or changed since `evaluate` (also at `save`)                                                                                                                                                        | see below |
+| `EVAL_ATTEMPTS_EXHAUSTED` | 2    | More than `MAX_EVAL_ATTEMPTS` evaluations (a 4th `evaluate`)                                                                                                                                                                           | yes       |
+| `INIT_CONFLICT`           | 1    | `init` found a conflict or stopped mid-apply; `reason` is `conflict` or `apply-failed`, `harnesses` the report                                                                                                                         | no        |
+| `HARNESS_NOT_DETECTED`    | 1    | `init` without `--harness` found no supported harness                                                                                                                                                                                  | no        |
+| `SAVE_CONFLICT`           | 1    | `save` found a name in use, a machine path, or a placement conflict; `reason`, `conflicts` or `path`                                                                                                                                   | no        |
+| `SAVE_DENIED`             | 1    | The host or file system denied a `save` write (`EACCES`, `EPERM`, `EROFS`); `path`                                                                                                                                                     | no        |
+| `SAVE_UNSUPPORTED`        | 1    | `save` of an augmentation (Phase 3)                                                                                                                                                                                                    | no        |
+| `TIMEOUT`                 | 3    | The active budget was exceeded; carries `fallback`                                                                                                                                                                                     | yes       |
+| `INTERNAL`                | 1    | An unexpected failure. For an error that is not one of the CLI's own, the message is the fixed text `` unexpected internal error; see `status` `` plus an errno code in parentheses when there is one; never exception or file content | no        |
 
 A handler that throws saves nothing, so the previous `session.json` is untouched. The exceptions,
 which do save state because the session or the attempt count must change, are:
@@ -511,7 +514,8 @@ which do save state because the session or the attempt count must change, are:
 
 Sessions live in `DYNAMIC_SKILLS_HOME`, by default `<os tmpdir>/dynamic-skills-<uid>` (a per-user
 directory). An empty value and a relative value count as unset (Ruling R42), because a relative home
-would put `sessions/` and the native sweep inside whatever directory the agent runs in. Before the first write of each command the home and `<home>/sessions` are checked: a
+would put `sessions/` and the native sweep inside whatever directory the agent runs in. Before the
+first write of each command the home and `<home>/sessions` are checked: a
 symlink, a non-directory or (where the platform has uids) a directory owned by another user is
 refused with `HOME_UNSAFE`. The path is resolved first, so a symlink written with a trailing slash
 is refused too. Only directories the store creates are tightened (Ruling R23): a missing home is

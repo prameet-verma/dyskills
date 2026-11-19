@@ -14,6 +14,19 @@ const hooks: {
   ) => ReturnType<typeof placeBundle>;
 } = {};
 
+const coreHooks: { onReferences?: () => Promise<void> } = {};
+vi.mock("@dynamic-skills/core", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@dynamic-skills/core")>();
+  return {
+    ...real,
+    readNativeReferences: async (...args: Parameters<typeof real.readNativeReferences>) => {
+      const out = await real.readNativeReferences(...args);
+      await coreHooks.onReferences?.();
+      return out;
+    },
+  };
+});
+
 vi.mock("@dynamic-skills/adapter-sdk", async (importOriginal) => {
   const real = await importOriginal<typeof import("@dynamic-skills/adapter-sdk")>();
   return {
@@ -37,6 +50,7 @@ beforeEach(async () => {
   h = await harness();
   await mkdir(join(h.repo, ".git"), { recursive: true });
   hooks.place = undefined;
+  coreHooks.onReferences = undefined;
 });
 afterEach(() => h.cleanup());
 
@@ -129,6 +143,18 @@ describe("clean keeps a placement another session is activating (R45)", () => {
     const dir = r.out.native.path as string;
     // Another session reuses the placement right now.
     await utimes(dir, new Date(), new Date());
+    const kept = await h.run(["clean", "--session", id]);
+    expect(kept.exitCode).toBe(0);
+    expect(await exists(join(dir, "SKILL.md"))).toBe(true);
+    expect(kept.out.notes.join(" ")).toMatch(/within the last 10 minutes/);
+  });
+
+  it("re-checks the mtime right before removing (another session refreshes it mid-clean)", async () => {
+    const id = await recorded();
+    const r = await h.runWith(["activate", "--session", id], { vars: NATIVE_ON });
+    const dir = r.out.native.path as string;
+    await utimes(dir, 1_000_000_000, 1_000_000_000);
+    coreHooks.onReferences = () => utimes(dir, new Date(), new Date());
     const kept = await h.run(["clean", "--session", id]);
     expect(kept.exitCode).toBe(0);
     expect(await exists(join(dir, "SKILL.md"))).toBe(true);
@@ -290,6 +316,18 @@ describe("option values that start with a dash (R45)", () => {
       "-- missing edge case",
     ]);
     expect(n.out.error).not.toBe("USAGE");
+  });
+
+  it("refuses a free-text option that swallowed one of the command's flags", async () => {
+    for (const argv of [
+      ["assess", "--task", "--explicit"],
+      ["assess", "--task", "--repo", h.repo],
+    ]) {
+      const r = await h.run(argv);
+      expect(r.out.error).toBe("USAGE");
+    }
+    const ok = await h.run(["assess", "--task", "--mode=fast is broken"]);
+    expect(ok.exitCode).toBe(0);
   });
 
   it("still refuses a value that is one of the command's own flags", async () => {

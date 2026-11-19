@@ -55,6 +55,12 @@ export interface SweepOptions {
    * @internal Test seam; never wire user input into it.
    */
   beforeRemove?: (dir: string) => Promise<void> | void;
+  /**
+   * Called for each stale temp directory just before the re-checks that precede its removal.
+   *
+   * @internal Test seam; never wire user input into it.
+   */
+  beforeRemoveTemp?: (dir: string) => Promise<void> | void;
 }
 
 /** True for an in-flight `.<name>.tmp-<hex>` directory left by `placeBundle`; never a placement. */
@@ -186,6 +192,7 @@ export async function sweepNativePlacements(
   for (const tmp of staleTemps) {
     if (Date.now() >= deadline) break;
     try {
+      await opts.beforeRemoveTemp?.(tmp);
       // The listing is a snapshot: the layout may have become a symlink since (Ruling R42).
       const parent = dirname(tmp);
       if ((await realpath(parent)) !== parent) continue;

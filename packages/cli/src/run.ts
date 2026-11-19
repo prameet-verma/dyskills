@@ -345,7 +345,8 @@ const FREE_TEXT_OPTIONS: ReadonlySet<string> = new Set(["--task", "--notes"]);
  * The flag of the first value-taking option that swallowed one of its own command's flags (for
  * example `init --repo --dry-run`, or `save --session --scope=project`), else `null`. Commander
  * lets an option take a following flag as its value, which silently turns a typo into a different
- * command. Free-text options and values given as one `--opt=value` token are never refused.
+ * command. A value given as one `--opt=value` token is never refused. Free-text options refuse
+ * only a value that is, whole, one of the command's own flags.
  */
 function optionValueStartingWithDash(
   def: CommandDef,
@@ -360,10 +361,16 @@ function optionValueStartingWithDash(
     if (o.short !== undefined) own.add(o.short);
   }
   for (const o of specs) {
-    if (!o.required || o.long === undefined || FREE_TEXT_OPTIONS.has(o.long)) continue;
+    if (!o.required || o.long === undefined) continue;
     const value = opts[o.attributeName()];
     if (typeof value !== "string" || !value.startsWith("-")) continue;
     if (argv.includes(`${o.long}=${value}`)) continue;
+    if (FREE_TEXT_OPTIONS.has(o.long)) {
+      // Free text may start with `-`, but a value that is exactly one of the command's own flags
+      // and its own argv token means the flag was swallowed (`assess --task --explicit`).
+      if (own.has(value) && argv.includes(value)) return o.long;
+      continue;
+    }
     const name = value.split("=")[0] as string;
     if (own.has(name)) return o.long;
   }
