@@ -18,6 +18,9 @@ async function isExecutableFile(p: string): Promise<boolean> {
  * Creates a probe over `vars`. `which` scans `vars.PATH` for an executable regular file (no
  * shell). `run` uses `spawn` (detached) with `env: vars`, a hard timeout (default 5 s: SIGKILL of the whole process group, then resolve; a normal exit resolves as soon as the child has exited, whatever still holds its pipes; `timeoutMs` overrides it) and a 64 KiB output cap (overflow kills the group), and never
  * throws: a spawn error, timeout or overflow is `code: -1`.
+ *
+ * The child is detached (its own process group), so Ctrl-C in the terminal does not reach a hung
+ * probe, and an orphan can outlive the CLI if the CLI is killed before the timeout fires.
  */
 export function createHostProbe(
   vars: Readonly<Record<string, string | undefined>>,
@@ -65,16 +68,24 @@ export function createHostProbe(
             child.kill("SIGKILL");
           }
         };
-        const collect = (which: "out" | "err") => (chunk: Buffer) => {
-          bytes += chunk.length;
-          if (bytes > 65_536) {
-            overflow = true;
-            killGroup();
+        let exited = false;
+        const collect = (which: "out" | "err") => (chunk: string) => {
+          const room = 65_536 - bytes;
+          const size = Buffer.byteLength(chunk);
+          if (size > room) {
+            // The cap counts only while the child is alive; afterwards output is just truncated.
+            if (!exited) {
+              overflow = true;
+              killGroup();
+            }
             return;
           }
-          if (which === "out") out += chunk.toString("utf8");
-          else err += chunk.toString("utf8");
+          bytes += size;
+          if (which === "out") out += chunk;
+          else err += chunk;
         };
+        child.stdout?.setEncoding("utf8");
+        child.stderr?.setEncoding("utf8");
         child.stdout?.on("data", collect("out"));
         child.stderr?.on("data", collect("err"));
         child.stdout?.on("error", () => undefined);
@@ -94,6 +105,7 @@ export function createHostProbe(
         };
         child.on("close", (code) => settle(code));
         child.on("exit", (code) => {
+          exited = true;
           const grace = setTimeout(() => settle(code), 100);
           grace.unref();
           timers.push(grace);

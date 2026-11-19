@@ -75,3 +75,32 @@ describe("probe timeout and process groups", () => {
     expect(alive(Number((await readFile(pidfile, "utf8")).trim()))).toBe(false);
   });
 });
+
+describe("probe output and exit handling", () => {
+  it("returns -1 on output overflow and kills the grandchild", async () => {
+    const pidfile = join(bin, "pid3");
+    const f = await script(
+      "flood",
+      `sleep 34 &\necho $! > ${pidfile}\nyes x | head -c 200000\nwait`,
+    );
+    const r = await createHostProbe({ PATH: bin }, 5_000).run(f, []);
+    expect(r.code).toBe(-1);
+    await settle(200);
+    expect(alive(Number((await readFile(pidfile, "utf8")).trim()))).toBe(false);
+  });
+  it("gives the child an EOF stdin", async () => {
+    const f = await script("reader", "cat\necho done");
+    const r = await createHostProbe({ PATH: bin }, 3_000).run(f, []);
+    expect(r).toMatchObject({ code: 0, stdout: "done\n" });
+  });
+  it("returns -1 for a child that SIGKILLs itself", async () => {
+    const f = await script("suicide", "kill -9 $$");
+    const r = await createHostProbe({ PATH: bin }, 3_000).run(f, []);
+    expect(r.code).toBe(-1);
+  });
+  it("keeps multi-byte characters whole", async () => {
+    const f = await script("utf", "printf '\\342\\202\\254\\342\\202\\254\\n'");
+    const r = await createHostProbe({ PATH: bin }, 3_000).run(f, []);
+    expect(r.stdout).toBe("\u20ac\u20ac\n");
+  });
+});

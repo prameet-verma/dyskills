@@ -141,8 +141,11 @@ function planMerge(
   }
 }
 
-/** Returns the path of the first patch key that is duplicated in `text`'s object, or null. */
-function duplicateAlongPatch(text: string, patch: JsonObject): string | null {
+/**
+ * Returns the path of the first patch key that is duplicated in `text`'s object (with `anywhere`,
+ * of any duplicated key), or null.
+ */
+function duplicateAlongPatch(text: string, patch: JsonObject, anywhere = false): string | null {
   const dups = new Set<string>();
   const stack: { keys: Set<string>; path: string[] }[] = [];
   visit(
@@ -164,6 +167,7 @@ function duplicateAlongPatch(text: string, patch: JsonObject): string | null {
     { allowTrailingComma: true },
   );
   if (dups.size === 0) return null;
+  if (anywhere) return (JSON.parse([...dups][0] as string) as string[]).join(".");
   const walk = (node: JsonObject, path: string[]): string | null => {
     for (const [k, v] of Object.entries(node)) {
       const here = [...path, k];
@@ -202,7 +206,8 @@ function planMergeInner(
   if (tooDeep(current, MAX_DEPTH)) return conflict(write, "too deeply nested", hash);
   // `parse` keeps the last duplicate key but `modify` edits the first (and a strict merge would
   // silently drop the shadowed one): refuse to guess.
-  const dup = duplicateAlongPatch(text, write.patch);
+  // A strict merge re-serialises the whole file, so there any duplicate key is refused.
+  const dup = duplicateAlongPatch(text, write.patch, strict);
   if (dup !== null) return conflict(write, `duplicate key at: ${dup}`, hash);
   const { value, conflicts } = mergeJson(
     current,

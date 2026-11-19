@@ -202,7 +202,7 @@ describe("readNativeReferences", () => {
 
 describe("selectExpiredPlacements future placedAt", () => {
   it("expires a referenced placement whose newest placedAt is more than 1 h ahead", () =>
-    expect(run({ mtimeMs: T }, [ref(T + 10 * H, "activated")])).toEqual(["/n/a"]));
+    expect(run({ mtimeMs: T }, [ref(T + 10 * H, "activated")], 1)).toEqual(["/n/a"]));
   it("keeps one whose placedAt is within the skew", () =>
     expect(run({ mtimeMs: T }, [ref(T + H / 2, "activated")])).toEqual([]));
 });
@@ -216,4 +216,11 @@ describe("selectExpiredPlacements mixed references", () => {
     expect(
       run({ mtimeMs: T }, [ref(T + 10 * H, "activated"), ref(T + 20 * H, "activated")]),
     ).toEqual(["/n/a"]));
+});
+
+describe("selectExpiredPlacements far-future live ref with a failed ref", () => {
+  it("expires a placement whose only valid reference failed", () =>
+    expect(run({ mtimeMs: T }, [ref(T + 10 * H, "activated"), ref(T - H, "failed")])).toEqual([
+      "/n/a",
+    ]));
 });

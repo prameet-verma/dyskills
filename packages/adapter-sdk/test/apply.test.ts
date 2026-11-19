@@ -294,3 +294,13 @@ describe("strict JSON duplicate keys", () => {
     expect(r[0]?.reason).toContain("duplicate key");
   });
 });
+
+describe("strict JSON duplicate keys off the patch path", () => {
+  it("reports a conflict for a duplicate anywhere in the file", async () => {
+    const f = join(project, "off.json");
+    await writeFile(f, '{"other":{"k":1,"k":2},"env":{}}');
+    const r = await previewPlan(plan([merge(f, { env: { A: "1" } })]), { force: false });
+    expect(r[0]).toMatchObject({ action: "conflict" });
+    expect(r[0]?.reason).toContain("other.k");
+  });
+});
