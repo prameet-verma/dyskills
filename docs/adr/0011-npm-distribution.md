@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted. Publishing itself is still a human step, and the license and repository URL are pending.
+Accepted. Publishing itself is still a human step. The license is AGPL-3.0-only and the repository is
+<https://github.com/prameet-verma/dyskills>.
 
 ## Context
 
@@ -32,7 +33,8 @@ Harness permission rules match the command text, so a package runner cannot be a
 ## Consequences
 
 - Allow rules match `dynamic-skills` exactly, on every harness.
-- Nothing can be published until a human chooses a license and a repository URL.
+- The release check required a license and a repository URL before publishing; both are now set
+  (`AGPL-3.0-only`, `https://github.com/prameet-verma/dyskills`).
 - Users cannot persist a `partial` augmentation yet; they save the generated skill or keep the
   session only.
 - The public API (commands, flags, stdout fields, exit and error codes, schemas, installed files)

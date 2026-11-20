@@ -9,6 +9,16 @@
     "cli",
     "skills"
   ],
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prameet-verma/dyskills.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/prameet-verma/dyskills#readme",
+  "bugs": {
+    "url": "https://github.com/prameet-verma/dyskills/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

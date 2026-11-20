@@ -39,7 +39,8 @@ Phase 2, Harness Integrations:
 - Harness guides under `docs/harnesses/`, an adapter authoring guide, ADRs 0007 to 0011 and a
   release checklist; the live smoke scripts per harness (manual, never in CI).
 - The CLI is published as the unscoped package `dynamic-skills` (`npm i -g dynamic-skills`); it is
-  not yet published, and the license and repository URL are pending.
+  not yet published. Licensed under AGPL-3.0-only; the repository is
+  <https://github.com/prameet-verma/dyskills>.
 
 Phase 1, the JIT Core Engine:
 

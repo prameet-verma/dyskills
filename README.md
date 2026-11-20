@@ -12,8 +12,7 @@ full product definition.
 **Status:** pre-release. Phase 1 (JIT Core Engine) is implemented. Phase 2 (Harness Integrations:
 installer, consent rules, save, native questions and optional native activation for Claude Code,
 Codex and OpenCode) is implemented and awaiting its gate (live smoke runs by a human). Nothing is
-published yet: the package is not yet on npm, and the license and repository URL are pending a
-human decision.
+published yet: the package is not yet on npm.
 
 ## How it works
 
@@ -65,7 +64,7 @@ dynamic-skills init                      # every detected harness, personal scop
 dynamic-skills init --harness codex --scope project --dry-run   # preview one harness, write nothing
 ```
 
-The package is not yet published to npm (no license has been chosen either). Until it is published,
+The package is not yet published to npm. Until it is published,
 build it (`pnpm install && pnpm build`) and link the bin into a directory on your `PATH`, for
 example `ln -s "$PWD/packages/cli/dist/index.js" ~/.local/bin/dynamic-skills`. Any global
 `dynamic-skills` on `PATH` (this link or `npm i -g`) makes the live smoke abort; remove it before
@@ -222,4 +221,4 @@ Details: [roadmap](docs/superpowers/plans/2026-11-14-dynamic-skills-roadmap.md).
 
 ## License
 
-Not yet chosen.
+[GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).

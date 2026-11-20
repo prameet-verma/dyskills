@@ -18,11 +18,11 @@ bump the minor version; fixes bump the patch version. A `CONTRACT_VERSION` bump 
 
 1. Fill in the `[maintainer contact]` placeholder in `SECURITY.md` with a real private reporting
    address before the first release. Do not publish with the placeholder.
-1. Choose a license, then add `LICENSE` at the repository root (pnpm includes it in the tarball)
-   and the `"license"` field to `packages/cli/package.json`. The release check fails until the
-   field exists, and again if the tarball lacks `LICENSE`.
-1. Set the `repository` field in `packages/cli/package.json` before the first publish; the release
-   check fails without it.
+1. Keep `LICENSE` (AGPL-3.0) at the repository root (pnpm includes it in the tarball) and the
+   `"license": "AGPL-3.0-only"` field in `packages/cli/package.json`. The release check fails if
+   the field is missing or the tarball lacks `LICENSE`. (Done.)
+1. Keep the `repository` field in `packages/cli/package.json`
+   (`https://github.com/prameet-verma/dyskills`); the release check fails without it. (Done.)
 1. Claim the npm name `dynamic-skills`.
 1. Configure the `npm` GitHub environment (required reviewers) and the `NPM_TOKEN` secret, or npm
    trusted publishing.
