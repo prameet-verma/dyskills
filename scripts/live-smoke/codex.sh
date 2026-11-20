@@ -90,7 +90,7 @@ harness_checklist() {
   [ ] R32 (exec only): save from inside the sandbox: SUCCEEDED / SANDBOX WRITE ERROR (probe r32-save evidence). Escalation cannot show in exec: do the manual procedure below.
   [ ] D6: NOT testable under exec (--ignore-rules drops the consent rules and the repo is untrusted): record it as untested here; test it in the manual TUI procedure
   [ ] Questions headless: how were they handled (assumptions.json above)? Followed the bootstrap end to end?
-  [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 60 s Timing line, AC 24 and AC 28 above
+  [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 150 s Timing line, AC 24 and AC 28 above
   [ ] R31: '-V save' refused (R31 lines above)
 
   Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: Codex runs it inside the workspace-write sandbox (no deny rule applies, since --ignore-rules is set); the sandbox is the only layer there. the agent can write cli-calls.log: \$TMP is under \$TMPDIR, which the workspace-write sandbox can write, so treat the call count and SHADOWED as agent-writable evidence and trust the jail report and AC 28 more.

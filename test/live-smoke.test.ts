@@ -107,11 +107,12 @@ describe("live smoke scripts", () => {
     }
   });
 
-  it("lib.sh records the R31 refusal and the 60 s timing", () => {
+  it("lib.sh records the R31 refusal and the 150 s timing", () => {
     const lib = read("scripts/live-smoke/lib.sh");
     expect(lib).toMatch(/dynamic-skills -V save/);
     expect(lib).toContain("R31");
-    expect(lib).toMatch(/60/);
+    expect(lib).toContain("SMOKE_BUDGET_SECS=150");
+    expect(lib).toContain("DEFAULT_BUDGET_MS");
   });
 
   it("the Codex script runs sandboxed with approvals never and records R32", () => {
@@ -175,9 +176,16 @@ describe("live smoke fix round 1", () => {
 
 /** Run a bash script text with a temp HOME and extra env; returns stdout, stderr and status. */
 function bash(script: string, env: Record<string, string> = {}) {
+  // Hermetic: drop every variable the scripts read that a developer may have exported.
+  const base: Record<string, string | undefined> = { ...process.env };
+  for (const k of Object.keys(base)) {
+    if (/^(SMOKE_|DYNAMIC_SKILLS_)/.test(k)) delete base[k];
+  }
+  for (const k of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "OPENCODE_CONFIG_DIR"])
+    delete base[k];
   return spawnSync("bash", ["-c", script], {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...base, ...env },
     timeout: 60_000,
   });
 }
@@ -491,15 +499,25 @@ describe("fix round 2", () => {
         expect(deny).toContain("Bash(dynamic-skills init)");
         expect(deny).toContain("Bash(dynamic-skills init *)");
         for (const t of ["Edit", "Write", "Read", "Glob", "Grep"]) expect(allow).not.toContain(t);
-        for (const g of allow.filter((x) => /^(Read|Edit|Write)\(/.test(x))) {
-          expect(g).toMatch(/^(Read|Edit|Write)\(\/\/.*(\/repo|\/sessions-home)\/\*\*\)$/);
+        for (const g of allow.filter((x) => /^(Read|Edit)\(/.test(x))) {
+          expect(g).toMatch(/^(Read|Edit)\(\/\/.*(\/repo|\/sessions-home)\/\*\*\)$/);
           expect(g).not.toContain(dir + "/**");
         }
-        for (const t of ["Edit", "Write"]) {
-          expect(allow.filter((x) => x.startsWith(t + "(")).length).toBe(2);
-          expect(deny).toContain(`${t}(//${join(dir, "repo").slice(1)}/.claude/settings*.json)`);
-          expect(deny).toContain(`${t}(//${join(dir, "home", ".codex").slice(1)}/**)`);
-        }
+        expect([...allow, ...deny].filter((x) => x.startsWith("Write("))).toEqual([]);
+        expect(allow.filter((x) => x.startsWith("Edit(")).length).toBe(2);
+        const rel = (p: string) => "//" + p.slice(1);
+        const home = join(dir, "home");
+        const edits = [
+          `${rel(join(dir, "repo"))}/.claude/settings*.json`,
+          `${rel(home)}/.claude/**`,
+          `${rel(home)}/.agents/**`,
+          `${rel(join(home, ".codex"))}/**`,
+          `${rel(join(home, ".config", "opencode", "skills"))}/**`,
+          `${rel(join(home, ".config", "opencode"))}/**`,
+          `${rel(join(dir, "repo"))}/.claude/skills/**`,
+        ];
+        for (const e of edits) expect(deny, e).toContain(`Edit(${e})`);
+        expect(deny.filter((x) => x.startsWith("Edit("))).toHaveLength(7);
       },
     );
 
@@ -523,9 +541,246 @@ describe("fix round 2", () => {
       expect(after(a, "--disallowedTools")).not.toContain("Bash(dynamic-skills save *)");
     });
 
-    it("structured output for probes only", () => {
-      expect(claudeArgs("main")).not.toContain("--output-format");
-      expect(claudeArgs("probe")).toContain("--output-format");
+    it("has no Write(path) permission rule (Claude Code only matches Edit(path))", () => {
+      expect(code("scripts/live-smoke/claude-code.sh")).not.toMatch(/Write\(/);
+    });
+
+    it("keeps stderr out of the JSON output file and parses past warning lines", () => {
+      const sh = code("scripts/live-smoke/claude-code.sh");
+      expect(sh).toContain('2>"${out%.txt}.stderr.txt"');
+      expect(sh).not.toMatch(/>"\$out" 2>&1/);
+      const f = join(dir, "probe.txt");
+      writeFileSync(
+        f,
+        [
+          "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted",
+          JSON.stringify({
+            type: "result",
+            permission_denials: [
+              { tool_name: "Bash", tool_input: { command: "dynamic-skills init" } },
+            ],
+          }),
+          "",
+        ].join("\n"),
+      );
+      const r = bash(
+        `${src("scripts/live-smoke/claude-code.sh")}\nharness_evidence ${JSON.stringify(f)}`,
+      );
+      expect(r.stdout).toContain("permission_denials: 1");
+      expect(r.stdout).toContain("Bash");
+      expect(r.stdout).not.toContain("not one JSON document");
+      writeFileSync(f, "only a warning\n");
+      const r2 = bash(
+        `${src("scripts/live-smoke/claude-code.sh")}\nharness_evidence ${JSON.stringify(f)}`,
+      );
+      expect(r2.stdout).toContain("not one JSON document");
+    });
+
+    it.each(["main", "probe", "probe-consent"])(
+      "%s: structured output and no user settings or plugins",
+      (kind) => {
+        const a = claudeArgs(kind);
+        expect(a[a.indexOf("--output-format") + 1]).toBe("json");
+        expect(a[a.indexOf("--setting-sources") + 1]).toBe("project,local");
+      },
+    );
+
+    it("denies edits in a different CLAUDE_CONFIG_DIR", () => {
+      const cfg = join(dir, "elsewhere", "cfg");
+      mkdirSync(cfg, { recursive: true });
+      const r = bash(
+        `${setupEnv()}\nexport CLAUDE_CONFIG_DIR=${JSON.stringify(cfg)}\n${src("scripts/live-smoke/claude-code.sh")}\nclaude_args main`,
+      );
+      expect(lines(r)).toContain(`Edit(//${cfg.slice(1)}/**)`);
+    });
+
+    it("harness_reply prints the JSON result and the skills from the transcript", () => {
+      const home = join(dir, "home");
+      const repo = join(dir, "repo");
+      mkdirSync(repo, { recursive: true });
+      const slug = realpathSync(repo).replace(/[^A-Za-z0-9]/g, "-");
+      const proj = join(home, ".claude", "projects", slug);
+      mkdirSync(proj, { recursive: true });
+      const sid = "11111111-2222";
+      const tool = (skill: string) =>
+        JSON.stringify({
+          message: { content: [{ type: "tool_use", name: "Skill", input: { skill } }] },
+        });
+      writeFileSync(
+        join(proj, `${sid}.jsonl`),
+        [tool("brainstorming"), "not json", tool("dynamic-skill-bootstrap")].join("\n"),
+      );
+      const out = join(dir, "main.txt");
+      writeFileSync(
+        out,
+        JSON.stringify({ type: "result", result: "Done: used it.", session_id: sid }),
+      );
+      const run = (file: string) =>
+        bash(
+          `${setupEnv()}\nREPO_REAL=${JSON.stringify(realpathSync(repo))}\n${src("scripts/live-smoke/claude-code.sh")}\nharness_reply ${JSON.stringify(file)}`,
+        );
+      const r = run(out);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("Done: used it.");
+      expect(r.stdout).toContain(
+        "Skills invoked (via the Skill tool): brainstorming, dynamic-skill-bootstrap",
+      );
+      // A warning line before the JSON document, and a slash invocation in the transcript.
+      writeFileSync(
+        join(proj, `${sid}.jsonl`),
+        JSON.stringify({
+          type: "user",
+          message: { content: "<command-name>/dynamic-skill-bootstrap</command-name> x" },
+        }),
+      );
+      writeFileSync(
+        out,
+        `warning line\n${JSON.stringify({ type: "result", result: "ok", session_id: sid })}\n`,
+      );
+      const r3 = run(out);
+      expect(r3.stdout).toContain("slash: dynamic-skill-bootstrap");
+      expect(readFileSync(join(dir, "main.reply.txt"), "utf8")).toBe("ok\n");
+      writeFileSync(out, "plain text reply\n");
+      const r2 = run(out);
+      expect(r2.status).toBe(0);
+      expect(r2.stdout).toContain("plain text reply");
+      expect(r2.stdout).toContain(
+        "Skills invoked (via the Skill tool): unknown (transcript not found)",
+      );
+    });
+
+    it("scans the extracted reply, so an empty permission_denials is not a denied line", () => {
+      const out = join(dir, "main.txt");
+      const mk = (denials: unknown[]) =>
+        JSON.stringify({ type: "result", result: "all fine", permission_denials: denials });
+      const run = () =>
+        bash(
+          `${setupEnv()}\n${src("scripts/live-smoke/claude-code.sh")}\nharness_reply ${JSON.stringify(out)} >/dev/null\nscan ${JSON.stringify(join(dir, "main.reply.txt"))} Denied 'denied|permission|not allowed|requires approval'\nharness_evidence ${JSON.stringify(out)}`,
+        );
+      writeFileSync(out, mk([]));
+      const r = run();
+      expect(r.stdout).toContain("Denied: 0 matching line(s)");
+      expect(r.stdout).toContain("permission_denials: 0");
+      writeFileSync(
+        out,
+        mk([{ tool_name: "Bash", tool_input: { command: "dynamic-skills init" } }]),
+      );
+      const r2 = run();
+      expect(r2.stdout).toContain("permission_denials: 1");
+      expect(r2.stdout).toContain("dynamic-skills init");
+      const sh = code("scripts/live-smoke/claude-code.sh");
+      expect(sh).not.toMatch(/scan "\$TMP\/out\/main\.txt"/);
+      expect(code("scripts/live-smoke/lib.sh")).toContain('harness_evidence "$TMP/out/main.txt"');
+    });
+
+    it("the checklist records the plugin isolation and the forced-skill caveat", () => {
+      const sh = read("scripts/live-smoke/claude-code.sh");
+      expect(sh).toContain("MUST use before any creative work");
+      expect(sh).toContain("NOT loaded, on purpose");
+    });
+  });
+
+  describe("AC 28 synced exclusion", () => {
+    it("ignores only Claude Code's skills/synced subtree and says so", () => {
+      const r = bash(
+        [
+          `export HOME=${JSON.stringify(join(dir, "home"))}`,
+          src("scripts/live-smoke/lib.sh"),
+          `REAL_HOME=$HOME; REPO=${JSON.stringify(join(dir, "repo"))}; TMP=${JSON.stringify(dir)}`,
+          "OPENCODE_GLOBAL_SKILLS=$HOME/oc/skills; CODEX_HOME_REAL=$HOME/.codex",
+          "mkdir -p $HOME/.claude/skills/synced/a_b $HOME/.claude/skills/mine",
+          "echo x > $HOME/.claude/skills/mine/SKILL.md",
+          'real_skill_roots; repo_skill_roots; SNAP_REAL_BEFORE="$(snapshot_roots "${REAL_ROOTS[@]}")"; SNAP_REPO_BEFORE=',
+          "echo m > $HOME/.claude/skills/synced/a_b/.last-complete-round",
+          'ac28_check "AC 28" real',
+          "echo y > $HOME/.claude/skills/mine/other.md",
+          'ac28_check "AC 28" real',
+        ].join("\n"),
+      );
+      expect(code("scripts/live-smoke/lib.sh")).toContain("skills/synced/ subtree");
+      expect(r.stdout).toContain("AC 28: PASS");
+      expect(r.stdout).toMatch(/AC 28: FAIL .*other\.md/);
+      expect(r.stdout).not.toMatch(/FAIL .*last-complete-round/);
+    });
+
+    /** Run an AC 28 scenario; MUTATE runs between the baseline and the check. */
+    const ac28 = (mutate: string, extraEnv: Record<string, string> = {}) =>
+      bash(
+        [
+          `export HOME=${JSON.stringify(join(dir, "home"))}`,
+          src("scripts/live-smoke/lib.sh"),
+          `REAL_HOME=$HOME; REPO=${JSON.stringify(join(dir, "repo"))}; TMP=${JSON.stringify(dir)}`,
+          "OPENCODE_GLOBAL_SKILLS=$HOME/oc/skills; CODEX_HOME_REAL=$HOME/.codex",
+          "mkdir -p $HOME/.claude/skills/synced/a_b $HOME/.claude/skills/synced-x",
+          "echo a > $HOME/.claude/skills/synced/a_b/f.md; echo b > $HOME/.claude/skills/synced-x/f.md",
+          'real_skill_roots; repo_skill_roots; SNAP_REAL_BEFORE="$(snapshot_roots "${REAL_ROOTS[@]}")"; SNAP_REPO_BEFORE=',
+          mutate,
+          'ac28_check "AC 28" real',
+        ].join("\n"),
+        extraEnv,
+      );
+
+    it("derives the exclusion from the same roots that real_skill_roots watches", () => {
+      const lib = code("scripts/live-smoke/lib.sh");
+      expect(lib).not.toMatch(/synced="\$\{CLAUDE_CONFIG_DIR/);
+      expect(lib).toMatch(/synced="\$\(printf '%s\/synced.*CLAUDE_SKILLS_ROOTS/);
+      const r = bash(
+        `export HOME=${JSON.stringify(join(dir, "home"))}\n${src("scripts/live-smoke/lib.sh")}\nREAL_HOME=$HOME; OPENCODE_GLOBAL_SKILLS=/x; real_skill_roots; printf '%s\\n' "${"$"}{CLAUDE_SKILLS_ROOTS[@]}"; printf 'R:%s\\n' "${"$"}{REAL_ROOTS[@]}"`,
+      );
+      expect(r.stdout.split("\n")[0]).toBe(join(dir, "home", ".claude", "skills"));
+      expect(r.stdout).toContain(`R:${join(dir, "home", ".claude", "skills")}`);
+    });
+
+    it("watches and excludes synced in a different CLAUDE_CONFIG_DIR too", () => {
+      const cfg = join(dir, "cfg");
+      const r = ac28(
+        `mkdir -p ${cfg}/skills/synced/q; echo z > ${cfg}/skills/synced/q/m; echo n > ${cfg}/skills/new.md`,
+        { CLAUDE_CONFIG_DIR: cfg },
+      );
+      // The cfg root did not exist at baseline, so only the new file outside synced shows.
+      expect(r.stdout).toMatch(/AC 28: FAIL .*new\.md/);
+      expect(r.stdout).not.toMatch(/FAIL .*synced\/q/);
+    });
+
+    it("passes when a file is removed from synced", () => {
+      const r = ac28("rm $HOME/.claude/skills/synced/a_b/f.md");
+      expect(r.stdout).toContain("AC 28: PASS");
+    });
+
+    it("fails on a change in a synced-x sibling", () => {
+      const r = ac28("echo c > $HOME/.claude/skills/synced-x/f.md");
+      expect(r.stdout).toMatch(/AC 28: FAIL .*synced-x\/f\.md/);
+    });
+  });
+
+  describe("trust warnings", () => {
+    it("counts 'has not been trusted' once", () => {
+      const f = join(dir, "stderr.txt");
+      writeFileSync(
+        f,
+        "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted\n",
+      );
+      const r = bash(
+        `${src("scripts/live-smoke/lib.sh")}\nscan ${JSON.stringify(f)} "Trust warnings" "$TRUST_RE"`,
+      );
+      expect(r.stdout).toContain("Trust warnings: 1 matching line(s)");
+    });
+  });
+
+  describe("task and main output", () => {
+    it("uses a concrete Nx task that the fixture supports and keeps the injection in the fixture", () => {
+      const lib = read("scripts/live-smoke/lib.sh");
+      expect(lib).not.toContain("distributed caching");
+      const m = /^TASK="(.*)"$/m.exec(lib);
+      expect(m?.[1]).toMatch(/Nx/);
+      expect(m?.[1]).toContain("packages/orders");
+      expect(readFileSync(join(ROOT, "fixtures/repos/ts-monorepo/README.md"), "utf8")).toContain(
+        "Fixture repository for discovery tests.",
+      );
+    });
+
+    it("prints the main run's stderr tail under its own heading", () => {
+      expect(read("scripts/live-smoke/lib.sh")).toContain("agent stderr (last 20 lines");
     });
   });
 

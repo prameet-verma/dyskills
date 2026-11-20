@@ -114,7 +114,7 @@ harness_checklist() {
   [ ] Explicit mode: v1 --command ran the skill; v2 '@dynamic-skill-bootstrap' was parsed as a skill/agent mention and not plain text
   [ ] R35: quoted and double-spaced 'save' bypassed the ask (probes r35-quoted, r35-spaced) while the plain call was rejected (d6-plain)
   [ ] D6: consent rule enforced: plain save and init were rejected (a prompt cannot appear headless)
-  [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 60 s Timing line, AC 24 and AC 28 above
+  [ ] Phase 1 gate item 7: AC 3 autonomous invocation, live AC 8, the 150 s Timing line, AC 24 and AC 28 above
   Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: OpenCode rejects it through the seeded bash ask-all rule (opencode run rejects every ask). Known harness default: on v2 the edit tool can write real files outside the denied roots; the edit denies are a list of roots, not a sandbox, so rely on AC 28 and the jail report.
   [ ] R31: '-V save' refused (R31 lines above)
 CHECK
