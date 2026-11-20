@@ -64,6 +64,16 @@ A headless run cannot answer the prompt, so a save is denied. Either:
 - remove the four `ask` entries from `permissions.ask` in the settings file. Running `init` again
   adds them back, so remove them again after any later `init`.
 
+## Live smoke
+
+`scripts/live-smoke.sh claude-code` (see the [README](../../README.md#live-smoke)) runs `claude -p`
+with `--setting-sources project,local`, so your **user plugins, user hooks and user settings are
+excluded on purpose**. The project settings that `init` wrote still load. Without this, a plugin
+that injects a SessionStart hook or a skill marked "MUST use before any creative work" can fire
+first and the bootstrap is never chosen. The run prints the agent's final reply (`--output-format
+json`) and a best-effort "Skills invoked" line read from the run's transcript. A real setup with
+such a plugin can pre-empt autonomous invocation; record that when you judge the run.
+
 ## Using it
 
 **Autonomous.** Claude Code lists every skill description each turn, so a task such as "implement a

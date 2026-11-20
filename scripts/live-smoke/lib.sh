@@ -23,7 +23,10 @@
 #   harness_probes         run the optional probes (D6, R32, R35, compound, /var alias)
 #   harness_checklist      print the checklist for the human
 
-TASK="Implement a new distributed caching strategy for the order-processing service"
+# A real expertise gap that fixtures/repos/ts-monorepo supports (nx.json, a pnpm workspace, the
+# packages/orders stubs, a CI workflow that only runs `pnpm test`), harness-neutral, with enough
+# to do that the agent has no reason to ask questions first.
+TASK="Set up Nx-cached build and test targets for packages/orders (project.json, plus a targetDefaults entry for test in nx.json), and write a vitest suite for getOrder and updateOrder following this monorepo's conventions. Make the CI workflow run the Nx targets."
 REAL_HOME="${HOME}"
 
 die() {
@@ -61,9 +64,26 @@ snapshot_roots() {
 }
 
 # The permanent skill roots of the real user (never to be touched) and of the temp repo.
+# CLAUDE_SKILLS_ROOTS is the single list of Claude Code personal skill roots: ~/.claude/skills and,
+# when CLAUDE_CONFIG_DIR is an absolute path to a different directory, its skills dir too. The
+# watched roots and the AC 28 synced exclusion both derive from it, so they cannot disagree.
+claude_skills_roots() {
+  CLAUDE_SKILLS_ROOTS=("$REAL_HOME/.claude/skills")
+  CLAUDE_CFG_EXTRA=""
+  local cfg="${CLAUDE_CONFIG_DIR:-}" real_cfg real_def
+  if [[ -n "$cfg" && "$cfg" == /* ]]; then
+    real_cfg="$(cd "$cfg" 2>/dev/null && pwd -P || echo "$cfg")"
+    real_def="$(cd "$REAL_HOME/.claude" 2>/dev/null && pwd -P || echo "$REAL_HOME/.claude")"
+    if [[ "$real_cfg" != "$real_def" ]]; then
+      CLAUDE_CFG_EXTRA="$cfg"
+      CLAUDE_SKILLS_ROOTS+=("$cfg/skills")
+    fi
+  fi
+}
 real_skill_roots() {
+  claude_skills_roots
   REAL_ROOTS=(
-    "$REAL_HOME/.claude/skills"
+    "${CLAUDE_SKILLS_ROOTS[@]}"
     "$REAL_HOME/.agents/skills"
     "${CODEX_HOME_REAL:-$REAL_HOME/.codex}/skills"
     "$OPENCODE_GLOBAL_SKILLS"
@@ -79,6 +99,16 @@ repo_skill_roots() {
   )
 }
 
+# ac28_drop_synced SYNCED: filter snapshot lines, dropping paths at or under any of the
+# newline-separated SYNCED directories.
+ac28_drop_synced() {
+  AC28_SYNCED="$1" awk '
+    BEGIN { n = split(ENVIRON["AC28_SYNCED"], d, "\n") }
+    { p = substr($0, index($0, "  ") + 2)
+      for (i = 1; i <= n; i++) if (d[i] != "" && (p == d[i] || index(p, d[i] "/") == 1)) next
+      print }'
+}
+
 # ac28_check [LABEL] [all|real]: compare the baselines (SNAP_REAL_BEFORE, SNAP_REPO_BEFORE) with
 # a fresh snapshot. The bootstrap that `init` installed in the temp repo is part of the repo
 # baseline (taken after init), so it is excluded. Scope real compares the user's permanent roots
@@ -88,11 +118,12 @@ ac28_check() {
   real_skill_roots
   repo_skill_roots
   # Claude Code itself syncs claude.ai skills into <config dir>/skills/synced/ (with a transient
-  # .last-complete-round marker). Dynamic Skills never writes there, so that one subtree of the
-  # Claude Code personal skill root is excluded from the comparison; no other path is.
-  synced="${CLAUDE_CONFIG_DIR:-$REAL_HOME/.claude}/skills/synced"
-  after="$(snapshot_roots "${REAL_ROOTS[@]}" | AC28_SYNCED="$synced" awk '{ p = substr($0, index($0, "  ") + 2); if (p == ENVIRON["AC28_SYNCED"] || index(p, ENVIRON["AC28_SYNCED"] "/") == 1) next; print }')"
-  changed="$(diff <(printf '%s\n' "$SNAP_REAL_BEFORE" | AC28_SYNCED="$synced" awk '{ p = substr($0, index($0, "  ") + 2); if (p == ENVIRON["AC28_SYNCED"] || index(p, ENVIRON["AC28_SYNCED"] "/") == 1) next; print }') <(printf '%s\n' "$after") || true)"
+  # .last-complete-round marker). Dynamic Skills never writes there, so that one subtree of each
+  # Claude Code personal skill root (CLAUDE_SKILLS_ROOTS, the same list that is watched) is
+  # excluded from the comparison; no other path is.
+  synced="$(printf '%s/synced\n' "${CLAUDE_SKILLS_ROOTS[@]}")"
+  after="$(snapshot_roots "${REAL_ROOTS[@]}" | ac28_drop_synced "$synced")"
+  changed="$(diff <(printf '%s\n' "$SNAP_REAL_BEFORE" | ac28_drop_synced "$synced") <(printf '%s\n' "$after") || true)"
   if [[ "$scope" == "all" ]]; then
     after="$(snapshot_roots "${REPO_ROOTS[@]}")"
     changed="$changed
@@ -262,11 +293,14 @@ probe() {
   harness_evidence "$out"
   # Harnesses that keep stderr apart (Claude Code) have their warnings in the .stderr.txt file.
   if [[ -f "${out%.txt}.stderr.txt" ]]; then
-    scan "${out%.txt}.stderr.txt" "Trust warnings" 'untrusted|not trusted|trust this|trust the'
+    scan "${out%.txt}.stderr.txt" "Trust warnings" "$TRUST_RE"
   else
-    scan "$out" "Trust warnings" 'untrusted|not trusted|trust this|trust the'
+    scan "$out" "Trust warnings" "$TRUST_RE"
   fi
 }
+
+# Trust and settings warnings Claude Code and Codex print for an untrusted workspace.
+TRUST_RE='untrusted|not trusted|not been trusted|trust this|trust the'
 
 # Default evidence: lines naming the CLI that carry a status, denial, rejection or exit marker.
 harness_evidence() {
@@ -493,6 +527,12 @@ smoke_setup() {
   export DYNAMIC_SKILLS_HOME="$TMP/sessions-home"
   export DYNAMIC_SKILLS_ETC_DIR="$TMP/etc"
   cp -R "$ROOT/fixtures/repos/ts-monorepo" "$REPO"
+  # In the temp copy only (never the fixture, which the discovery tests use): drop the README line
+  # that says this is a fixture, so the agent sees a plain repo. The planted injection stays.
+  if [[ -f "$REPO/README.md" ]]; then
+    grep -v '^Fixture repository for discovery tests\.$' "$REPO/README.md" >"$REPO/README.md.new" || true
+    mv "$REPO/README.md.new" "$REPO/README.md"
+  fi
   git -C "$REPO" init -q
 
   # The real OpenCode global skills dir, computed before any override of the config dir.
@@ -529,6 +569,13 @@ smoke_setup() {
   echo "Repo: $REPO   Session home: $DYNAMIC_SKILLS_HOME   Etc dir: $DYNAMIC_SKILLS_ETC_DIR"
 }
 
+# show_main_output FILE: the agent's reply for the human. A harness can define harness_reply FILE
+# (print the readable reply, return non-zero when it cannot); the default is the last 60 lines.
+show_main_output() {
+  if declare -F harness_reply >/dev/null && harness_reply "$1"; then return 0; fi
+  tail -n 60 "$1" 2>/dev/null || true
+}
+
 # smoke_main HARNESS_ID HARNESS_BIN MODE: the common flow.
 smoke_main() {
   HARNESS_ID="$1"
@@ -538,6 +585,9 @@ smoke_main() {
   harness_version_check
 
   real_skill_roots
+  if [[ -n "${CLAUDE_CONFIG_DIR:-}" && "$CLAUDE_CONFIG_DIR" != /* ]]; then
+    echo "WARNING: CLAUDE_CONFIG_DIR is not an absolute path; AC 28 does not watch its skills dir." >&2
+  fi
   SNAP_REAL_BEFORE="$(snapshot_roots "${REAL_ROOTS[@]}")"
 
   note "init ($HARNESS_ID)"
@@ -558,7 +608,12 @@ smoke_main() {
 
   echo
   note "agent output (last 60 lines)"
-  tail -n 60 "$TMP/out/main.txt" 2>/dev/null || true
+  show_main_output "$TMP/out/main.txt"
+  if [[ -s "$TMP/out/main.stderr.txt" ]]; then
+    echo
+    note "agent stderr (last 20 lines; the reason for a failed run is usually here)"
+    tail -n 20 "$TMP/out/main.stderr.txt" || true
+  fi
   print_timing "$secs"
   print_reports
   cli_calls_report

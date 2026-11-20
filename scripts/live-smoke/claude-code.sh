@@ -38,9 +38,13 @@ harness_prompt() {
 # - `dynamic-skills init` is denied in every kind. `save` is denied in main and probe. In
 #   probe-consent only the exact save command is allowed (no broad Bash allow), and --settings loads
 #   the repo ask rules: whether --settings applies a file from an untrusted project is UNVERIFIED.
+#   d6-save still holds with --setting-sources project,local: that flag only drops USER settings
+#   (plugins, user hooks); the ask rules come from the repo settings file, which --settings loads
+#   explicitly (as a flag setting) and which is also a project source.
 #   Pattern rules are only a first layer: the wrapper (R41) enforces init/save arguments.
 claude_args() {
   local kind="${1:-main}" repo home
+  real_skill_roots # sets CLAUDE_CFG_EXTRA (a CLAUDE_CONFIG_DIR that differs from ~/.claude, or empty)
   repo="//${REPO_REAL#/}/**"
   home="//${DSH_REAL#/}/**"
   local allow=("Read($repo)" "Edit($repo)" "Read($home)" "Edit($home)")
@@ -54,7 +58,14 @@ claude_args() {
     "Edit(//${OPENCODE_GLOBAL_CONFIG#/}/**)"
     "Edit(//${REPO_REAL#/}/.claude/skills/**)"
   )
+  # A CLAUDE_CONFIG_DIR other than ~/.claude is the real Claude config root: deny edits there too.
+  if [[ -n "$CLAUDE_CFG_EXTRA" ]]; then deny+=("Edit(//${CLAUDE_CFG_EXTRA#/}/**)"); fi
   local extra=()
+  # Plugin isolation: load project and local settings only (the project settings that `init`
+  # wrote still load; the --settings, --allowedTools and --disallowedTools below still apply).
+  # User settings are skipped on purpose, so the user's enabled plugins and their SessionStart
+  # hooks cannot pre-empt the Dynamic Skills bootstrap (--bare is unusable: it needs an API key).
+  extra+=(--setting-sources project,local)
   if [[ "$kind" == "probe-consent" ]]; then
     allow=("Bash(dynamic-skills save --session ${CONSENT_SESSION} --scope project --harness claude-code)" "${allow[@]}")
     extra+=(--settings "$REPO_REAL/.claude/settings.json")
@@ -62,7 +73,8 @@ claude_args() {
     allow=("Bash(dynamic-skills *)" "${allow[@]}")
     deny+=("Bash(dynamic-skills save)" "Bash(dynamic-skills save *)")
   fi
-  [[ "$kind" == "main" ]] || extra+=(--output-format json)
+  # JSON for every kind: the main run's reply and session id are read from it (harness_reply).
+  extra+=(--output-format json)
   extra+=(--add-dir "$DSH_REAL")
   if [[ "$NATIVE" == "1" ]]; then
     mkdir -p "$DSH_REAL/native/claude-code"
@@ -81,6 +93,61 @@ harness_run() {
   while IFS= read -r a; do args+=("$a"); done < <(claude_args "$kind")
   # stderr (trust and settings warnings) goes to its own file so it cannot precede the JSON document.
   (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} claude -p "$prompt" "${args[@]}") >"$out" 2>"${out%.txt}.stderr.txt"
+}
+
+# harness_reply OUT: print the final reply (the JSON result field) and a best-effort "Skills
+# invoked" line from the run's transcript. Never fails the run; when the output is not a JSON
+# result it shows the last 60 lines of plain text instead.
+harness_reply() {
+  local out="$1" sid="" reply slug transcript skills
+  reply="$(node -e '
+    const fs = require("node:fs");
+    const text = fs.readFileSync(process.argv[1], "utf8");
+    let doc;
+    try { doc = JSON.parse(text); } catch {
+      for (const line of text.split("\n").reverse()) {
+        try { const v = JSON.parse(line); if (v && typeof v === "object") { doc = v; break; } } catch { }
+      }
+    }
+    const res = Array.isArray(doc) ? doc.find((d) => d && d.type === "result") : doc;
+    if (!res || typeof res.result !== "string") process.exit(1);
+    console.log(res.result);
+  ' "$out" 2>/dev/null)" || reply=""
+  if [[ -n "$reply" ]]; then
+    echo "(agent final reply, the JSON result field)"
+    echo "$reply" | tail -n 60
+    sid="$(json_field "$out" session_id)"
+  else
+    tail -n 60 "$out" 2>/dev/null || true
+  fi
+  # Claude Code keeps the transcript at <config dir>/projects/<slug>/<session_id>.jsonl, where the
+  # slug is the real repo path with every non-alphanumeric character replaced by '-'
+  # (/private/var/x/y.z becomes -private-var-x-y-z).
+  slug="$(printf '%s' "$REPO_REAL" | sed 's/[^A-Za-z0-9]/-/g')"
+  transcript="${CLAUDE_CONFIG_DIR:-$REAL_HOME/.claude}/projects/$slug/$sid.jsonl"
+  skills=""
+  if [[ -n "$sid" && -f "$transcript" ]]; then
+    skills="$(node -e '
+      const fs = require("node:fs");
+      const names = [];
+      for (const line of fs.readFileSync(process.argv[1], "utf8").split("\n")) {
+        let e; try { e = JSON.parse(line); } catch { continue; }
+        const c = e && e.message && e.message.content;
+        if (!Array.isArray(c)) continue;
+        for (const b of c) {
+          if (b && b.type === "tool_use" && b.name === "Skill" && b.input && typeof b.input.skill === "string") names.push(b.input.skill);
+        }
+      }
+      console.log(names.length ? names.join(", ") : "(none)");
+    ' "$transcript" 2>/dev/null)" || skills=""
+  fi
+  echo
+  if [[ -n "$skills" ]]; then
+    echo "Skills invoked: $skills"
+  else
+    echo "Skills invoked: unknown (transcript not found)"
+  fi
+  return 0
 }
 
 # The Claude Code result JSON lists refused tool calls in permission_denials (field name from
@@ -135,6 +202,8 @@ harness_probes() {
 
 harness_checklist() {
   cat <<CHECK
+  [ ] Plugin isolation: the run used --setting-sources project,local, so the user's plugins, hooks and user settings were NOT loaded, on purpose (see 'Skills invoked' above for what the agent actually used)
+  [ ] Real setups with plugins that force their own skills first (e.g. a 'MUST use before any creative work' skill) can pre-empt autonomous invocation; record this
   [ ] Print-mode grants needed: were any tool calls denied in the main run? (see the matches below)
   [ ] Compound 'cd ... && dynamic-skills ...' calls: allowed or denied? (probe: compound)
   [ ] /var vs /private/var: any denial citing a path? (matches below; probe: var-alias)
