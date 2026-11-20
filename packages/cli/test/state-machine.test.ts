@@ -179,7 +179,7 @@ describe("the wrapper", () => {
     const id = await discovered(h);
     await mkdir(join(h.home, "sessions", id, "skills"), { recursive: true });
     await writeFile(join(h.home, "sessions", id, "skills", "SKILL.md"), "x");
-    h.clock.t += 61_000;
+    h.clock.t += 151_000;
     const r = await h.run(["context", "request", "--session", id, "--file", "nope.json"]);
     expect(r.exitCode).toBe(3);
     expect(r.out).toMatchObject({ ok: false, error: "TIMEOUT" });

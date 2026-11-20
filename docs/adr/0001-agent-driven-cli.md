@@ -6,7 +6,8 @@ Accepted.
 
 ## Context
 
-Dynamic Skills must create a skill inside an agent's own session within a 60 second active budget.
+Dynamic Skills must create a skill inside an agent's own session within a 150 second active budget
+(60 seconds when this ADR was accepted; raised after the Phase 2 live smoke, PRD v0.9).
 The product needs model judgement (what the repository means, whether a skill suffices, writing
 the skill) and deterministic guarantees (limits, validation, secret handling, gates). Embedding a
 model client in the core would need API keys, a network and a provider choice, and would make

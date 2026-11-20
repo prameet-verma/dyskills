@@ -22,7 +22,7 @@ needs no API keys or network access. All LLM work (semantic discovery, drafting 
 rubrics) is done by the host's root agent, which is instructed by the `dynamic-skill-bootstrap`
 skill.
 
-- **60 second SLA.** Active processing is limited to 60 seconds of wall-clock time, minus time
+- **150 second SLA.** Active processing is limited to 150 seconds of wall-clock time, minus time
   spent paused waiting for a human. Clarification never resets the budget.
 - **Clarification pause.** If a material question must be asked, the clock pauses while the user
   answers. At most 3 rounds are allowed; unanswered questions become recorded assumptions.

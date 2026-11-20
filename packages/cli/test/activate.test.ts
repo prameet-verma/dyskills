@@ -88,7 +88,7 @@ describe("activate", () => {
     const id = await ready(h);
     await evaluated(id, "valid/order-cache-specialist");
     await record(h, id);
-    h.clock.t += 120_000;
+    h.clock.t += 200_000;
     const r = await activate(id);
     expect(r.exitCode).toBe(3);
     expect(r.out.error).toBe("TIMEOUT");

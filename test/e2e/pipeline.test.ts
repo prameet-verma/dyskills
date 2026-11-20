@@ -170,7 +170,7 @@ describe("full pipeline (generate)", () => {
     expect(activated.activated).toBe(true);
 
     const perf = PerformanceReportSchema.parse(await w.readJson(id, "reports/performance.json"));
-    expect(perf.activeMs).toBeLessThan(60_000);
+    expect(perf.activeMs).toBeLessThan(150_000);
     expect(perf.humanWaitMs).toBeGreaterThanOrEqual(0);
     expect(perf).toMatchObject({
       contextRequests: 1,

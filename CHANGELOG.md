@@ -6,6 +6,12 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The default active-time budget (`DEFAULT_BUDGET_MS`, PRD §10.1) is 150 seconds instead of 60.
+  The Phase 2 live smoke measured 116.6 s of active time for a full run with a delegated
+  context-analysis subagent on Claude Code. `DYNAMIC_SKILLS_BUDGET_MS` still overrides it.
+
 ### Added
 
 Phase 2, Harness Integrations:

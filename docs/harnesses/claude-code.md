@@ -82,7 +82,7 @@ question is asked in text or recorded as skipped with an assumption.
 
 **Analyst agent.** `dynamic-skills-context-analyst` reads the Context Packet with `Read`, `Grep` and
 `Glob` only, so it is truly read-only. Claude Code runs subagents in the background by default, and
-the wait counts toward the 60 second budget.
+the wait counts toward the 150 second budget.
 
 ## Native mode (optional)
 

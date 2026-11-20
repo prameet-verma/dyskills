@@ -23,6 +23,7 @@ import {
   enforceDeadline,
   ensurePrivateDir,
   SlaClock,
+  DEFAULT_BUDGET_MS,
   recordStage,
   resolveHome,
   stopClock,
@@ -169,19 +170,20 @@ describe("recordStage / enforceDeadline", () => {
     expect(s.metrics.stageMs.discovery).toBe(15);
   });
 
-  it("enforceDeadline marks timeout at 60s active", async () => {
+  it("enforceDeadline marks timeout once active time reaches the default budget", async () => {
     const s = await store.create({ ...init, now: 0 });
-    expect(enforceDeadline(s, 59_999)).toBe(false);
+    expect(enforceDeadline(s, DEFAULT_BUDGET_MS - 1)).toBe(false);
     expect(s.status).toBe("assessing");
-    expect(enforceDeadline(s, 60_000)).toBe(true);
+    expect(enforceDeadline(s, DEFAULT_BUDGET_MS)).toBe(true);
     expect(s.status).toBe("timeout");
     expect(s.metrics.outcome).toBe("timeout");
   });
 
   it("enforceDeadline stops the clock at the deadline check (M2)", async () => {
     const s = await store.create({ ...init, now: 0 });
-    enforceDeadline(s, 61_000);
-    expect(SlaClock.from(s.sla).activeMs(61_000 + 3_600_000)).toBe(61_000);
+    const at = DEFAULT_BUDGET_MS + 1_000;
+    enforceDeadline(s, at);
+    expect(SlaClock.from(s.sla).activeMs(at + 3_600_000)).toBe(at);
   });
 
   it("stopClock freezes active time and is idempotent", async () => {

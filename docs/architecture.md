@@ -204,7 +204,7 @@ An internal failure reports a fixed `INTERNAL` message without the exception tex
 ## SLA clock model
 
 Active processing time is wall-clock time since the session started, minus time paused for a human
-(PRD §10.1, §10.3). The default budget is 60 seconds (`DEFAULT_BUDGET_MS`), overridable with the
+(PRD §10.1, §10.3). The default budget is 150 seconds (`DEFAULT_BUDGET_MS`), overridable with the
 `DYNAMIC_SKILLS_BUDGET_MS` environment variable at `assess`. The clock pauses when a clarification
 round or a suggest-mode approval is pending and resumes on the answer; resuming never resets the
 budget. Agent analysis and context requests count as active time. Every session command except

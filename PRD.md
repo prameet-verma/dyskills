@@ -112,7 +112,7 @@ The existing-skill check is a three-way **Skill Sufficiency Assessment** (§5.5)
 | Evaluation-first | Validate skills before activation |
 | Portable | Follow the open Agent Skills standard |
 | Ephemeral-first | Use skills temporarily and offer persistence after successful execution |
-| Time-bounded | Complete generation and activation within 60 seconds of active processing |
+| Time-bounded | Complete generation and activation within 150 seconds of active processing |
 | Harness-agnostic | Reuse existing agent infrastructure |
 
 **Key principle: Just in time, not just in case.**
@@ -139,7 +139,7 @@ Dynamic Skills must not generate a skill for every task. It should assess existi
 - Offer users the ability to retain generated skills.
 - Support ephemeral, project-level and personal/global skills.
 - Integrate with Claude Code, OpenAI Codex and OpenCode.
-- Complete automated generation within 60 seconds of active processing.
+- Complete automated generation within 150 seconds of active processing.
 - Support a maximum of three clarification rounds.
 - Support transparent clarification and SLA management.
 - Prevent stale project-specific context from silently propagating.
@@ -174,7 +174,7 @@ Dynamic Skills must not generate a skill for every task. It should assess existi
 | Persistence | Project, personal/global or ephemeral |
 | Evaluation | Mandatory generation and behavioural evaluations |
 | Skill quality | Concise, focused and minimal |
-| Performance | 60-second active processing deadline |
+| Performance | 150-second active processing deadline |
 | Clarification | Maximum three rounds |
 | SLA exception | Pause while waiting for human responses |
 | Assumptions | Document and proceed when clarification is declined |
@@ -558,7 +558,7 @@ Example:
 
 The root agent can retrieve the requested information and return it to the Context Analysis Agent.
 
-This should be targeted, bounded and governed by the existing 60-second active processing SLA.
+This should be targeted, bounded and governed by the existing 150-second active processing SLA.
 
 ## 6.8 Context Refinement
 
@@ -763,7 +763,7 @@ The system should attempt automatic reduction and reevaluation before activation
 
 ## 10.1 Hard Processing SLA
 
-The complete automated generation and activation workflow must finish within **60 seconds of cumulative active processing time**.
+The complete automated generation and activation workflow must finish within **150 seconds of cumulative active processing time**.
 
 The SLA includes:
 
@@ -832,7 +832,7 @@ Round: 1 of 3
 Questions pending: 2
 
 Processing SLA: PAUSED
-Active processing used: 18s / 60s
+Active processing used: 18s / 150s
 ```
 
 The user must also be informed when generation resumes.
@@ -855,7 +855,7 @@ If uncertainty prevents safe activation, return control to the root agent.
 
 ## 10.7 Timeout and Fallback
 
-At 60 seconds of cumulative active processing:
+At 150 seconds of cumulative active processing:
 
 - Cancel outstanding generation operations.
 - Do not activate an unvalidated skill.
@@ -1172,7 +1172,7 @@ The bootstrapper must also follow the open Agent Skills specification.
 | FR-25 | Execute independent evaluations concurrently | P0 |
 | FR-26 | Enforce conciseness and duplication checks | P0 |
 | FR-27 | Activate skills within the current session | P0 |
-| FR-28 | Complete active processing within 60 seconds | P0 |
+| FR-28 | Complete active processing within 150 seconds | P0 |
 | FR-29 | Support graceful timeout and fallback | P0 |
 | FR-30 | Support ephemeral skills | P0 |
 | FR-31 | Support project and personal/global persistence | P0 |
@@ -1194,7 +1194,7 @@ The bootstrapper must also follow the open Agent Skills specification.
 
 ### Performance
 
-- Hard 60-second active processing deadline.
+- Hard 150-second active processing deadline.
 - Human clarification waiting excluded.
 - Maximum three clarification rounds.
 - Parallelise independent operations.
@@ -1293,7 +1293,7 @@ The bootstrapper must also follow the open Agent Skills specification.
 
 | Metric | Target |
 |---|---|
-| Active generation and activation | ≤ 60 seconds |
+| Active generation and activation | ≤ 150 seconds |
 | Maximum clarification rounds | 3 |
 | Human clarification waiting | Excluded from SLA |
 | Unbounded processing loops | Zero |
@@ -1357,7 +1357,7 @@ Deliverables:
 - Conciseness enforcement.
 - Temporary storage.
 - Current-session activation.
-- 60-second active processing deadline.
+- 150-second active processing deadline.
 - Graceful fallback and instrumentation.
 
 **Exit criteria:** An agent can identify an expertise gap, perform hybrid repository discovery, produce validated structured context, generate and evaluate a skill, handle clarification and activate it within the SLA.
@@ -1570,7 +1570,7 @@ The first public release is successful when:
 22. Conciseness and duplication checks execute.
 23. Failed mandatory evaluations prevent activation.
 24. Skills activate without restarting the host session, by loading them into context, or natively where the harness supports a non-permanent location (Claude Code only).
-25. Active processing stays within 60 seconds.
+25. Active processing stays within 150 seconds.
 26. Persisted project-specific skills undergo freshness checks before reuse.
 27. Users can save skills at project or personal/global scope.
 28. Ephemeral skills do not pollute permanent skill locations.
@@ -1604,7 +1604,7 @@ Its defining characteristics are:
 - Mandatory generation and behavioural evaluations.
 - Concise and focused skill instructions.
 - Parallel execution.
-- A 60-second active processing deadline.
+- A 150-second active processing deadline.
 - Maximum three clarification rounds.
 - Transparent clarification and SLA management.
 - Documented assumption-based continuation.

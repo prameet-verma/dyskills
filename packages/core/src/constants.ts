@@ -1,8 +1,9 @@
 /**
  * Active processing budget in milliseconds (PRD §10.1). Active time is wall-clock time since
- * session start minus human-wait pauses (PRD §10.3); clarification never resets it.
+ * session start minus human-wait pauses (PRD §10.3); clarification never resets it. Raised from
+ * 60 s to 150 s after the Phase 2 live smoke measured real subagent delegation (PRD v0.9).
  */
-export const DEFAULT_BUDGET_MS = 60_000;
+export const DEFAULT_BUDGET_MS = 150_000;
 
 /** Maximum clarification rounds per session before continuing on assumptions (PRD §10.4, §10.6). */
 export const MAX_CLARIFICATION_ROUNDS = 3;
