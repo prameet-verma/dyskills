@@ -180,6 +180,12 @@ counts as unset and the default home is used (Ruling R42).
 | `native/<harness>/`     | `activate` (native placement; Claude Code only, opt-in), swept by `assess` and `activate`         | A copy of the activated skill under `.claude/skills/<name>`, listed natively only when the session was launched with `--add-dir` on this directory; see below                                         |
 | `reports/`              | `evaluate`, `eval record`, `sufficiency submit` and `approve` (`sufficiency`), and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`; `clean` archives `performance` to `<home>/reports/<id>.json` before removing the session                                      |
 
+Stage metrics (`metrics.stageMs`): on success a stage holds only the command's own run time, plus
+the analysis span measured from the end of `discover`. When the deadline fires (a `TIMEOUT`, or
+`clean` of an expired session), the agent's in-progress gap since the last command is added to the
+stage that was under way (`analysis`, `assessment`, `compilation` or `evaluation`, chosen from the
+last completed step), so a timed-out session does not report 0 for the work it spent its budget on.
+
 Native placements are ephemeral ([ADR 0008](adr/0008-read-first-activation.md)). Every `assess` and
 `activate` sweeps `<home>/native/`: a placement is removed when it is older than 24 h
 (`NATIVE_PLACEMENT_TTL_MS`), when no session references it, or when every session that references it

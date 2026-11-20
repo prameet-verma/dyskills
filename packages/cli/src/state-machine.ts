@@ -1,4 +1,4 @@
-import type { SessionState } from "@dynamic-skills/core";
+import type { SessionState, StageName } from "@dynamic-skills/core";
 import { CliError } from "./io";
 
 /** Every CLI command the state machine knows. Task 16 commands are registered here up front. */
@@ -69,6 +69,44 @@ const PREDECESSORS: Partial<Record<CliCommand, CompletedStep[]>> = {
   "eval record": ["evaluate"],
   activate: ["eval-record"],
 };
+
+/**
+ * Stage whose agent work follows each completed step: the time before the next command is the
+ * agent working, so a deadline hit there belongs to that stage (PRD §10.8).
+ * `context-submit` maps to the sufficiency judgement (a verdict must precede `compile`);
+ * `compile` only writes the brief, so the bundle-writing that follows is `compilation`;
+ * `evaluate` and `eval-record` precede the behavioural runs and their recording (`evaluation`).
+ * Steps followed by a human wait (`clarify-ask`) have no entry; a paused clock attributes nothing.
+ */
+const STAGE_AFTER_STEP: Partial<Record<CompletedStep, StageName>> = {
+  discover: "analysis",
+  "context-request": "analysis",
+  "context-submit": "assessment",
+  "sufficiency-submit": "compilation",
+  "sufficiency-approve": "compilation",
+  "clarify-answer": "compilation",
+  compile: "compilation",
+  evaluate: "evaluation",
+  "eval-record": "evaluation",
+};
+
+/** Commands whose own stage is unambiguous whatever the last step was (re-analysis, revision). */
+const STAGE_OF_COMMAND: Partial<Record<CliCommand, StageName>> = {
+  "context request": "analysis",
+  "context submit": "analysis",
+  compile: "compilation",
+};
+
+/**
+ * Stage whose agent work was in progress: the command about to run when it names one
+ * unambiguously, otherwise the one that follows the session's last completed step.
+ */
+export function inProgressStage(state: SessionState, command?: CliCommand): StageName | undefined {
+  const own = command === undefined ? undefined : STAGE_OF_COMMAND[command];
+  if (own) return own;
+  const last = state.completedSteps.at(-1) as CompletedStep | undefined;
+  return last === undefined ? undefined : STAGE_AFTER_STEP[last];
+}
 
 /** Commands that need a recorded, not-pending sufficiency verdict (PRD §5.5). */
 const NEEDS_VERDICT: ReadonlySet<CliCommand> = new Set(["clarify ask", "compile"]);

@@ -594,6 +594,13 @@
             "null"
           ]
         },
+        "lastCommandEndedAtActiveMs": {
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "outcome": {
           "type": "string",
           "enum": [
@@ -620,7 +627,8 @@
         "contextRequestRounds",
         "analysisSubmissions",
         "packetTokens",
-        "analysisStartedAtActiveMs"
+        "analysisStartedAtActiveMs",
+        "lastCommandEndedAtActiveMs"
       ],
       "additionalProperties": false
     },

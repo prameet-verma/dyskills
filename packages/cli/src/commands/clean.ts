@@ -4,6 +4,7 @@ import type { HostEnv } from "@dynamic-skills/adapter-sdk";
 import { removePlacedBundle } from "@dynamic-skills/adapter-sdk";
 import {
   SlaClock,
+  attributeInProgressStage,
   archivePerformanceReport,
   hasEnded,
   readNativeReferences,
@@ -12,6 +13,7 @@ import {
 import type { SessionState, SessionStore } from "@dynamic-skills/core";
 import { ADAPTERS } from "../adapters";
 import { writeTerminalReports } from "../io";
+import { inProgressStage } from "../state-machine";
 import { inPlacementGrace } from "../native";
 import type { SessionCommandDef } from "./types";
 
@@ -33,7 +35,10 @@ export async function endAbandonedSession(
   const outcome = clock.isExpired(at) ? "timeout" : "failed";
   state.status = outcome;
   state.metrics.outcome = outcome;
-  stopClock(state, at - Math.max(0, clock.activeMs(at) - clock.snapshot(at).budgetMs));
+  const stopAt = at - Math.max(0, clock.activeMs(at) - clock.snapshot(at).budgetMs);
+  const inProgress = inProgressStage(state);
+  if (inProgress) attributeInProgressStage(state, inProgress, stopAt);
+  stopClock(state, stopAt);
   await writeTerminalReports(store, state, at);
 }
 
