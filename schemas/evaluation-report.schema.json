@@ -52,6 +52,10 @@
           },
           "durationMs": {
             "type": "number"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
           }
         },
         "required": [
@@ -137,6 +141,10 @@
         },
         "durationMs": {
           "type": "number"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
         }
       },
       "required": [

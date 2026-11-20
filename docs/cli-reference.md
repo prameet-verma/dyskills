@@ -256,6 +256,8 @@ and `activate`.
 Records the agent's behavioural smoke result. The assertions in `evals/smoke.json` are checked
 against the output file (regexes run in a worker under a total budget of one second) and combined
 with the agent's rubric verdict into the `behavioural` result in `reports/evaluation.json`.
+`--notes` is stored there as the optional `notes` field (sanitised, at most 500 characters) on a
+pass or a fail; on a fail it also appears in the message.
 
 The bundle must still match the digest pinned by `evaluate`; otherwise the command fails with
 `BUNDLE_INVALID` (exit 2) and **nothing is saved**. It also fails with `BUNDLE_INVALID` when

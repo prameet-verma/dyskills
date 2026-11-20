@@ -20,6 +20,17 @@ describe("recordBehaviouralResult", () => {
     const r = await recordBehaviouralResult(SMOKE, "invalidation plan for writes", "pass");
     expect(r).toMatchObject({ id: "behavioural", mandatory: true, outcome: "pass" });
   });
+  it("stores the notes on a pass and on a fail", async () => {
+    const pass = await recordBehaviouralResult(SMOKE, "invalidation plan", "pass", "inline");
+    expect(pass.outcome).toBe("pass");
+    expect(pass.notes).toBe("inline");
+    const fail = await recordBehaviouralResult(SMOKE, "invalidation plan", "fail", "bad\nstuff");
+    expect(fail.notes).toBe("bad stuff");
+    expect(fail.messages.join()).toContain("bad stuff");
+    expect(
+      (await recordBehaviouralResult(SMOKE, "invalidation plan", "pass")).notes,
+    ).toBeUndefined();
+  });
   it("fails naming a missing contains assertion", async () => {
     const r = await recordBehaviouralResult(SMOKE, "nothing relevant", "pass");
     expect(r.outcome).toBe("fail");

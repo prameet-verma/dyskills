@@ -25,7 +25,11 @@ export const evalRecordCommand: SessionCommandDef = {
       required: true,
       choices: ["pass", "fail"],
     },
-    { flags: "--notes <text>", description: "Optional notes (shown when the verdict is fail)." },
+    {
+      flags: "--notes <text>",
+      description:
+        "Optional note, stored in the behavioural result (and shown when the verdict is fail).",
+    },
   ],
   step: "eval-record",
   stage: "evaluation",

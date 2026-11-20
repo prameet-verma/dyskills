@@ -110,7 +110,7 @@ describe("dynamic-skill-bootstrap", () => {
   it("keeps the speed rules in sync with the core constants", () => {
     const body = readFileSync(SKILL_FILE, "utf8");
     expect(body).toContain(`under ${INLINE_ANALYSIS_MAX_PACKET_TOKENS}`);
-    expect(body).toMatch(/only if none is available, yourself.*--notes inline/);
+    expect(body).toMatch(/only if none is available, yourself.*--notes. with .inline/);
     expect(body).toContain("wait for its reply");
     expect(body).toContain("required fields plus `category`");
     expect(body).toMatch(/Write the JSON once/);
