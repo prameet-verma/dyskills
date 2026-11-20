@@ -343,6 +343,7 @@ export class SessionStore {
         analysisSubmissions: 0,
         packetTokens: 0,
         analysisStartedAtActiveMs: null,
+        lastCommandEndedAtActiveMs: null,
       },
     };
     await this.prepare();
@@ -514,13 +515,42 @@ export function stopClock(s: SessionState, now: number): void {
 }
 
 /**
+ * Attributes the active time since the last completed command to `stage`, the stage whose agent
+ * work was in progress when the session ended before its command could run (PRD §10.8). Nothing is
+ * attributed while the clock is paused (a human wait) or when the gap start is unknown. The
+ * analysis stage is measured from the end of discovery and is never overwritten once recorded;
+ * other stages add the gap, which no command run time covers.
+ *
+ * @param s - The session (mutated).
+ * @param stage - The stage that was in progress.
+ * @param at - Epoch ms at which the gap ends; call before the clock is stopped.
+ */
+export function attributeInProgressStage(s: SessionState, stage: StageName, at: number): void {
+  const clock = SlaClock.from(s.sla);
+  if (clock.isPaused()) return;
+  const m = s.metrics;
+  const analysis = stage === "analysis";
+  if (analysis && m.stageMs.analysis !== undefined) return;
+  const from = analysis
+    ? (m.analysisStartedAtActiveMs ?? m.lastCommandEndedAtActiveMs)
+    : m.lastCommandEndedAtActiveMs;
+  if (from === null) return;
+  const ms = Math.max(0, clock.activeMs(at) - from);
+  if (analysis) m.stageMs.analysis = ms;
+  else recordStage(s, stage, ms);
+}
+
+/**
  * Enforces the active-time budget (PRD §10.1). If the session's clock is expired at `now`, marks
  * `status` and `metrics.outcome` as `timeout` and stops the clock.
  *
+ * @param inProgress - Stage whose agent work was under way; its active time since the last
+ * completed command is attributed before the clock stops (see {@link attributeInProgressStage}).
  * @returns `true` if the deadline has passed.
  */
-export function enforceDeadline(s: SessionState, now: number): boolean {
+export function enforceDeadline(s: SessionState, now: number, inProgress?: StageName): boolean {
   if (!SlaClock.from(s.sla).isExpired(now)) return false;
+  if (inProgress) attributeInProgressStage(s, inProgress, now);
   s.status = "timeout";
   s.metrics.outcome = "timeout";
   stopClock(s, now);

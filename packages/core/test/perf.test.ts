@@ -44,6 +44,7 @@ function state(): SessionState {
       analysisSubmissions: 1,
       packetTokens: 900,
       analysisStartedAtActiveMs: null,
+      lastCommandEndedAtActiveMs: null,
       outcome: "activated",
     },
   };

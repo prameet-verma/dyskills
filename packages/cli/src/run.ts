@@ -7,6 +7,7 @@ import {
   SessionStore,
   enforceDeadline,
   hasEnded,
+  SlaClock,
   recordStage,
   renderStatus,
   stopClock,
@@ -21,7 +22,7 @@ import { CliError, FALLBACK, stripControlChars, writeTerminalReports } from "./i
 import type { CliEnv } from "./io";
 import { resolveEtcDir } from "./host";
 import { CLI_VERSION } from "./version";
-import { assertCanRun, isTerminal } from "./state-machine";
+import { assertCanRun, inProgressStageOf, isTerminal } from "./state-machine";
 
 /** What {@link runCli} returns: the process exit code and the two output streams as text. */
 export interface CliOutcome {
@@ -125,7 +126,11 @@ async function finish(
   // An ended session stops its clock before the reports are built, so the reported active time
   // is final and `status` shows the same number later (no-op if the handler already stopped it).
   if (hasEnded(state)) stopClock(state, end);
-  if (def.step && result.recordStep !== false) state.completedSteps.push(def.step);
+  if (def.step && result.recordStep !== false) {
+    state.completedSteps.push(def.step);
+    // Start of the agent gap before the next command (see `attributeInProgressStage`).
+    state.metrics.lastCommandEndedAtActiveMs = SlaClock.from(state.sla).activeMs(end);
+  }
   try {
     if (result.writeReports) await writeTerminalReports(store, state, end);
     if (result.save !== false) await store.save(state);
@@ -223,7 +228,7 @@ async function runSessionCommand(
     // only applies to sessions that are still in progress (PRD §10.1).
     if (!def.bypassDeadline && !isTerminal(state)) {
       const already = state.status === "timeout";
-      if (already || enforceDeadline(state, startedAt)) {
+      if (already || enforceDeadline(state, startedAt, inProgressStageOf(def.name))) {
         if (!already) await failOnTimeout(store, state, startedAt);
         // A timeout saved by an earlier run whose removal failed: try again, never fail on it.
         else await removeSkills(store, state).catch(() => undefined);

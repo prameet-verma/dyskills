@@ -1,4 +1,4 @@
-import type { SessionState } from "@dynamic-skills/core";
+import type { SessionState, StageName } from "@dynamic-skills/core";
 import { CliError } from "./io";
 
 /** Every CLI command the state machine knows. Task 16 commands are registered here up front. */
@@ -69,6 +69,36 @@ const PREDECESSORS: Partial<Record<CliCommand, CompletedStep[]>> = {
   "eval record": ["evaluate"],
   activate: ["eval-record"],
 };
+
+/**
+ * Stage whose agent work runs between CLI calls, per command about to run: the time before such
+ * a command is the agent working, so a deadline hit there belongs to that stage (PRD §10.8).
+ */
+const STAGE_OF_COMMAND: Partial<Record<CliCommand, StageName>> = {
+  "context submit": "analysis",
+  "sufficiency submit": "assessment",
+  compile: "compilation",
+};
+
+/** The same mapping from the last completed step, for a session abandoned between commands. */
+const STAGE_AFTER_STEP: Partial<Record<CompletedStep, StageName>> = {
+  discover: "analysis",
+  "context-request": "analysis",
+  "context-submit": "assessment",
+  "sufficiency-submit": "compilation",
+  "sufficiency-approve": "compilation",
+};
+
+/** Stage in progress when `command` was about to run, if agent work precedes it. */
+export function inProgressStageOf(command: CliCommand): StageName | undefined {
+  return STAGE_OF_COMMAND[command];
+}
+
+/** Stage in progress after the session's last completed step, if agent work follows it. */
+export function inProgressStageAfter(state: SessionState): StageName | undefined {
+  const last = state.completedSteps.at(-1) as CompletedStep | undefined;
+  return last === undefined ? undefined : STAGE_AFTER_STEP[last];
+}
 
 /** Commands that need a recorded, not-pending sufficiency verdict (PRD §5.5). */
 const NEEDS_VERDICT: ReadonlySet<CliCommand> = new Set(["clarify ask", "compile"]);
