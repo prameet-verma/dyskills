@@ -13,7 +13,7 @@ import {
 import type { SessionState, SessionStore } from "@dynamic-skills/core";
 import { ADAPTERS } from "../adapters";
 import { writeTerminalReports } from "../io";
-import { inProgressStageAfter } from "../state-machine";
+import { inProgressStage } from "../state-machine";
 import { inPlacementGrace } from "../native";
 import type { SessionCommandDef } from "./types";
 
@@ -36,7 +36,7 @@ export async function endAbandonedSession(
   state.status = outcome;
   state.metrics.outcome = outcome;
   const stopAt = at - Math.max(0, clock.activeMs(at) - clock.snapshot(at).budgetMs);
-  const inProgress = inProgressStageAfter(state);
+  const inProgress = inProgressStage(state);
   if (inProgress) attributeInProgressStage(state, inProgress, stopAt);
   stopClock(state, stopAt);
   await writeTerminalReports(store, state, at);

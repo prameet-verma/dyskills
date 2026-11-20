@@ -517,9 +517,10 @@ export function stopClock(s: SessionState, now: number): void {
 /**
  * Attributes the active time since the last completed command to `stage`, the stage whose agent
  * work was in progress when the session ended before its command could run (PRD §10.8). Nothing is
- * attributed while the clock is paused (a human wait) or when the gap start is unknown. The
- * analysis stage is measured from the end of discovery and is never overwritten once recorded;
- * other stages add the gap, which no command run time covers.
+ * attributed while the clock is paused (a human wait) or when the gap start is unknown. The gap
+ * is added to the stage, never overwriting it, and no command run time covers it. On success a
+ * stage holds only the command's own run time; on timeout the agent's in-progress gap is added
+ * too.
  *
  * @param s - The session (mutated).
  * @param stage - The stage that was in progress.
@@ -530,14 +531,14 @@ export function attributeInProgressStage(s: SessionState, stage: StageName, at: 
   if (clock.isPaused()) return;
   const m = s.metrics;
   const analysis = stage === "analysis";
-  if (analysis && m.stageMs.analysis !== undefined) return;
-  const from = analysis
-    ? (m.analysisStartedAtActiveMs ?? m.lastCommandEndedAtActiveMs)
-    : m.lastCommandEndedAtActiveMs;
+  // A first analysis runs from the end of discovery; once analysis is recorded, a re-analysis
+  // adds only the gap since the last command, like every other stage.
+  const from =
+    analysis && m.stageMs.analysis === undefined
+      ? (m.analysisStartedAtActiveMs ?? m.lastCommandEndedAtActiveMs)
+      : m.lastCommandEndedAtActiveMs;
   if (from === null) return;
-  const ms = Math.max(0, clock.activeMs(at) - from);
-  if (analysis) m.stageMs.analysis = ms;
-  else recordStage(s, stage, ms);
+  recordStage(s, stage, Math.max(0, clock.activeMs(at) - from));
 }
 
 /**

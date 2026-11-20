@@ -71,31 +71,39 @@ const PREDECESSORS: Partial<Record<CliCommand, CompletedStep[]>> = {
 };
 
 /**
- * Stage whose agent work runs between CLI calls, per command about to run: the time before such
- * a command is the agent working, so a deadline hit there belongs to that stage (PRD §10.8).
+ * Stage whose agent work follows each completed step: the time before the next command is the
+ * agent working, so a deadline hit there belongs to that stage (PRD §10.8).
+ * `context-submit` maps to the sufficiency judgement (a verdict must precede `compile`);
+ * `compile` only writes the brief, so the bundle-writing that follows is `compilation`;
+ * `evaluate` and `eval-record` precede the behavioural runs and their recording (`evaluation`).
+ * Steps followed by a human wait (`clarify-ask`) have no entry; a paused clock attributes nothing.
  */
-const STAGE_OF_COMMAND: Partial<Record<CliCommand, StageName>> = {
-  "context submit": "analysis",
-  "sufficiency submit": "assessment",
-  compile: "compilation",
-};
-
-/** The same mapping from the last completed step, for a session abandoned between commands. */
 const STAGE_AFTER_STEP: Partial<Record<CompletedStep, StageName>> = {
   discover: "analysis",
   "context-request": "analysis",
   "context-submit": "assessment",
   "sufficiency-submit": "compilation",
   "sufficiency-approve": "compilation",
+  "clarify-answer": "compilation",
+  compile: "compilation",
+  evaluate: "evaluation",
+  "eval-record": "evaluation",
 };
 
-/** Stage in progress when `command` was about to run, if agent work precedes it. */
-export function inProgressStageOf(command: CliCommand): StageName | undefined {
-  return STAGE_OF_COMMAND[command];
-}
+/** Commands whose own stage is unambiguous whatever the last step was (re-analysis, revision). */
+const STAGE_OF_COMMAND: Partial<Record<CliCommand, StageName>> = {
+  "context request": "analysis",
+  "context submit": "analysis",
+  compile: "compilation",
+};
 
-/** Stage in progress after the session's last completed step, if agent work follows it. */
-export function inProgressStageAfter(state: SessionState): StageName | undefined {
+/**
+ * Stage whose agent work was in progress: the command about to run when it names one
+ * unambiguously, otherwise the one that follows the session's last completed step.
+ */
+export function inProgressStage(state: SessionState, command?: CliCommand): StageName | undefined {
+  const own = command === undefined ? undefined : STAGE_OF_COMMAND[command];
+  if (own) return own;
   const last = state.completedSteps.at(-1) as CompletedStep | undefined;
   return last === undefined ? undefined : STAGE_AFTER_STEP[last];
 }
