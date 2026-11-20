@@ -30,6 +30,8 @@ harness_prompt() {
 
 # Narrowest grants (Ruling R40, R41). Print, one per line, every argument after `claude -p <prompt>`
 # for KIND main, probe or probe-consent (a function so the tests can assert the list).
+# - Edit(path) rules cover every file-editing tool; Claude Code ignores Write(path) rules (and warns
+#   on each run), so only Edit(path) is used.
 # - File tools are granted only on the repo and the session home (realpaths, no leading slash
 #   because //<path> is the absolute form), never on the whole temp workspace, which also holds the
 #   wrapper, its read-only bin dir and the harness configs. Glob and Grep are not granted.
@@ -41,16 +43,16 @@ claude_args() {
   local kind="${1:-main}" repo home
   repo="//${REPO_REAL#/}/**"
   home="//${DSH_REAL#/}/**"
-  local allow=("Read($repo)" "Edit($repo)" "Write($repo)" "Read($home)" "Edit($home)" "Write($home)")
+  local allow=("Read($repo)" "Edit($repo)" "Read($home)" "Edit($home)")
   local deny=(
     "Bash(dynamic-skills init)" "Bash(dynamic-skills init *)"
-    "Edit(//${REPO_REAL#/}/.claude/settings*.json)" "Write(//${REPO_REAL#/}/.claude/settings*.json)"
-    "Edit(//${REAL_HOME#/}/.claude/**)" "Write(//${REAL_HOME#/}/.claude/**)"
-    "Edit(//${REAL_HOME#/}/.agents/**)" "Write(//${REAL_HOME#/}/.agents/**)"
-    "Edit(//${CODEX_HOME_REAL#/}/**)" "Write(//${CODEX_HOME_REAL#/}/**)"
-    "Edit(//${OPENCODE_GLOBAL_SKILLS#/}/**)" "Write(//${OPENCODE_GLOBAL_SKILLS#/}/**)"
-    "Edit(//${OPENCODE_GLOBAL_CONFIG#/}/**)" "Write(//${OPENCODE_GLOBAL_CONFIG#/}/**)"
-    "Edit(//${REPO_REAL#/}/.claude/skills/**)" "Write(//${REPO_REAL#/}/.claude/skills/**)"
+    "Edit(//${REPO_REAL#/}/.claude/settings*.json)"
+    "Edit(//${REAL_HOME#/}/.claude/**)"
+    "Edit(//${REAL_HOME#/}/.agents/**)"
+    "Edit(//${CODEX_HOME_REAL#/}/**)"
+    "Edit(//${OPENCODE_GLOBAL_SKILLS#/}/**)"
+    "Edit(//${OPENCODE_GLOBAL_CONFIG#/}/**)"
+    "Edit(//${REPO_REAL#/}/.claude/skills/**)"
   )
   local extra=()
   if [[ "$kind" == "probe-consent" ]]; then
@@ -77,7 +79,8 @@ harness_run() {
   local prompt="$1" out="$2" kind="${3:-main}" a
   local args=()
   while IFS= read -r a; do args+=("$a"); done < <(claude_args "$kind")
-  (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} claude -p "$prompt" "${args[@]}") >"$out" 2>&1
+  # stderr (trust and settings warnings) goes to its own file so it cannot precede the JSON document.
+  (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} claude -p "$prompt" "${args[@]}") >"$out" 2>"${out%.txt}.stderr.txt"
 }
 
 # The Claude Code result JSON lists refused tool calls in permission_denials (field name from
@@ -85,8 +88,15 @@ harness_run() {
 harness_evidence() {
   node -e '
     const fs = require("node:fs");
+    const text = fs.readFileSync(process.argv[1], "utf8");
     let doc;
-    try { doc = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("(output is not one JSON document)"); process.exit(0); }
+    try { doc = JSON.parse(text); } catch {
+      // Tolerate warning lines around the document: use the last line that parses as a JSON object.
+      for (const line of text.split("\n").reverse()) {
+        try { const v = JSON.parse(line); if (v && typeof v === "object") { doc = v; break; } } catch { }
+      }
+    }
+    if (doc === undefined) { console.log("(output is not one JSON document)"); process.exit(0); }
     const res = Array.isArray(doc) ? doc.find((d) => d && d.type === "result") : doc;
     const d = res && res.permission_denials;
     if (!Array.isArray(d)) { console.log("(no permission_denials field in the result)"); process.exit(0); }
@@ -132,7 +142,7 @@ harness_checklist() {
   [ ] Questions headless: how were they handled (recorded as assumptions.json above)?
   [ ] Followed the bootstrap end to end (assess, discover, evaluate, activate, then work)?
   [ ] Phase 1 gate item 7: AC 3 autonomous invocation (did the skill start without being named; run both modes)
-  [ ] Live AC 8 and the 60 s timing (Timing line above); AC 24 and AC 28 lines above
+  [ ] Live AC 8 and the 150 s timing (Timing line above); AC 24 and AC 28 lines above
   Layers for an absolute 'node .../dist/index.js' call that bypasses the wrapper: Claude Code denies it (only Bash(dynamic-skills *) is allowed); the wrapper (R41) jails and guards every bare call.
   [ ] R31: '-V save' refused (R31 lines above)
 CHECK
@@ -140,6 +150,7 @@ CHECK
     echo "  [ ] --native: did the agent list the placed skill from $DYNAMIC_SKILLS_HOME/native/claude-code (see output)?"
   fi
   scan "$TMP/out/main.txt" "Denied or permission lines" 'denied|permission|not allowed|requires approval'
+  scan "$TMP/out/main.stderr.txt" "Denied or permission lines (stderr)" 'denied|permission|not allowed|requires approval'
   scan "$TMP/out/main.txt" "/private/var or /var path lines" '/private/var|/var/'
   scan "$TMP/out/main.txt" "Compound-command lines" 'cd .*&&.*dynamic-skills'
 }

@@ -107,11 +107,12 @@ describe("live smoke scripts", () => {
     }
   });
 
-  it("lib.sh records the R31 refusal and the 60 s timing", () => {
+  it("lib.sh records the R31 refusal and the 150 s timing", () => {
     const lib = read("scripts/live-smoke/lib.sh");
     expect(lib).toMatch(/dynamic-skills -V save/);
     expect(lib).toContain("R31");
-    expect(lib).toMatch(/60/);
+    expect(lib).toContain("SMOKE_BUDGET_SECS=150");
+    expect(lib).toContain("DEFAULT_BUDGET_MS");
   });
 
   it("the Codex script runs sandboxed with approvals never and records R32", () => {
@@ -491,11 +492,12 @@ describe("fix round 2", () => {
         expect(deny).toContain("Bash(dynamic-skills init)");
         expect(deny).toContain("Bash(dynamic-skills init *)");
         for (const t of ["Edit", "Write", "Read", "Glob", "Grep"]) expect(allow).not.toContain(t);
-        for (const g of allow.filter((x) => /^(Read|Edit|Write)\(/.test(x))) {
-          expect(g).toMatch(/^(Read|Edit|Write)\(\/\/.*(\/repo|\/sessions-home)\/\*\*\)$/);
+        for (const g of allow.filter((x) => /^(Read|Edit)\(/.test(x))) {
+          expect(g).toMatch(/^(Read|Edit)\(\/\/.*(\/repo|\/sessions-home)\/\*\*\)$/);
           expect(g).not.toContain(dir + "/**");
         }
-        for (const t of ["Edit", "Write"]) {
+        expect([...allow, ...deny].filter((x) => x.startsWith("Write("))).toEqual([]);
+        for (const t of ["Edit"]) {
           expect(allow.filter((x) => x.startsWith(t + "(")).length).toBe(2);
           expect(deny).toContain(`${t}(//${join(dir, "repo").slice(1)}/.claude/settings*.json)`);
           expect(deny).toContain(`${t}(//${join(dir, "home", ".codex").slice(1)}/**)`);
@@ -523,9 +525,74 @@ describe("fix round 2", () => {
       expect(after(a, "--disallowedTools")).not.toContain("Bash(dynamic-skills save *)");
     });
 
+    it("has no Write(path) permission rule (Claude Code only matches Edit(path))", () => {
+      expect(code("scripts/live-smoke/claude-code.sh")).not.toMatch(/Write\(/);
+    });
+
+    it("keeps stderr out of the JSON output file and parses past warning lines", () => {
+      const sh = code("scripts/live-smoke/claude-code.sh");
+      expect(sh).toContain('2>"${out%.txt}.stderr.txt"');
+      expect(sh).not.toMatch(/>"\$out" 2>&1/);
+      const f = join(dir, "probe.txt");
+      writeFileSync(
+        f,
+        [
+          "Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted",
+          JSON.stringify({
+            type: "result",
+            permission_denials: [
+              { tool_name: "Bash", tool_input: { command: "dynamic-skills init" } },
+            ],
+          }),
+          "",
+        ].join("\n"),
+      );
+      const r = bash(
+        `${src("scripts/live-smoke/claude-code.sh")}\nharness_evidence ${JSON.stringify(f)}`,
+      );
+      expect(r.stdout).toContain("permission_denials: 1");
+      expect(r.stdout).toContain("Bash");
+      expect(r.stdout).not.toContain("not one JSON document");
+      writeFileSync(f, "only a warning\n");
+      const r2 = bash(
+        `${src("scripts/live-smoke/claude-code.sh")}\nharness_evidence ${JSON.stringify(f)}`,
+      );
+      expect(r2.stdout).toContain("not one JSON document");
+    });
+
     it("structured output for probes only", () => {
       expect(claudeArgs("main")).not.toContain("--output-format");
       expect(claudeArgs("probe")).toContain("--output-format");
+    });
+  });
+
+  describe("AC 28 synced exclusion", () => {
+    it("ignores only Claude Code's skills/synced subtree and says so", () => {
+      const r = bash(
+        [
+          `export HOME=${JSON.stringify(join(dir, "home"))}`,
+          src("scripts/live-smoke/lib.sh"),
+          `REAL_HOME=$HOME; REPO=${JSON.stringify(join(dir, "repo"))}; TMP=${JSON.stringify(dir)}`,
+          "OPENCODE_GLOBAL_SKILLS=$HOME/oc/skills; CODEX_HOME_REAL=$HOME/.codex",
+          "mkdir -p $HOME/.claude/skills/synced/a_b $HOME/.claude/skills/mine",
+          "echo x > $HOME/.claude/skills/mine/SKILL.md",
+          'real_skill_roots; repo_skill_roots; SNAP_REAL_BEFORE="$(snapshot_roots "${REAL_ROOTS[@]}")"; SNAP_REPO_BEFORE=',
+          "echo m > $HOME/.claude/skills/synced/a_b/.last-complete-round",
+          'ac28_check "AC 28" real',
+          "echo y > $HOME/.claude/skills/mine/other.md",
+          'ac28_check "AC 28" real',
+        ].join("\n"),
+      );
+      expect(code("scripts/live-smoke/lib.sh")).toContain("skills/synced/ subtree");
+      expect(r.stdout).toContain("AC 28: PASS");
+      expect(r.stdout).toMatch(/AC 28: FAIL .*other\.md/);
+      expect(r.stdout).not.toMatch(/FAIL .*last-complete-round/);
+    });
+
+    it("scopes the exclusion to the Claude personal skills root", () => {
+      expect(code("scripts/live-smoke/lib.sh")).toContain(
+        'synced="${CLAUDE_CONFIG_DIR:-$REAL_HOME/.claude}/skills/synced"',
+      );
     });
   });
 

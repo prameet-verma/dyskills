@@ -84,11 +84,15 @@ repo_skill_roots() {
 # baseline (taken after init), so it is excluded. Scope real compares the user's permanent roots
 # only (used after the probes, whose `save` writes to the temp repo on purpose).
 ac28_check() {
-  local label="${1:-AC 28}" scope="${2:-all}" changed after
+  local label="${1:-AC 28}" scope="${2:-all}" changed after synced
   real_skill_roots
   repo_skill_roots
-  after="$(snapshot_roots "${REAL_ROOTS[@]}")"
-  changed="$(diff <(printf '%s\n' "$SNAP_REAL_BEFORE") <(printf '%s\n' "$after") || true)"
+  # Claude Code itself syncs claude.ai skills into <config dir>/skills/synced/ (with a transient
+  # .last-complete-round marker). Dynamic Skills never writes there, so that one subtree of the
+  # Claude Code personal skill root is excluded from the comparison; no other path is.
+  synced="${CLAUDE_CONFIG_DIR:-$REAL_HOME/.claude}/skills/synced"
+  after="$(snapshot_roots "${REAL_ROOTS[@]}" | AC28_SYNCED="$synced" awk '{ p = substr($0, index($0, "  ") + 2); if (p == ENVIRON["AC28_SYNCED"] || index(p, ENVIRON["AC28_SYNCED"] "/") == 1) next; print }')"
+  changed="$(diff <(printf '%s\n' "$SNAP_REAL_BEFORE" | AC28_SYNCED="$synced" awk '{ p = substr($0, index($0, "  ") + 2); if (p == ENVIRON["AC28_SYNCED"] || index(p, ENVIRON["AC28_SYNCED"] "/") == 1) next; print }') <(printf '%s\n' "$after") || true)"
   if [[ "$scope" == "all" ]]; then
     after="$(snapshot_roots "${REPO_ROOTS[@]}")"
     changed="$changed
@@ -177,13 +181,16 @@ print_reports() {
   echo "  [ ] outcome is 'activated' AND the agent's final reply (above) shows it used the new skill without a restart"
 }
 
-# timing: elapsed seconds of the main run against the 60 s budget (PRD SLA).
+# Active-time budget in seconds; mirrors DEFAULT_BUDGET_MS in packages/core/src/constants.ts.
+SMOKE_BUDGET_SECS=150
+
+# print_timing: elapsed seconds of the main run against the budget (PRD SLA).
 print_timing() {
   local secs="$1"
-  if ((secs <= 60)); then
-    echo "Timing: ${secs} s wall clock for the main run (60 s budget: WITHIN)"
+  if ((secs <= SMOKE_BUDGET_SECS)); then
+    echo "Timing: ${secs} s wall clock for the main run (${SMOKE_BUDGET_SECS} s budget: WITHIN)"
   else
-    echo "Timing: ${secs} s wall clock for the main run (60 s budget: OVER by $((secs - 60)) s)"
+    echo "Timing: ${secs} s wall clock for the main run (${SMOKE_BUDGET_SECS} s budget: OVER by $((secs - SMOKE_BUDGET_SECS)) s)"
   fi
 }
 
@@ -253,7 +260,12 @@ probe() {
   if [[ -f "${CALLS_LOG:-}" ]]; then tail -n +"$((before + 1))" "$CALLS_LOG"; fi
   echo "-- denial evidence from the structured output --"
   harness_evidence "$out"
-  scan "$out" "Trust warnings" 'untrusted|not trusted|trust this|trust the'
+  # Harnesses that keep stderr apart (Claude Code) have their warnings in the .stderr.txt file.
+  if [[ -f "${out%.txt}.stderr.txt" ]]; then
+    scan "${out%.txt}.stderr.txt" "Trust warnings" 'untrusted|not trusted|trust this|trust the'
+  else
+    scan "$out" "Trust warnings" 'untrusted|not trusted|trust this|trust the'
+  fi
 }
 
 # Default evidence: lines naming the CLI that carry a status, denial, rejection or exit marker.
@@ -552,6 +564,7 @@ smoke_main() {
   cli_calls_report
   jail_report "main run"
   echo
+  echo "AC 28 note: Claude Code's own skills/synced/ subtree under the Claude config dir is ignored (it syncs claude.ai skills itself)."
   ac28_check "AC 28"
 
   if [[ "${SMOKE_SKIP_PROBES:-}" != "1" ]]; then
