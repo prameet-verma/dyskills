@@ -5,7 +5,7 @@
 > Only Phase 1 has a detailed plan today; write each later phase's plan (superpowers:writing-plans) when
 > the previous phase's gate passes, because it consumes the interfaces that phase actually shipped.
 
-**Spec:** `PRD.md` (v0.8, commit 61191ef)
+**Spec:** `PRD.md` (v0.9)
 
 ## Architecture decision (applies to every phase)
 
@@ -59,7 +59,7 @@ not a later phase:
 - **Repository health:** CI on every push (lint, typecheck, test, build on Node 24 and 26),
   Conventional Commits, Keep-a-Changelog, issue/PR templates, CONTRIBUTING, SECURITY and
   CODE_OF_CONDUCT (Phase 1 Task 19). A release workflow and semver policy arrive with the first
-  public release (Phase 2, alongside `npx dynamic-skills init`).
+  public release (Phase 2, alongside `dynamic-skills init`, installed with `npm i -g dynamic-skills`).
 - **Every phase gate** includes a documentation check by the verifier: sampled TSDoc quality, docs
   match the code, all relative links resolve.
 
@@ -100,16 +100,17 @@ delegation, and autonomous-invocation hooks. The spike's findings decide the ada
 
 Deliverables: `packages/adapter-sdk` (thin adapters per PRD §14 that consume the PRD §13.2 core
 contracts; v0.7 no longer specifies a `HarnessAdapter` interface, so the spike's findings define it),
-`adapters/claude-code`, `adapters/codex`, `adapters/opencode`; native current-session activation and
-native subagent delegation for context analysis; project/personal storage paths from PRD §11.3;
+`adapters/claude-code`, `adapters/codex`, `adapters/opencode`; current-session activation (read into context everywhere; optional native registration on Claude Code via an add-dir root) and
+a read-only context-analyst agent installed per harness (enforced on Claude Code and OpenCode, instructed on Codex); project/personal storage paths from PRD §11.3;
 `dynamic-skills save --scope project|personal|ephemeral|discard --harness …`;
-`npx dynamic-skills init [--harness claude,codex,opencode]` installer (detect, register bootstrap,
-verify) per PRD §20; adapter compatibility test suite run identically against all three adapters.
+`dynamic-skills init [--harness claude-code,codex,opencode] [--scope project|personal]` installer (detect, register bootstrap,
+verify) per PRD §20; adapter compatibility test suite run identically against four targets: claude-code, codex, opencode-v1, opencode-v2. Phase 2 `save` refuses augmentations (`SAVE_UNSUPPORTED`); Phase 3 adds them together with the base-hash freshness check.
 
+- **Status:** implemented; the gate is pending the remaining human items: Codex and OpenCode live smoke runs, the SECURITY contact, and the first real publish via the release workflow. License: AGPL-3.0-only. Repository: https://github.com/prameet-verma/dyskills.
 - **FRs:** FR-27 (native), FR-31, FR-32, FR-33 (byte-identical bundle across adapters).
 - **Exit gate:** the same session's bundle is byte-identical after `save` through each adapter (AC 20),
-  and all three adapters drive the same discovery contracts (PRD §18 Phase 2); the compatibility suite
-  passes for all three; `init` is idempotent; ephemeral sessions leave every permanent skill directory
+  and all three adapters (four targets) drive the same discovery contracts (PRD §18 Phase 2); the compatibility suite
+  passes for all four targets; `init` is idempotent; ephemeral sessions leave every permanent skill directory
   untouched (AC 28); explicit invocation works where autonomous does not.
 
 ### Phase 3 — Persistence and Freshness
@@ -121,7 +122,7 @@ comparison → fresh / relevance-check / stale), discovery cache keyed by file f
 cache-hit metric), regeneration of stale project context only. Persisting an augmentation (PRD §5.5, §11.2, §12.2
 "Partially sufficient skill") saves it as its own artifact that references the base skill by name and
 by `augments-sha256`, the base version it was evaluated against. The base skill is never edited;
-when the base's hash no longer matches, the freshness validator treats the augmentation as stale.
+when the base's hash no longer matches, the freshness validator treats the augmentation as stale. Skills saved before Phase 3 carry no context fingerprint; the freshness validator treats them as needing a relevance check.
 
 - **FRs:** FR-35, FR-36, FR-38.
 - **Exit gate:** changing a fingerprinted file marks only the dependent skill stale; an unrelated commit
@@ -151,7 +152,7 @@ packs, optional `LlmProvider` for headless/API runs, multi-skill composition (FR
 
 | Risk | Mitigation |
 |---|---|
-| A harness cannot activate a new skill mid-session | Phase 2 spike first; fallback is the Phase 1 behaviour (agent reads the returned skill content into context) |
+| A harness cannot activate a new skill mid-session | Confirmed for OpenCode V1 and Codex (non-ephemeral only); mitigation stands: read-into-context is the default |
 | 60 s budget too tight with real agents | Phase 1 instruments every stage; the live smoke step measures it before Phase 2 |
 | Agent ignores bootstrap steps | Bootstrap is short, command-driven, and the CLI's state machine rejects out-of-order steps |
 | Heuristic evals produce false positives | Every heuristic eval is a warning unless the PRD makes it mandatory; Phase 4 adds rubric/benchmark depth |

@@ -1,7 +1,7 @@
 # Dynamic Skills
 ## Product Requirements Document (PRD)
 
-**Version:** 0.8  
+**Version:** 0.9  
 **Status:** Proposed  
 **Product Category:** AI Agent Infrastructure / Context Engineering  
 **Product Type:** Open-source developer tooling  
@@ -813,7 +813,7 @@ Principles:
 2. Consolidate related questions.
 3. Never ask for information obtainable through repository discovery.
 4. Avoid repeatedly asking the same question.
-5. Use native root-agent interaction.
+5. Use the root agent's native question mechanism where it is available; otherwise ask in plain text in the conversation. Structured options are optional, and free-text answers are always accepted.
 6. Allow users to decline or skip optional questions.
 7. Record assumptions when clarification is declined.
 
@@ -836,6 +836,8 @@ Active processing used: 18s / 60s
 ```
 
 The user must also be informed when generation resumes.
+
+The status block is shown as text in the agent's reply. Harness status lines and UI panels are optional and must not replace a user's own configuration.
 
 ## 10.6 Assumption-Based Continuation
 
@@ -900,6 +902,8 @@ Workflow:
 
 A harness restart must not be the normal activation strategy.
 
+Activation loads the evaluated skill into the current session without a restart. Reading the skill files into the agent's context is a valid activation on every harness and is the default. Where a harness watches a non-permanent location chosen by the user (for example a directory added at launch), the adapter may additionally register the skill natively; this exists only on Claude Code, through an add-dir root under the session home, whose lifetime is a 24 h TTL sweep with a 10-minute grace. Ephemeral skills are never written to a permanent skill location (AC 28).
+
 ## 11.2 User-Controlled Persistence
 
 After successful use, offer:
@@ -929,15 +933,21 @@ Would you like to save this skill?
 
 Persistent saving requires user approval.
 
+Where a harness sandbox blocks writes to its skill directories, saving reports the denial and how to grant it; saving from inside the Codex sandbox may need an escalation or a terminal run. Only with the user's explicit opt-in (`--codex-allow-rule`) may the installer add a Codex rule that lets Dynamic Skills commands other than `save` and `init` run outside the sandbox without a prompt; `save` and `init` keep their prompt rules, and an approved prompt runs with the session's current permissions. The installer makes each harness ask for approval before `save` or `init`, and on OpenCode `init` never weakens an existing deny. Codex prefix rules and OpenCode wildcard rules match only bare commands (no redirection, command substitution, variable expansion, `VAR=` prefix, glob or control flow), so the bootstrap tells agents to run commands bare.
+
+In Phase 2, `save` refuses augmentations (`SAVE_UNSUPPORTED`); persisting an augmentation arrives in Phase 3. Skills saved before Phase 3 carry no context fingerprint, and the freshness validator treats them as needing a relevance check.
+
 ## 11.3 Harness-Specific Storage
 
-| Harness | Project scope | Personal/global scope |
+| Harness | Project scope (save target; also read) | Personal scope (save target; also read) |
 |---|---|---|
-| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Codex | `.agents/skills/` | `~/.agents/skills/` |
-| OpenCode | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| Claude Code | `.claude/skills/` at the repository root; also read from the launch directory up to the root and from `--add-dir` directories | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/` |
+| Codex | `.agents/skills/` at the repository root; also read from the working directory up to the root, and `.codex/skills/` | `~/.agents/skills/`; also read `${CODEX_HOME:-~/.codex}/skills/` (deprecated) and `/etc/codex/skills/` (admin) |
+| OpenCode (1.x and 2.x) | `.opencode/skills/`; also read `.opencode/skill/`, `.claude/skills/`, `.agents/skills/` | `${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/opencode}/skills/`; also read `~/.claude/skills/`, `~/.agents/skills/` |
 
 Adapters handle native installation and discovery.
+
+Because harnesses read each other's directories, a skill saved for several harnesses is written once to a directory they all read where possible, and a save is refused when a different skill with the same name is visible to any selected harness. Codex treats `name` as optional; Dynamic Skills always writes it.
 
 Generated skill contents must remain identical across harnesses.
 
@@ -1082,6 +1092,8 @@ The root agent may:
 
 The Dynamic Skills engine should coordinate through structured contracts rather than building its own independent agent orchestration runtime.
 
+Read-only delegation is enforced on Claude Code and OpenCode and instructed on Codex. Where a harness cannot enforce read-only tools for a subagent, the subagent is instructed to stay read-only, and the core's schema validation of its output remains the authority.
+
 ## 13.2 Core Contracts
 
 The following contracts should be standardised within the core:
@@ -1108,7 +1120,9 @@ Initial support:
 
 1. Claude Code.
 2. OpenAI Codex.
-3. OpenCode.
+3. OpenCode (1.x and 2.x).
+
+Adapter compatibility tests run against four targets (claude-code, codex, opencode-v1, opencode-v2). Each adapter records the harness versions it was tested against.
 
 Use one common core and thin adapters.
 
@@ -1120,6 +1134,8 @@ Use one common core and thin adapters.
 - Keep native installation differences in adapters.
 - Preserve identical generated contents.
 - Support explicit invocation when autonomous invocation is unavailable.
+- Generated skills contain no host-executed or host-substituted syntax and no permission-granting frontmatter. A positional placeholder (`$N`) is tolerated, with a warning, only inside fenced code; an escaped `\$N` in prose is a warning. `$ARGUMENTS` and `${CLAUDE_*}` placeholders fail, `allowed-tools` fails, and any metadata key containing `/` fails.
+- A bundle's `name` is present and equals its directory name; `description` is present; a bundle contains no nested `SKILL.md`, no dot-prefixed entries, and adds no top-level files to a skills directory.
 
 The bootstrapper must also follow the open Agent Skills specification.
 
@@ -1348,7 +1364,7 @@ Deliverables:
 
 ## Phase 2 — Harness Integrations
 
-**Objective:** Support all three initial coding harnesses.
+**Objective:** Support all three initial coding harnesses (OpenCode 1.x and 2.x, four compatibility targets).
 
 Deliverables:
 
@@ -1363,7 +1379,7 @@ Deliverables:
 - Project and personal storage.
 - Adapter compatibility tests.
 
-**Exit criteria:** The same discovery contracts, generation engine and canonical skill bundle work across all three platforms.
+**Exit criteria:** The same discovery contracts, generation engine and canonical skill bundle work across all three platforms and four compatibility targets.
 
 ## Phase 3 — Persistence and Freshness
 
@@ -1480,23 +1496,27 @@ dynamic-skills/
 ### Installation
 
 ```bash
-npx dynamic-skills init
+npm install -g dynamic-skills
+dynamic-skills init
 ```
 
 Or:
 
 ```bash
-npx dynamic-skills init \
-  --harness claude,codex,opencode
+dynamic-skills init \
+  --harness claude-code,codex,opencode \
+  --scope project
 ```
+
+`--scope` is `project` or `personal` (default `personal`). Agents and scripts always call the installed `dynamic-skills` command; package runners are not used.
 
 The installer should:
 
 1. Detect supported harnesses.
 2. Register the bootstrapper.
-3. Configure explicit invocation.
-4. Enable autonomous invocation where supported.
-5. Configure native skill discovery and activation.
+3. Configure explicit invocation using each harness's native skill invocation (an extra command file where the harness supports one).
+4. Rely on the listed skill description for autonomous invocation; it needs no configuration on the supported harnesses.
+5. Grant the `dynamic-skills` command and the session home the permissions each harness needs, and install the read-only context-analyst agent.
 6. Verify the installation.
 
 ### Community contributions
@@ -1528,7 +1548,7 @@ The first public release is successful when:
 
 1. Dynamic Skills installs through a simple CLI.
 2. Claude Code, Codex and OpenCode are supported.
-3. Explicit and autonomous invocation work.
+3. Explicit and autonomous invocation work. Autonomous invocation depends on the harness listing the bootstrap description; when it does not, explicit invocation works (PRD §14).
 4. Existing skill coverage is assessed before synthesis.
 5. Unnecessary skill generation is avoided.
 6. Live repository discovery runs programmatically.
@@ -1549,7 +1569,7 @@ The first public release is successful when:
 21. Mandatory generation and behavioural evaluations execute.
 22. Conciseness and duplication checks execute.
 23. Failed mandatory evaluations prevent activation.
-24. Skills activate without restarting the host session.
+24. Skills activate without restarting the host session, by loading them into context, or natively where the harness supports a non-permanent location (Claude Code only).
 25. Active processing stays within 60 seconds.
 26. Persisted project-specific skills undergo freshness checks before reuse.
 27. Users can save skills at project or personal/global scope.
@@ -1603,6 +1623,6 @@ It provides the missing capability layer between general-purpose agents and the 
 
 - Agent Skills: https://agentskills.io/specification
 - Claude Code Skills: https://code.claude.com/docs/en/skills
-- OpenAI Codex Skills: https://developers.openai.com/codex/skills
+- OpenAI Codex Skills: https://learn.chatgpt.com/docs/build-skills
 - OpenCode Skills: https://opencode.ai/docs/skills/
 - OpenAI Skills and Evals: https://developers.openai.com/blog/eval-skills
