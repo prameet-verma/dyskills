@@ -26,7 +26,7 @@
 # A real expertise gap that fixtures/repos/ts-monorepo supports (nx.json, a pnpm workspace, the
 # packages/orders stubs, a CI workflow that only runs `pnpm test`), harness-neutral, with enough
 # to do that the agent has no reason to ask questions first.
-TASK="Set up Nx-cached build and test targets for packages/orders (project.json, plus a targetDefaults entry for test in nx.json), and write a vitest suite for getOrder and updateOrder following this monorepo's conventions. Make the CI workflow run the Nx targets."
+TASK="Make updateOrder in packages/orders safe under concurrent writers: add optimistic concurrency (a version field and a typed ConflictError), publish order-updated events through a transactional outbox (an in-memory outbox plus a relay with at-least-once delivery and idempotency keys so consumers can deduplicate), and add vitest tests for the conflict, retry and duplicate-delivery cases, following this monorepo's conventions."
 REAL_HOME="${HOME}"
 
 die() {

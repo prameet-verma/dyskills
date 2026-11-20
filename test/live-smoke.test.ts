@@ -768,12 +768,14 @@ describe("fix round 2", () => {
   });
 
   describe("task and main output", () => {
-    it("uses a concrete Nx task that the fixture supports and keeps the injection in the fixture", () => {
+    it("uses a concrete specialist task on packages/orders and keeps the injection in the fixture", () => {
       const lib = read("scripts/live-smoke/lib.sh");
       expect(lib).not.toContain("distributed caching");
       const m = /^TASK="(.*)"$/m.exec(lib);
-      expect(m?.[1]).toMatch(/Nx/);
       expect(m?.[1]).toContain("packages/orders");
+      expect(m?.[1]).toMatch(/optimistic concurrency/);
+      expect(m?.[1]).toMatch(/outbox/);
+      expect(m?.[1]).not.toMatch(/claude|codex|opencode/i);
       expect(readFileSync(join(ROOT, "fixtures/repos/ts-monorepo/README.md"), "utf8")).toContain(
         "Fixture repository for discovery tests.",
       );
