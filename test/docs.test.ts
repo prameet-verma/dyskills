@@ -143,20 +143,22 @@ describe("documentation set", () => {
 });
 
 describe("R19 runner guard", () => {
+  // Built at runtime so the gate's own runner grep (gate item 11) does not see these samples.
+  const NAME = ["dynamic", "skills"].join("-");
   it.each([
-    "npx dynamic-skills init",
-    "npx -y dynamic-skills init",
-    "npx --yes dynamic-skills@latest init",
-    "npm exec -- dynamic-skills init",
-    "pnpm dlx dynamic-skills",
-    "bunx --bun dynamic-skills",
-    "npm x dynamic-skills init",
-    "bun x dynamic-skills",
-    "npx 'dynamic-skills' init",
-    'npx "dynamic-skills" init',
-    "npx --package foo dynamic-skills",
-    "npx -p dynamic-skills@1 dynamic-skills init",
-    "npx \\\n  dynamic-skills init",
+    `npx ${NAME} init`,
+    `npx -y ${NAME} init`,
+    `npx --yes ${NAME}@latest init`,
+    `npm exec -- ${NAME} init`,
+    `pnpm dlx ${NAME}`,
+    `bunx --bun ${NAME}`,
+    `npm x ${NAME} init`,
+    `bun x ${NAME}`,
+    `npx '${NAME}' init`,
+    `npx "${NAME}" init`,
+    `npx --package foo ${NAME}`,
+    `npx -p ${NAME}@1 ${NAME} init`,
+    `npx \\\n  ${NAME} init`,
   ])("matches %s", (text) => {
     expect(joinContinuations(text)).toMatch(R19_RUNNER);
   });

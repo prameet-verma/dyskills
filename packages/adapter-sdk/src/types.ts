@@ -178,7 +178,14 @@ export interface NativeQuestionPlan {
   notes: string[];
 }
 
-/** The contract every harness adapter implements. */
+/**
+ * The contract every harness adapter implements.
+ *
+ * Adapters are pure planners: no method writes to disk or changes harness configuration. They may
+ * read files and stat directories, and they reach the host only through `env.probe` (bounded
+ * version and verify commands). Every write is returned as a {@link PlannedWrite} in an
+ * {@link InstallPlan} and carried out by the SDK executor (`applyPlan`, `placeBundle`).
+ */
 export interface HarnessAdapter {
   /** Harness id. */
   readonly id: Harness;
