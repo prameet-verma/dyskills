@@ -265,6 +265,8 @@ export const EvalResultSchema = z.object({
   mandatory: z.boolean(),
   messages: z.array(z.string()),
   durationMs: z.number(),
+  /** Optional sanitised note recorded with a behavioural result (`eval record --notes`). */
+  notes: z.string().max(500).optional(),
 });
 /** Type inferred from {@link EvalResultSchema}. */
 export type EvalResult = z.infer<typeof EvalResultSchema>;

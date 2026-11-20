@@ -145,7 +145,7 @@ async function evaluateRegexes(patterns: string[], text: string): Promise<RegexO
  * @param smoke - The smoke eval whose assertions are checked.
  * @param output - What the agent produced for the scenario.
  * @param verdict - The agent's rubric verdict.
- * @param notes - Optional free-text notes, included (sanitised) when the verdict is `fail`.
+ * @param notes - Optional free-text notes, stored (sanitised) on the result and also included in the message when the verdict is `fail`.
  * @returns A mandatory `behavioural` result: `fail` if any assertion fails or the verdict is `fail`.
  */
 export async function recordBehaviouralResult(
@@ -212,6 +212,7 @@ export async function recordBehaviouralResult(
     mandatory: true,
     messages,
     durationMs: Date.now() - started,
+    ...(notes ? { notes: sanitiseForMessage(notes) } : {}),
   };
 }
 

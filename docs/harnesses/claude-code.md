@@ -68,7 +68,7 @@ A headless run cannot answer the prompt, so a save is denied. Either:
 
 **Autonomous.** Claude Code lists every skill description each turn, so a task such as "implement a
 new caching strategy" can trigger `dynamic-skill-bootstrap` on its own. **Explicit.** Start the
-prompt with `/dynamic-skill-bootstrap <task>`; use this when the autonomous trigger does not fire.
+prompt with `/dynamic-skill-bootstrap <task>`; use this when the autonomous trigger does not fire. A named invocation makes the agent pass `--explicit`, so an existing skill cannot be reused unchanged: only `partial` or `insufficient` verdicts are accepted.
 
 The bootstrap runs the CLI step by step. Status is relayed as text: the agent shows the status
 block in its reply. `init` writes no status line.
@@ -82,7 +82,7 @@ question is asked in text or recorded as skipped with an assumption.
 
 **Analyst agent.** `dynamic-skills-context-analyst` reads the Context Packet with `Read`, `Grep` and
 `Glob` only, so it is truly read-only. Claude Code runs subagents in the background by default, and
-the wait counts toward the 150 second budget.
+the skill tells the agent to wait for the reply, and the wait counts toward the 150 second budget. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
 
 ## Native mode (optional)
 
