@@ -16,7 +16,7 @@ import {
 import type { NativePlacement } from "@dynamic-skills/core";
 import { ADAPTERS, HARNESS_IDS } from "./adapters";
 
-/** Most directories the sweep looks at in one run; keeps it far below the 60 s budget. */
+/** Most directories the sweep looks at in one run; keeps it far below the 150 s budget. */
 const SWEEP_MAX_DIRS = 2_000;
 
 /** Real-clock budget of one sweep (2 s); it stops enumerating and removing once it is spent. */

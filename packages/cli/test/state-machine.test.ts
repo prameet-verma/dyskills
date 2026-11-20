@@ -198,7 +198,7 @@ describe("the wrapper", () => {
 
   it("does not turn a finished session into a timeout", async () => {
     const id = await assess(h, "x", ["--mode", "manual"]);
-    h.clock.t += 120_000;
+    h.clock.t += 200_000; // past the 150 s default budget
     const r = await h.run(["discover", "--session", id]);
     expect(r.exitCode).toBe(1);
     expect(r.out.error).toBe("INVALID_STATE");
