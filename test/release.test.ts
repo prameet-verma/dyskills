@@ -106,6 +106,37 @@ describe("workflows", () => {
     expect(ci.on).toHaveProperty("pull_request");
   });
 
+  it("ci.yml runs the full test suite, the build and the release gates on Node 24 and 26", () => {
+    const ci = parse(readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8"));
+    const job = ci.jobs.check;
+    expect(job.strategy.matrix.node).toEqual([24, 26]);
+    const runs: string[] = job.steps.map((s: { run?: string }) => s.run ?? "");
+    const at = (cmd: string): number => runs.findIndex((r) => r.trim() === cmd);
+    for (const cmd of [
+      "pnpm install --frozen-lockfile",
+      "pnpm lint",
+      "pnpm typecheck",
+      "pnpm test",
+      "pnpm build",
+      "bash scripts/ci-gate.sh",
+    ]) {
+      expect(at(cmd), cmd).toBeGreaterThanOrEqual(0);
+    }
+    expect(at("pnpm build")).toBeLessThan(at("bash scripts/ci-gate.sh"));
+    expect(job.steps.find((s: { run?: string }) => s.run === "pnpm build")?.if).toBeUndefined();
+  });
+
+  it("ci-gate.sh checks schemas, harness names, network clients, R19 and the release", () => {
+    const gate = readFileSync(resolve(ROOT, "scripts/ci-gate.sh"), "utf8");
+    expect(gate).toContain("set -euo pipefail");
+    expect(gate).toContain("git diff --exit-code -- schemas");
+    expect(gate).toContain("request_user_input");
+    expect(gate).toContain("@anthropic-ai/sdk");
+    expect(gate).toContain("npm[[:space:]]+exec)[[:space:]]+dynamic-skills");
+    expect(gate).toContain("scripts/check-release.ts");
+    expect(gate).toContain("publish --dry-run --no-git-checks");
+  });
+
   const release = () => {
     const text = readFileSync(resolve(ROOT, ".github/workflows/release.yml"), "utf8");
     return { text, wf: parse(text) };

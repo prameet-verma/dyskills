@@ -23,4 +23,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-        if: hashFiles('packages/cli/package.json') != ''
+      - name: Release gates (schemas, harness names, no network clients, R19, release check)
+        run: bash scripts/ci-gate.sh
