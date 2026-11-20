@@ -72,7 +72,10 @@ excluded on purpose**. The project settings that `init` wrote still load. Withou
 that injects a SessionStart hook or a skill marked "MUST use before any creative work" can fire
 first and the bootstrap is never chosen. The run prints the agent's final reply (`--output-format
 json`) and a best-effort "Skills invoked" line read from the run's transcript. A real setup with
-such a plugin can pre-empt autonomous invocation; record that when you judge the run.
+such a plugin can pre-empt autonomous invocation; record that when you judge the run. The flag also
+drops your user `env`, `apiKeyHelper` and `model` settings: if your Bedrock, Vertex or base-URL
+auth lives in `~/.claude/settings.json`, the run fails, and the stderr tail printed after the run
+shows why.
 
 ## Using it
 

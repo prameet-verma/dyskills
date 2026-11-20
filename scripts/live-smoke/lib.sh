@@ -609,6 +609,9 @@ smoke_main() {
   echo
   note "agent output (last 60 lines)"
   show_main_output "$TMP/out/main.txt"
+  echo
+  note "denial evidence from the main run's structured output"
+  harness_evidence "$TMP/out/main.txt"
   if [[ -s "$TMP/out/main.stderr.txt" ]]; then
     echo
     note "agent stderr (last 20 lines; the reason for a failed run is usually here)"

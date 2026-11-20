@@ -622,12 +622,55 @@ describe("fix round 2", () => {
       const r = run(out);
       expect(r.status).toBe(0);
       expect(r.stdout).toContain("Done: used it.");
-      expect(r.stdout).toContain("Skills invoked: brainstorming, dynamic-skill-bootstrap");
+      expect(r.stdout).toContain(
+        "Skills invoked (via the Skill tool): brainstorming, dynamic-skill-bootstrap",
+      );
+      // A warning line before the JSON document, and a slash invocation in the transcript.
+      writeFileSync(
+        join(proj, `${sid}.jsonl`),
+        JSON.stringify({
+          type: "user",
+          message: { content: "<command-name>/dynamic-skill-bootstrap</command-name> x" },
+        }),
+      );
+      writeFileSync(
+        out,
+        `warning line\n${JSON.stringify({ type: "result", result: "ok", session_id: sid })}\n`,
+      );
+      const r3 = run(out);
+      expect(r3.stdout).toContain("slash: dynamic-skill-bootstrap");
+      expect(readFileSync(join(dir, "main.reply.txt"), "utf8")).toBe("ok\n");
       writeFileSync(out, "plain text reply\n");
       const r2 = run(out);
       expect(r2.status).toBe(0);
       expect(r2.stdout).toContain("plain text reply");
-      expect(r2.stdout).toContain("Skills invoked: unknown (transcript not found)");
+      expect(r2.stdout).toContain(
+        "Skills invoked (via the Skill tool): unknown (transcript not found)",
+      );
+    });
+
+    it("scans the extracted reply, so an empty permission_denials is not a denied line", () => {
+      const out = join(dir, "main.txt");
+      const mk = (denials: unknown[]) =>
+        JSON.stringify({ type: "result", result: "all fine", permission_denials: denials });
+      const run = () =>
+        bash(
+          `${setupEnv()}\n${src("scripts/live-smoke/claude-code.sh")}\nharness_reply ${JSON.stringify(out)} >/dev/null\nscan ${JSON.stringify(join(dir, "main.reply.txt"))} Denied 'denied|permission|not allowed|requires approval'\nharness_evidence ${JSON.stringify(out)}`,
+        );
+      writeFileSync(out, mk([]));
+      const r = run();
+      expect(r.stdout).toContain("Denied: 0 matching line(s)");
+      expect(r.stdout).toContain("permission_denials: 0");
+      writeFileSync(
+        out,
+        mk([{ tool_name: "Bash", tool_input: { command: "dynamic-skills init" } }]),
+      );
+      const r2 = run();
+      expect(r2.stdout).toContain("permission_denials: 1");
+      expect(r2.stdout).toContain("dynamic-skills init");
+      const sh = code("scripts/live-smoke/claude-code.sh");
+      expect(sh).not.toMatch(/scan "\$TMP\/out\/main\.txt"/);
+      expect(code("scripts/live-smoke/lib.sh")).toContain('harness_evidence "$TMP/out/main.txt"');
     });
 
     it("the checklist records the plugin isolation and the forced-skill caveat", () => {

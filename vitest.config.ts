@@ -10,7 +10,15 @@ export default defineConfig({
         },
       },
       // Repository-level checks (documentation set); fast, no build needed.
-      { test: { name: "repo", include: ["test/*.test.ts"] } },
+      {
+        // Spawn-heavy smoke tests can exceed the 5 s default under load.
+        test: {
+          name: "repo",
+          include: ["test/*.test.ts"],
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+        },
+      },
       {
         // End-to-end tests spawn the built binary, so the project builds it once up front
         // (`pnpm test` alone must work on a fresh checkout) and a unit-only run stays fast.

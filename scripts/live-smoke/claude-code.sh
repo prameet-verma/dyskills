@@ -59,7 +59,12 @@ claude_args() {
     "Edit(//${REPO_REAL#/}/.claude/skills/**)"
   )
   # A CLAUDE_CONFIG_DIR other than ~/.claude is the real Claude config root: deny edits there too.
-  if [[ -n "$CLAUDE_CFG_EXTRA" ]]; then deny+=("Edit(//${CLAUDE_CFG_EXTRA#/}/**)"); fi
+  if [[ -n "$CLAUDE_CFG_EXTRA" ]]; then
+    deny+=("Edit(//${CLAUDE_CFG_EXTRA#/}/**)")
+    local cfg_real
+    cfg_real="$(cd "$CLAUDE_CFG_EXTRA" 2>/dev/null && pwd -P || true)"
+    if [[ -n "$cfg_real" && "$cfg_real" != "$CLAUDE_CFG_EXTRA" ]]; then deny+=("Edit(//${cfg_real#/}/**)"); fi
+  fi
   local extra=()
   # Plugin isolation: load project and local settings only (the project settings that `init`
   # wrote still load; the --settings, --allowedTools and --disallowedTools below still apply).
@@ -95,34 +100,44 @@ harness_run() {
   (cd "$REPO" && ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} claude -p "$prompt" "${args[@]}") >"$out" 2>"${out%.txt}.stderr.txt"
 }
 
-# harness_reply OUT: print the final reply (the JSON result field) and a best-effort "Skills
-# invoked" line from the run's transcript. Never fails the run; when the output is not a JSON
-# result it shows the last 60 lines of plain text instead.
-harness_reply() {
-  local out="$1" sid="" reply slug transcript skills
-  reply="$(node -e '
-    const fs = require("node:fs");
-    const text = fs.readFileSync(process.argv[1], "utf8");
-    let doc;
-    try { doc = JSON.parse(text); } catch {
-      for (const line of text.split("\n").reverse()) {
-        try { const v = JSON.parse(line); if (v && typeof v === "object") { doc = v; break; } } catch { }
-      }
+# JS prelude shared by the node snippets below: parse the output as one JSON document, else the
+# last line that parses as a JSON object (warning lines may surround it); `res` is the result.
+CLAUDE_PARSE='
+  const fs = require("node:fs");
+  const text = fs.readFileSync(process.argv[1], "utf8");
+  let doc;
+  try { doc = JSON.parse(text); } catch {
+    for (const line of text.split("\n").reverse()) {
+      try { const v = JSON.parse(line); if (v && typeof v === "object") { doc = v; break; } } catch { }
     }
-    const res = Array.isArray(doc) ? doc.find((d) => d && d.type === "result") : doc;
+  }
+  const res = Array.isArray(doc) ? doc.find((d) => d && d.type === "result") : doc;
+'
+
+# harness_reply OUT: print the final reply (the JSON result field), save it as OUT's .reply.txt
+# (the text scans of the checklist read that file, not the JSON line), and print a best-effort
+# "Skills invoked" line from the run's transcript. Never fails the run; when the output is not a
+# JSON result it shows the last 60 lines of plain text and uses them as the reply.
+harness_reply() {
+  local out="$1" reply_file="${1%.txt}.reply.txt" sid="" reply slug transcript skills
+  reply="$(node -e "$CLAUDE_PARSE"'
     if (!res || typeof res.result !== "string") process.exit(1);
     console.log(res.result);
   ' "$out" 2>/dev/null)" || reply=""
   if [[ -n "$reply" ]]; then
+    printf '%s\n' "$reply" >"$reply_file"
     echo "(agent final reply, the JSON result field)"
     echo "$reply" | tail -n 60
-    sid="$(json_field "$out" session_id)"
+    sid="$(node -e "$CLAUDE_PARSE"'
+      if (res && typeof res.session_id === "string") console.log(res.session_id);
+    ' "$out" 2>/dev/null || true)"
   else
+    cp "$out" "$reply_file" 2>/dev/null || : >"$reply_file"
     tail -n 60 "$out" 2>/dev/null || true
   fi
   # Claude Code keeps the transcript at <config dir>/projects/<slug>/<session_id>.jsonl, where the
   # slug is the real repo path with every non-alphanumeric character replaced by '-'
-  # (/private/var/x/y.z becomes -private-var-x-y-z).
+  # (/private/var/x/y.z becomes -private-var-x-y-z). Only this run's own transcript is read.
   slug="$(printf '%s' "$REPO_REAL" | sed 's/[^A-Za-z0-9]/-/g')"
   transcript="${CLAUDE_CONFIG_DIR:-$REAL_HOME/.claude}/projects/$slug/$sid.jsonl"
   skills=""
@@ -130,12 +145,20 @@ harness_reply() {
     skills="$(node -e '
       const fs = require("node:fs");
       const names = [];
+      // A slash invocation is a user entry with <command-name>/x</command-name>, not a tool_use.
+      const slash = /<command-name>\/?([^<]+)<\/command-name>/g;
       for (const line of fs.readFileSync(process.argv[1], "utf8").split("\n")) {
         let e; try { e = JSON.parse(line); } catch { continue; }
         const c = e && e.message && e.message.content;
+        if (typeof c === "string") {
+          if (e.type === "user") for (const m of c.matchAll(slash)) names.push("slash: " + m[1]);
+          continue;
+        }
         if (!Array.isArray(c)) continue;
         for (const b of c) {
-          if (b && b.type === "tool_use" && b.name === "Skill" && b.input && typeof b.input.skill === "string") names.push(b.input.skill);
+          if (!b) continue;
+          if (b.type === "tool_use" && b.name === "Skill" && b.input && typeof b.input.skill === "string") names.push(b.input.skill);
+          else if (e.type === "user" && b.type === "text" && typeof b.text === "string") for (const m of b.text.matchAll(slash)) names.push("slash: " + m[1]);
         }
       }
       console.log(names.length ? names.join(", ") : "(none)");
@@ -143,9 +166,9 @@ harness_reply() {
   fi
   echo
   if [[ -n "$skills" ]]; then
-    echo "Skills invoked: $skills"
+    echo "Skills invoked (via the Skill tool): $skills"
   else
-    echo "Skills invoked: unknown (transcript not found)"
+    echo "Skills invoked (via the Skill tool): unknown (transcript not found)"
   fi
   return 0
 }
@@ -218,10 +241,12 @@ CHECK
   if [[ "$NATIVE" == "1" ]]; then
     echo "  [ ] --native: did the agent list the placed skill from $DYNAMIC_SKILLS_HOME/native/claude-code (see output)?"
   fi
-  scan "$TMP/out/main.txt" "Denied or permission lines" 'denied|permission|not allowed|requires approval'
+  # The main output is one JSON line (always containing "permission_denials"), so the text scans
+  # read the extracted reply (main.reply.txt); real denials are listed by harness_evidence.
+  scan "$TMP/out/main.reply.txt" "Denied or permission lines" 'denied|permission|not allowed|requires approval'
   scan "$TMP/out/main.stderr.txt" "Denied or permission lines (stderr)" 'denied|permission|not allowed|requires approval'
-  scan "$TMP/out/main.txt" "/private/var or /var path lines" '/private/var|/var/'
-  scan "$TMP/out/main.txt" "Compound-command lines" 'cd .*&&.*dynamic-skills'
+  scan "$TMP/out/main.reply.txt" "/private/var or /var path lines" '/private/var|/var/'
+  scan "$TMP/out/main.reply.txt" "Compound-command lines" 'cd .*&&.*dynamic-skills'
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
