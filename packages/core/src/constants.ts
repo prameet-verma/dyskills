@@ -94,3 +94,19 @@ export const MAX_QUESTION_OPTIONS = 4;
  * session must not leave a skill listed natively for more than a day.
  */
 export const NATIVE_PLACEMENT_TTL_MS = 86_400_000;
+
+/**
+ * Context Packet size (estimated tokens, `discover.packetTokens`) below which the root agent writes
+ * the analysis itself instead of delegating to the read-only analyst. Delegation costs a subagent
+ * start plus a second full pass over the JSON (the analyst cannot write the file), measured at
+ * about 35 s on a 1.7k-token packet; reading 6k tokens costs seconds. The bootstrap skill text
+ * quotes this value and a test keeps them in sync.
+ */
+export const INLINE_ANALYSIS_MAX_PACKET_TOKENS = 6000;
+
+/**
+ * Line count of a generated `SKILL.md` up to which the root agent runs the step-10 smoke check
+ * itself instead of in a fresh subagent. The bootstrap skill text quotes this value and a test
+ * keeps them in sync.
+ */
+export const INLINE_SMOKE_MAX_SKILL_LINES = 60;

@@ -108,7 +108,7 @@ with an assumption.
 
 **Analyst agent.** `dynamic_skills_context_analyst` (`dynamic-skills-context-analyst.toml`) is
 read-only **by instruction only**: Codex subagents inherit the parent sandbox and approvals. The
-CLI's schema validation is the real gate on its output.
+CLI's schema validation is the real gate on its output. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
 
 ## Saving a skill
 

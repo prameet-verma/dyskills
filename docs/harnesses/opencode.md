@@ -127,7 +127,7 @@ record the question as skipped with an assumption.
 **Analyst agent.** `dynamic-skills-context-analyst` is a markdown agent with
 `permission: { "*": deny, read, glob, grep, list: allow }`, so it is read-only. **On 2.x, subagents
 run in the background** (since 2.3.0): the parent waits for their result, and that wait counts
-toward the 150 second budget.
+toward the 150 second budget. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
 
 ## Saving a skill
 
