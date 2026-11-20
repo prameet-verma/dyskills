@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 MODE="${1:-autonomous}"
 NATIVE="${2:-0}"
 
-harness_version_check() { version_check "Claude Code" claude 2.1.325; }
+harness_version_check() { version_check "Claude Code" claude 2.1.325 2.1.329; }
 
 harness_install() {
   if [[ "$NATIVE" == "1" ]]; then

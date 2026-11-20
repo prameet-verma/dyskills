@@ -38,7 +38,7 @@ Phase 2, Harness Integrations:
   `request_user_input`, `question`); `CONTRACT_VERSION` stays `"1"`.
 - `@dynamic-skills/adapter-sdk` and the adapters `adapter-claude-code`, `adapter-codex` and
   `adapter-opencode`, with a compatibility suite over four targets (claude-code, codex,
-  opencode-v1, opencode-v2); tested versions Claude Code `2.1.325`, Codex `0.169.0`, OpenCode
+  opencode-v1, opencode-v2); tested versions Claude Code `2.1.325` and `2.1.329`, Codex `0.169.0`, OpenCode
   `1.19.5` and `2.3.0`.
 - Environment variables `DYNAMIC_SKILLS_HARNESS`, `DYNAMIC_SKILLS_NATIVE` and
   `DYNAMIC_SKILLS_ETC_DIR`; error codes `INIT_CONFLICT`, `HARNESS_NOT_DETECTED`, `SAVE_CONFLICT`,

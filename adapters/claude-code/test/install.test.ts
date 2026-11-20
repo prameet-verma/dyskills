@@ -53,7 +53,7 @@ const ASK = [
 
 describe("claude-code installer", () => {
   it("exports the pinned tested version", () => {
-    expect([...CLAUDE_CODE_TESTED_VERSIONS]).toEqual(["2.1.325"]);
+    expect([...CLAUDE_CODE_TESTED_VERSIONS]).toEqual(["2.1.325", "2.1.329"]);
     expect(claudeCodeAdapter.id).toBe("claude-code");
     expect(claudeCodeAdapter.binary).toBe("claude");
     expect(claudeCodeAdapter.delegation).toEqual({

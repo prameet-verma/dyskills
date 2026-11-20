@@ -2,13 +2,13 @@
 
 The Claude Code adapter: plans the `dynamic-skills init` install, names the directories `save`
 writes and Claude Code reads, and maps clarification questions onto `AskUserQuestion`. Every write
-is a `PlannedWrite` executed by `@dynamic-skills/adapter-sdk`. Tested against Claude Code `2.1.325`.
+is a `PlannedWrite` executed by `@dynamic-skills/adapter-sdk`. Tested against Claude Code `2.1.325` and `2.1.329` (the latter live, at the Phase 2 gate).
 
 ## API
 
 - `claudeCodeAdapter: HarnessAdapter` with `id: "claude-code"`, `binary: "claude"`,
   `nativeActivation: true` and a read-only (`enforced`) analyst agent.
-- `CLAUDE_CODE_TESTED_VERSIONS = ["2.1.325"]`. Any other version detects as `tested: false`;
+- `CLAUDE_CODE_TESTED_VERSIONS = ["2.1.325", "2.1.329"]`. Any other version detects as `tested: false`;
   versions below `2.1.0` warn "no live skill reload", below `2.1.152` "no /reload-skills".
 - `detect`, `planInstall`, `skillRoot`, `readRoots`, `questions`, `nativeSessionRoot`, `saveNotes`
   as in the SDK contract. The config root is an absolute `CLAUDE_CONFIG_DIR`, else `~/.claude`.

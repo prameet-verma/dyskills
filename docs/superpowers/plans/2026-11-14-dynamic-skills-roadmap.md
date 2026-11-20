@@ -113,6 +113,14 @@ verify) per PRD §20; adapter compatibility test suite run identically against f
   passes for all four targets; `init` is idempotent; ephemeral sessions leave every permanent skill directory
   untouched (AC 28); explicit invocation works where autonomous does not.
 
+Phase 2 gate evidence (2026-11-20, Claude Code live smoke; Codex and OpenCode live smoke deferred
+to before the first real npm publish): on Claude Code 2.1.329 (host model Sonnet 5.5) explicit
+invocation ran the whole flow and activated a skill in 113 s (AC 24); consent (D6), R31 and AC 28
+held in every run. Autonomous invocation (AC 3) is model-dependent: the bootstrap was listed to the
+model in every run, and fired 3 of 3 times on 2.1.274 (Sonnet 5) but 0 of 4 on 2.1.329 (Sonnet 5.5),
+which did the tasks itself. A full run needs four agent stretches of about 55 s, so the budget is
+300 s (PRD v0.9).
+
 ### Phase 3 — Persistence and Freshness
 
 Deliverables: post-task persistence prompt (PRD §11.2 copy), `packages/lifecycle` (versioned bundle
@@ -128,6 +136,14 @@ when the base's hash no longer matches, the freshness validator treats the augme
 - **Exit gate:** changing a fingerprinted file marks only the dependent skill stale; an unrelated commit
   triggers a relevance check but not invalidation; saving twice does not duplicate a skill; persistence
   never happens without an explicit choice (AC 26, 27).
+- **Research item: positioning and bootstrap effectiveness.** The Phase 2 smoke suggests two
+  positions: capability uplift for cheaper models (which invoke the bootstrap readily) and
+  project-specific grounding for frontier models on hard or repository-specific tasks (which skip
+  it unless asked). Decide with an eval rather than anecdote: the same task set across two or three
+  host models, with and without the skill, explicit vs autonomous, and several variants of the
+  bootstrap description and body (for example "specialised expertise" vs "project-specific
+  conventions and constraints"). Measure invocation rate, task success, active time and cost. The
+  result decides the product positioning and the shipped description.
 
 ### Phase 4 — Evaluation Maturity
 

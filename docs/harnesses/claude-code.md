@@ -1,6 +1,6 @@
 # Dynamic Skills on Claude Code
 
-Tested against Claude Code `2.1.325`. Any other version still works but is reported as untested;
+Tested against Claude Code `2.1.325` and `2.1.329`. Any other version still works but is reported as untested;
 below `2.1.0` there is no live skill reload, and below `2.1.152` no `/reload-skills`. The adapter
 internals are in the [adapter README](../../adapters/claude-code/README.md); the design is in the
 [architecture](../architecture.md) and [ADR 0007](../adr/0007-harness-adapter-interface.md).

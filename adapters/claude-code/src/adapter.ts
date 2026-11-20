@@ -11,7 +11,7 @@ import { configDir, planClaudeInstall } from "./install";
 import { mapQuestions } from "./questions";
 
 /** Claude Code versions this adapter was tested against. */
-export const CLAUDE_CODE_TESTED_VERSIONS = ["2.1.325"] as const;
+export const CLAUDE_CODE_TESTED_VERSIONS = ["2.1.325", "2.1.329"] as const;
 
 /** Skills directory `save` writes for a scope. */
 const skillRoot = (env: HostEnv, scope: "project" | "personal"): string =>

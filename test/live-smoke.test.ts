@@ -94,7 +94,7 @@ describe("live smoke scripts", () => {
     expect(lib).toContain("mktemp -d");
     expect(lib).toMatch(/trap .*EXIT/);
     const pins: Record<string, string[]> = {
-      "claude-code": ["2.1.325"],
+      "claude-code": ["2.1.325", "2.1.329"],
       codex: ["0.169.0"],
       opencode: ["1.19.5", "2.3.0"],
     };
