@@ -1,11 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  INLINE_ANALYSIS_MAX_PACKET_TOKENS,
-  INLINE_SMOKE_MAX_SKILL_LINES,
-  type SmokeEval,
-} from "@dynamic-skills/core";
+import { INLINE_ANALYSIS_MAX_PACKET_TOKENS, type SmokeEval } from "@dynamic-skills/core";
 import { ALL_EVALS, runEvaluations } from "@dynamic-skills/eval-engine";
 import { parseSkillBundle } from "@dynamic-skills/skill-compiler";
 import { describe, expect, it } from "vitest";
@@ -114,7 +110,9 @@ describe("dynamic-skill-bootstrap", () => {
   it("keeps the speed rules in sync with the core constants", () => {
     const body = readFileSync(SKILL_FILE, "utf8");
     expect(body).toContain(`under ${INLINE_ANALYSIS_MAX_PACKET_TOKENS}`);
-    expect(body).toContain(`at most ${INLINE_SMOKE_MAX_SKILL_LINES} lines`);
+    expect(body).toMatch(/only if none is available, yourself.*--notes inline/);
+    expect(body).toContain("wait for its reply");
+    expect(body).toContain("required fields plus `category`");
     expect(body).toMatch(/Write the JSON once/);
     expect(body).toMatch(/Delta only/);
     expect(body).toMatch(

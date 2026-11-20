@@ -103,10 +103,3 @@ export const NATIVE_PLACEMENT_TTL_MS = 86_400_000;
  * quotes this value and a test keeps them in sync.
  */
 export const INLINE_ANALYSIS_MAX_PACKET_TOKENS = 6000;
-
-/**
- * Line count of a generated `SKILL.md` up to which the root agent runs the step-10 smoke check
- * itself instead of in a fresh subagent. The bootstrap skill text quotes this value and a test
- * keeps them in sync.
- */
-export const INLINE_SMOKE_MAX_SKILL_LINES = 60;

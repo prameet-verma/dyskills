@@ -94,7 +94,7 @@ decision (`prompt`) without running anything; `init` runs the same check as its 
 
 **Autonomous.** Codex lists skill descriptions in its catalog (up to about 2 % of the context), so
 a matching task can trigger `dynamic-skill-bootstrap`. **Explicit.** Start the prompt with
-`$dynamic-skill-bootstrap <task>` (or pick it with `/skills`).
+`$dynamic-skill-bootstrap <task>` (or pick it with `/skills`). A named invocation makes the agent pass `--explicit`, so an existing skill cannot be reused unchanged: only `partial` or `insufficient` verdicts are accepted.
 
 Activation on Codex is reading the files in `loadOrder`; there is no native placement
 (`activate` returns `native: null`). Status is relayed as text in the agent's reply.

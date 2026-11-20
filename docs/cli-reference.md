@@ -159,6 +159,7 @@ is only ever read.
 - `insufficient`: a new skill will be generated.
 - Unless the verdict ends or pauses the session, the status is `assessing` (label "Assessing skill
   coverage") until `compile` sets `generating`.
+- With `--explicit`, a `sufficient` verdict is refused (`VERDICT_INVALID`): only `partial` or `insufficient` are accepted. The bootstrap skill passes `--explicit` when invoked by name.
 - In `suggest` mode without `--explicit`, a non-`sufficient` verdict leaves approval `pending`
   and pauses the SLA.
 
