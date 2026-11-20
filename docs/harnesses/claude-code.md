@@ -95,7 +95,7 @@ question is asked in text or recorded as skipped with an assumption.
 
 **Analyst agent.** `dynamic-skills-context-analyst` reads the Context Packet with `Read`, `Grep` and
 `Glob` only, so it is truly read-only. Claude Code runs subagents in the background by default, and
-the skill tells the agent to wait for the reply, and the wait counts toward the 150 second budget. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
+the skill tells the agent to wait for the reply, and the wait counts toward the 300 second budget. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
 
 ## Native mode (optional)
 

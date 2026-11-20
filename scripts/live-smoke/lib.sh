@@ -213,7 +213,7 @@ print_reports() {
 }
 
 # Active-time budget in seconds; mirrors DEFAULT_BUDGET_MS in packages/core/src/constants.ts.
-SMOKE_BUDGET_SECS=150
+SMOKE_BUDGET_SECS=300
 
 # print_timing: elapsed seconds of the main run against the budget (PRD SLA).
 print_timing() {

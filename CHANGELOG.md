@@ -8,9 +8,10 @@ All notable changes to this project are recorded here. The format follows
 
 ### Changed
 
-- The default active-time budget (`DEFAULT_BUDGET_MS`, PRD §10.1) is 150 seconds instead of 60.
-  The Phase 2 live smoke measured 116.6 s of active time for a full run with a delegated
-  context-analysis subagent on Claude Code. `DYNAMIC_SKILLS_BUDGET_MS` still overrides it.
+- The default active-time budget (`DEFAULT_BUDGET_MS`, PRD §10.1) is 300 seconds instead of 60.
+  The Phase 2 live smoke on Claude Code measured 116.6 s just to reach the analysis, and, after
+  the analysis speed-ups, about 220 to 250 s for a full run (four agent stretches of about 55 s
+  each). `DYNAMIC_SKILLS_BUDGET_MS` still overrides it.
 
 ### Added
 

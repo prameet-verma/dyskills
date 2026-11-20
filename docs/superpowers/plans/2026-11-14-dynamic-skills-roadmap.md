@@ -20,7 +20,7 @@ orchestration runtime". Consequences:
 - No API keys, no model calls, no network access in the core ("no mandatory paid API", PRD §20).
 - The SLA clock is wall-clock time since the session started minus time paused for human answers, so
   root-agent reasoning between CLI calls — including agentic analysis and targeted context requests —
-  counts towards the 150 s budget (PRD §10.1, §10.3; 60 s until PRD v0.9).
+  counts towards the 300 s budget (PRD §10.1, §10.3; 60 s until PRD v0.9).
 - The CLI never trusts agent output: every Context Analysis Result and context request is validated
   against a versioned schema before use (PRD §6.9 #8, §13.2).
 - Phase 2 adapters add native placement/activation and installation; they never change the core contract.
@@ -153,6 +153,6 @@ packs, optional `LlmProvider` for headless/API runs, multi-skill composition (FR
 | Risk | Mitigation |
 |---|---|
 | A harness cannot activate a new skill mid-session | Confirmed for OpenCode V1 and Codex (non-ephemeral only); mitigation stands: read-into-context is the default |
-| 60 s budget too tight with real agents | Phase 1 instruments every stage; the live smoke step measures it before Phase 2. Confirmed at the Phase 2 gate (Claude Code explicit run: 116.6 s active); the budget was raised to 150 s (PRD v0.9) |
+| 60 s budget too tight with real agents | Phase 1 instruments every stage; the live smoke step measures it before Phase 2. Confirmed at the Phase 2 gate (Claude Code explicit run: 116.6 s active); the budget was raised to 300 s (PRD v0.9) after a second round measured about 220–250 s for four agent stretches of ~55 s |
 | Agent ignores bootstrap steps | Bootstrap is short, command-driven, and the CLI's state machine rejects out-of-order steps |
 | Heuristic evals produce false positives | Every heuristic eval is a warning unless the PRD makes it mandatory; Phase 4 adds rubric/benchmark depth |

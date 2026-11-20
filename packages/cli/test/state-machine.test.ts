@@ -179,7 +179,7 @@ describe("the wrapper", () => {
     const id = await discovered(h);
     await mkdir(join(h.home, "sessions", id, "skills"), { recursive: true });
     await writeFile(join(h.home, "sessions", id, "skills", "SKILL.md"), "x");
-    h.clock.t += 151_000;
+    h.clock.t += 301_000;
     const r = await h.run(["context", "request", "--session", id, "--file", "nope.json"]);
     expect(r.exitCode).toBe(3);
     expect(r.out).toMatchObject({ ok: false, error: "TIMEOUT" });
@@ -198,7 +198,7 @@ describe("the wrapper", () => {
 
   it("does not turn a finished session into a timeout", async () => {
     const id = await assess(h, "x", ["--mode", "manual"]);
-    h.clock.t += 200_000; // past the 150 s default budget
+    h.clock.t += 400_000; // past the 300 s default budget
     const r = await h.run(["discover", "--session", id]);
     expect(r.exitCode).toBe(1);
     expect(r.out.error).toBe("INVALID_STATE");

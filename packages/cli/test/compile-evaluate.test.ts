@@ -459,7 +459,7 @@ describe("status and clean", () => {
   it("status still works after a timeout and changes nothing", async () => {
     const id = await ready(h);
     const before = await h.read(id, "session.json");
-    h.clock.t += 200_000; // past the 150 s default budget
+    h.clock.t += 400_000; // past the 300 s default budget
     const r = await statusRaw(id);
     expect(r.exitCode).toBe(0);
     expect(await h.read(id, "session.json")).toBe(before);
@@ -477,7 +477,7 @@ describe("status and clean", () => {
 
   it("clean works after a timeout", async () => {
     const id = await ready(h);
-    h.clock.t += 200_000; // past the 150 s default budget
+    h.clock.t += 400_000; // past the 300 s default budget
     expect((await h.run(["clean", "--session", id])).exitCode).toBe(0);
   });
 

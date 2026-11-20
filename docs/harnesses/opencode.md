@@ -127,7 +127,7 @@ record the question as skipped with an assumption.
 **Analyst agent.** `dynamic-skills-context-analyst` is a markdown agent with
 `permission: { "*": deny, read, glob, grep, list: allow }`, so it is read-only. **On 2.x, subagents
 run in the background** (since 2.3.0): the skill tells the agent to wait for the reply, and that wait counts
-toward the 150 second budget. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
+toward the 300 second budget. Packets under 6000 estimated tokens (`packetTokens`) are analysed by the root agent itself, so the analyst is used only for larger ones; its brief asks for delta-only output.
 
 ## Saving a skill
 
@@ -151,7 +151,7 @@ supported yet (`SAVE_UNSUPPORTED`).
   allows `<session home>/*`. 2.x allows it by default, and the rule is harmless there.
 - **V1 needs a restart after `save`**, as above. Reading the activated skill does not.
 - **V2 background subagents.** If `opencode run` finishes before the analyst reports, or the wait
-  pushes active time near 150 seconds, ask for the analysis in the main agent instead. Whether
+  pushes active time near 300 seconds, ask for the analysis in the main agent instead. Whether
   `opencode run` waits for background children is not settled; the live smoke records it.
 - **Quoted or double-spaced commands bypass the ask** (Ruling R35, above).
 - **Config in an unusual shape.** `"permission": "ask"` as a whole, or a `deny` for

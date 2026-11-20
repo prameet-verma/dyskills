@@ -81,11 +81,13 @@ describe("deadline attributes the in-progress stage", () => {
     h.clock.t += 10_000;
     expect((await submitAnalysis(id)).exitCode).toBe(0);
     expect((await metrics(id)).stageMs.analysis).toBe(10_000);
-    h.clock.t += 162_000;
+    h.clock.t += DEFAULT_BUDGET_MS + 12_000;
     expect((await submitAnalysis(id)).out.error).toBe("TIMEOUT");
     const m = await metrics(id);
-    expect(m.stageMs.analysis).toBe(172_000);
-    expect((await h.readJson(id, "reports/discovery.json")).agenticMs).toBe(172_000);
+    expect(m.stageMs.analysis).toBe(DEFAULT_BUDGET_MS + 22_000);
+    expect((await h.readJson(id, "reports/discovery.json")).agenticMs).toBe(
+      DEFAULT_BUDGET_MS + 22_000,
+    );
   });
 
   it("clean after a context request adds the re-analysis gap, capped at the budget", async () => {

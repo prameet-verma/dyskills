@@ -107,11 +107,11 @@ describe("live smoke scripts", () => {
     }
   });
 
-  it("lib.sh records the R31 refusal and the 150 s timing", () => {
+  it("lib.sh records the R31 refusal and the 300 s timing", () => {
     const lib = read("scripts/live-smoke/lib.sh");
     expect(lib).toMatch(/dynamic-skills -V save/);
     expect(lib).toContain("R31");
-    expect(lib).toContain("SMOKE_BUDGET_SECS=150");
+    expect(lib).toContain("SMOKE_BUDGET_SECS=300");
     expect(lib).toContain("DEFAULT_BUDGET_MS");
   });
 

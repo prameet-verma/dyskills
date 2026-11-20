@@ -44,12 +44,12 @@ describe("terminal sessions stop the clock (M2)", () => {
     const done = await h.run(["activate", "--session", id]);
     expect(done.exitCode).toBe(0);
     expect(done.stderr).toContain("Processing SLA: STOPPED");
-    expect(done.stderr).toContain("Active processing used: 2s / 150s");
+    expect(done.stderr).toContain("Active processing used: 2s / 300s");
     h.clock.t += HOUR;
     const raw = await status(id);
     expect(raw.exitCode).toBe(0);
     expect(raw.stdout).toContain("Processing SLA: STOPPED");
-    expect(raw.stdout).toContain("Active processing used: 2s / 150s");
+    expect(raw.stdout).toContain("Active processing used: 2s / 300s");
     const perf = await h.readJson(id, "reports/performance.json");
     expect(perf.activeMs).toBe(2_000);
   });
@@ -247,10 +247,10 @@ describe("clean archives the metrics (I4c, R21)", () => {
     expect(r.out).toMatchObject({ removed: true, archived: true });
     const archived = JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8"));
     expect(archived.outcome).toBe("timeout");
-    expect(archived.activeMs).toBeLessThanOrEqual(150_000);
+    expect(archived.activeMs).toBeLessThanOrEqual(300_000);
     const perf = (await h.run(["report", "perf"])).out;
     expect(perf.timeoutRate).toBe(1);
-    expect(perf.maxActiveMs).toBeLessThanOrEqual(150_000);
+    expect(perf.maxActiveMs).toBeLessThanOrEqual(300_000);
   });
 
   it("archives an abandoned session within budget as failed with its real active time", async () => {
@@ -260,7 +260,7 @@ describe("clean archives the metrics (I4c, R21)", () => {
     const archived = JSON.parse(await readFile(join(h.home, "reports", `${id}.json`), "utf8"));
     expect(archived.outcome).toBe("failed");
     expect(archived.activeMs).toBeGreaterThanOrEqual(5_000);
-    expect(archived.activeMs).toBeLessThan(150_000);
+    expect(archived.activeMs).toBeLessThan(300_000);
   });
 
   it("leaves no performance.json when a later report cannot be written", async () => {
