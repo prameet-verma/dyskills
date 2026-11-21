@@ -143,7 +143,8 @@ when the base's hash no longer matches, the freshness validator treats the augme
   host models, with and without the skill, explicit vs autonomous, and several variants of the
   bootstrap description and body (for example "specialised expertise" vs "project-specific
   conventions and constraints"). Measure invocation rate, task success, active time and cost. The
-  result decides the product positioning and the shipped description.
+  result decides the product positioning and the shipped description. Evidence so far:
+  [bootstrap invocation pilot](../research/2026-11-21-bootstrap-invocation-pilot.md).
 
 ### Phase 4 — Evaluation Maturity
 
