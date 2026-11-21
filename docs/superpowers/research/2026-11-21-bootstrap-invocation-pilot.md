@@ -132,6 +132,9 @@ Totals: v0 0/18, v1 5/18 (5/12 non-trivial), v2 12/18 (12/12 non-trivial, 0/6 tr
 
 ## Next steps
 
+Steps 1 and 2 were run on 2026-11-21: see the
+[effectiveness eval](2026-11-21-bootstrap-effectiveness-eval.md).
+
 1. **Effectiveness eval:** v2 against no skill on t1 and t2 as full runs (Haiku and Sonnet at
    least), measuring whether the result passes its tests, active time and cost.
 2. **Boundary set:** 3–4 borderline tasks (small bug fix, one-file change, rename refactor,

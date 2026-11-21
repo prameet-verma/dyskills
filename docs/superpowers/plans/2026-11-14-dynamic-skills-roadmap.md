@@ -144,7 +144,9 @@ when the base's hash no longer matches, the freshness validator treats the augme
   bootstrap description and body (for example "specialised expertise" vs "project-specific
   conventions and constraints"). Measure invocation rate, task success, active time and cost. The
   result decides the product positioning and the shipped description. Evidence so far:
-  [bootstrap invocation pilot](../research/2026-11-21-bootstrap-invocation-pilot.md).
+  [bootstrap invocation pilot](../research/2026-11-21-bootstrap-invocation-pilot.md) and
+  [effectiveness eval](../research/2026-11-21-bootstrap-effectiveness-eval.md) (no gain on a stub
+  fixture; the next eval needs a repository whose conventions a model cannot guess).
 
 ### Phase 4 — Evaluation Maturity
 
