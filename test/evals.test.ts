@@ -61,7 +61,12 @@ describe("eval harness layout", () => {
     expect(r.status).toBe(0);
   });
 
-  it.each(SCRIPTS.filter((f) => !f.endsWith("lib.sh")))("%s uses strict mode", (rel) => {
+  // Suite checks.sh scripts are exempt: they branch on grep's exit status for every check, which
+  // `set -e` would turn into an abort; they validate their own arguments and exit 2 on bad input.
+  const STRICT = SCRIPTS.filter(
+    (f) => !f.endsWith("lib.sh") && !/\/suites\/[^/]+\/checks\.sh$/.test(f),
+  );
+  it.each(STRICT)("%s uses strict mode", (rel) => {
     expect(read(rel)).toContain("set -euo pipefail");
   });
 

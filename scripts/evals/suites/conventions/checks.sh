@@ -2,7 +2,8 @@
 # Objective static checks for the conventions suite.
 # Usage: checks.sh <repo-dir> <task-id>      (task-id: g1 | g2 | g3)
 # The repo must be a git repository with a baseline commit. Checks grade ONLY the files the agent
-# changed or added (git diff --name-only HEAD plus untracked files, under packages/). Every check
+# changed or added (git diff --name-only against the eval-baseline tag, or HEAD when it is absent,
+# plus untracked files, under packages/). Every check
 # is gated on the task's function having been written or changed by the agent, so an agent that
 # did nothing scores 0. Prints one "name<TAB>pass|fail" line per applicable check. Deterministic.
 
