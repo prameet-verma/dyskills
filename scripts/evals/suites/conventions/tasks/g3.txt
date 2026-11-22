@@ -1,0 +1,3 @@
+Add a small `listOrdersByStatus(ctx, status)` query to the orders package, exported from the package entry point like the other operations, with tests.
+
+`ctx` is the same first argument `createOrder` takes. It returns the orders that currently have the given status, in the order they were created, and an empty list when there are none. A status that is not a valid order status is a failure.

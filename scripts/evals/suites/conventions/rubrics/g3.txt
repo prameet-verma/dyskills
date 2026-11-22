@@ -1,0 +1,17 @@
+Add a small `listOrdersByStatus(ctx, status)` query to the orders package, exported from the package entry point like the other operations, with tests.
+
+`ctx` is the same first argument `createOrder` takes. It returns the orders that currently have the given status, in the order they were created, and an empty list when there are none. A status that is not a valid order status is a failure.
+
+Rubric items
+1 filters_by_status: listOrdersByStatus(ctx, status) returns only the orders with that status.
+2 creation_order: The orders come back in creation order, and an empty list when none match.
+3 invalid_status: A status that is not a valid order status is a failure.
+4 exported: listOrdersByStatus is exported from the orders package entry point.
+5 pure_query: The query changes nothing and publishes no event.
+6 result_not_throw: The result is a Result from @acme/result (ok list, err for failures); the new code does not throw.
+7 define_error: Any new error is a tagged object built with defineError, not a class or a bare string.
+8 reads_via_db: Rows are read through the house db API (db.list or db.get), not a hand-rolled store or module-level state.
+9 log_not_console: Any logging uses log from @acme/log; there is no console.* call.
+10 spec_placement: New tests are *.spec.ts files next to the source in packages/orders/src; no *.test.ts.
+11 testkit_helpers: Tests use @acme/testkit (createTestDb, expectOk/expectErr, fakeClock).
+12 tests_cover: Tests cover filtering, ordering, the empty case and the invalid status.

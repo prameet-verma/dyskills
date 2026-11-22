@@ -9,5 +9,6 @@
     "test/**/*.ts",
     "scripts/**/*.ts",
     "vitest.config.ts"
-  ]
+  ],
+  "exclude": ["scripts/evals/suites/*/hidden/**"]
 }

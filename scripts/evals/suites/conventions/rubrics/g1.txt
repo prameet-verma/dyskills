@@ -1,0 +1,27 @@
+Two people can edit the same order at the same time and today the last save silently wins. Make `updateOrder` safe when several people edit the same order concurrently, and make sure the rest of the system reliably finds out about every successful change so that downstream consumers can deduplicate repeated notifications. Add tests.
+
+Requirements:
+- The signature becomes `updateOrder(ctx, id, patch, expectedVersion)`. `ctx` is the same first argument `createOrder` takes, and `expectedVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused as a failure, the order is left exactly as it was, and nothing is announced.
+- A successful update stores the change, increases the order's version by one and refreshes `updatedAt`.
+- Every successful update announces one "order updated" event whose payload has the order's `id` and its new `version`. An announcement must never be lost, and must never be made for a change that did not happen, even if something fails part-way. It may be delivered more than once, so a consumer must be able to recognise a repeat of the same event. Two different updates to the same order are two different events.
+- A patch with an unknown status or an empty item list is refused as a failure and changes nothing. An unknown order id is also a failure.
+
+Rubric items
+1 stale_refused: updateOrder(ctx, id, patch, expectedVersion) refuses a stale expectedVersion as a failure, leaves the order unchanged and announces nothing.
+2 success_semantics: A successful update applies the patch, increases version by exactly one, refreshes updatedAt and returns the updated order.
+3 concurrent_writers: Two simultaneous updates at the same expected version result in exactly one success and one refusal.
+4 event_per_update: Each successful update publishes exactly one order-updated event with the order id and new version in the payload, and none for refused updates.
+5 event_not_lost: The event is recorded atomically with the state change, so a failure part-way cannot leave a change without its event or an event without its change.
+6 distinct_events: Two different updates to the same order produce two distinct events, and a redelivery of one event is recognisable as the same event.
+7 invalid_patch: An unknown status, an empty item list and an unknown order id are refused as failures and change nothing.
+8 result_not_throw: Failures are returned as Result error values from @acme/result; the new code does not throw and callers are not asked to catch.
+9 define_error: Any new error is a tagged object built with defineError (kind plus message and details), not a class or a bare string.
+10 update_where_version: The write uses tx.updateWhereVersion (not tx.update, and not a hand-rolled read-compare-write) and surfaces its VersionConflict.
+11 outbox_in_transaction: The event is written with outbox.enqueue(tx, ...) inside the same db.transaction as the update, not published directly to a bus.
+12 versioned_topic: The topic is versioned and dotted in the house form (for example orders.v1.updated).
+13 idempotency_key: The enqueue passes a deterministic idempotencyKey that is unique per distinct change (for example order-updated:<id>:<version>), not random and not constant per order.
+14 new_id: Any new id is created with newId from @acme/ids; if no ids are created this item passes.
+15 log_not_console: Any logging uses log.info (or warn/error) from @acme/log with a structured event name; there is no console.* call.
+16 spec_placement: New tests are in *.spec.ts files next to the source in packages/orders/src; there is no *.test.ts and no separate test directory.
+17 testkit_helpers: Tests use @acme/testkit (createTestDb, expectOk/expectErr, drainOutbox, fakeClock) rather than hand-built databases, ad-hoc unwrapping or a hand-rolled outbox reader.
+18 tests_cover: Tests cover the stale-version refusal, the event on success, no event on refusal, and a concurrent or repeated delivery case.
