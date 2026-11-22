@@ -21,14 +21,36 @@ FIX=$(fixture_dir "$suite")
 [ -x "$SD/prepare.sh" ] || die "$SD/prepare.sh is missing or not executable"
 T="$EVAL_OUT/templates/$suite"
 READY="$T/.git/eval-template-ready"
+HASH=$(tree_hash "$FIX" "$SD/prepare.sh")
 
-if [ -f "$READY" ] && [ "$force" -eq 0 ]; then
+# A template is current when its marker holds the hash of the fixture tree plus prepare.sh.
+current() { [ -f "$READY" ] && [ "$(cat "$READY")" = "$HASH" ]; }
+
+if [ "$force" -eq 0 ] && current; then
+  echo "template ready: $T" >&2
+  exit 0
+fi
+
+# mkdir-based lock, so parallel callers build a template once. A lock whose owner died is stolen.
+mkdir -p "$EVAL_OUT/templates"
+LOCK="$EVAL_OUT/templates/.lock-$suite"
+waited=0
+until mkdir "$LOCK" 2>/dev/null; do
+  owner=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
+  waited=$((waited + 1))
+  [ "$waited" -le 900 ] || die "timed out waiting for the template lock $LOCK"
+  sleep 1
+done
+echo $$ >"$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+# Another caller may have finished the build while we waited.
+if [ "$force" -eq 0 ] && current; then
   echo "template ready: $T" >&2
   exit 0
 fi
 
 safe_rm "$T"
-mkdir -p "$EVAL_OUT/templates"
 cp -R "$FIX" "$T"
 rm -rf "$T/.git"
 # Built in place: package-manager shims record absolute paths, so the template must not move.
@@ -38,9 +60,9 @@ rm -rf "$T/.git"
   for ig in node_modules dist .nx; do
     grep -qxF "$ig" .gitignore 2>/dev/null || echo "$ig" >>.gitignore
   done
-  git init -q
-  git add -A
-  git -c user.name=eval -c user.email=eval@example.invalid -c commit.gpgsign=false commit -q -m baseline
+  "${GIT[@]}" init -q
+  "${GIT[@]}" add -A
+  "${GIT[@]}" commit -q -m baseline
 )
-: >"$READY"
+echo "$HASH" >"$READY"
 echo "template built: $T" >&2

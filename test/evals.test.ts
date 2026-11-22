@@ -1,16 +1,18 @@
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { R19_RUNNER, joinContinuations } from "./r19";
@@ -87,11 +89,22 @@ describe("eval harness layout", () => {
     }
     for (const f of ["run-full.sh", "run-invoke.sh"]) {
       const text = read(`scripts/evals/${f}`);
-      expect(text, f).toContain('"WebFetch" "WebSearch"');
-      expect(text, f).toContain("Edit(//$HR/.claude/**)");
+      expect(text, f).toContain('build_deny "$W"');
       expect(text, f).toContain("DYNAMIC_SKILLS_HOME");
       expect(text, f).toContain("DYNAMIC_SKILLS_HARNESS=claude-code");
+      expect(text, f).toContain("NX_DAEMON=false");
     }
+    const lib = read("scripts/evals/lib.sh");
+    for (const d of [
+      "WebFetch",
+      "WebSearch",
+      "Bash(dynamic-skills init *)",
+      "Bash(dynamic-skills save *)",
+    ]) {
+      expect(lib, d).toContain(d);
+    }
+    expect(lib).toContain("core.hooksPath=/dev/null");
+    expect(lib).toContain("setpgrp");
     expect(read("scripts/evals/run-invoke.sh")).toContain("--max-turns 4");
     expect(read("scripts/evals/grade.sh")).toContain('--tools ""');
   });
@@ -135,6 +148,7 @@ describe("suites/orders-stub", () => {
 describe("fake-claude end to end", () => {
   let tmp: string;
   let out: string;
+  let root: string;
   let env: NodeJS.ProcessEnv;
 
   const STREAM = [
@@ -147,7 +161,14 @@ describe("fake-claude end to end", () => {
     {
       type: "assistant",
       message: {
-        content: [{ type: "tool_use", name: "Skill", input: { skill: "dynamic-skill-bootstrap" } }],
+        content: [
+          {
+            type: "tool_use",
+            id: "s1",
+            name: "Skill",
+            input: { skill: "dynamic-skill-bootstrap" },
+          },
+        ],
       },
     },
     {
@@ -156,10 +177,38 @@ describe("fake-claude end to end", () => {
         content: [
           {
             type: "tool_use",
+            id: "c1",
             name: "Bash",
             input: { command: "dynamic-skills assess --mode auto" },
           },
-          { type: "tool_use", name: "Bash", input: { command: "dynamic-skills activate" } },
+          {
+            type: "tool_use",
+            id: "c2",
+            name: "Bash",
+            input: { command: "dynamic-skills activate" },
+          },
+          { type: "tool_use", id: "c3", name: "Bash", input: { command: "dynamic-skills status" } },
+          {
+            type: "tool_use",
+            id: "c4",
+            name: "Bash",
+            input: { command: "dynamic-skills-extra go" },
+          },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: "c1", content: '{"ok":true,"step":"assess"}' },
+          {
+            type: "tool_result",
+            tool_use_id: "c2",
+            content: [{ type: "text", text: '{"ok": true}' }],
+          },
+          { type: "tool_result", tool_use_id: "c3", is_error: true, content: "permission denied" },
+          { type: "tool_result", tool_use_id: "c4", content: '{"ok":true}' },
         ],
       },
     },
@@ -167,11 +216,29 @@ describe("fake-claude end to end", () => {
   ];
 
   beforeAll(() => {
-    tmp = mkdtempSync(join(tmpdir(), "evals-test-"));
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "evals-test-")));
     out = join(tmp, "out dir"); // a space on purpose: every path must be quoted
     const bin = join(tmp, "bin");
     mkdirSync(bin);
-    // Ignores its arguments except that it records them and answers the grader's json format differently.
+
+    // A stand-in repository root: the built CLI is stubbed (CI runs the tests before the build) and the
+    // skills directory is the real one.
+    root = join(tmp, "root");
+    mkdirSync(join(root, "packages/cli/dist"), { recursive: true });
+    cpSync(join(ROOT, "skills"), join(root, "skills"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/cli/dist/index.js"),
+      `const fs = require("fs"), path = require("path");
+const a = process.argv.slice(2);
+if (a[0] === "init") {
+  const repo = a[a.indexOf("--repo") + 1];
+  fs.cpSync(${JSON.stringify(join(root, "skills/dynamic-skill-bootstrap"))}, path.join(repo, ".claude/skills/dynamic-skill-bootstrap"), { recursive: true });
+  console.log('{"ok":true}');
+}
+`,
+    );
+
+    // The stub client: logs its argv per mode, optionally edits the repo, answers the grader differently.
     const fake = join(bin, "fake-claude");
     const lines = STREAM.map((o) => JSON.stringify(o)).join("\n");
     const verdict = JSON.stringify({
@@ -181,14 +248,23 @@ describe("fake-claude end to end", () => {
     writeFileSync(
       fake,
       `#!/bin/bash
-printf '%s\\n' "$@" >>"${join(tmp, "claude-args.txt")}"
-case "$*" in
-  *"--output-format json"*) cat >/dev/null; printf '%s\\n' '${verdict}' ;;
-  *) cat <<'STREAM'
+mode=run
+case "$*" in *"--output-format json"*) mode=grade ;; esac
+{ echo "--- $mode"; printf '%s\\n' "$@"; } >>"${tmp}/claude-args-$mode-$$.txt"
+if [ "$mode" = grade ]; then
+  cat >"${tmp}/grader-prompt-$$.txt"
+  printf '%s\\n' '${verdict}'
+  exit 0
+fi
+if [ -n "\${FAKE_EDIT:-}" ]; then
+  echo more >>pnpm-lock.yaml
+  mkdir -p node_modules/p && echo x >node_modules/p/i.js
+  echo 'export const a = 1' >new.ts
+  echo '{}' >tsconfig.tsbuildinfo
+fi
+cat <<'STREAM'
 ${lines}
 STREAM
-  ;;
-esac
 `,
     );
     chmodSync(fake, 0o755);
@@ -201,6 +277,7 @@ esac
     const fixture = join(tmp, "fixture-repo");
     mkdirSync(fixture);
     writeFileSync(join(fixture, "hello.txt"), "hello\n");
+    writeFileSync(join(fixture, "pnpm-lock.yaml"), "lock\n");
     writeFileSync(join(suite, "fixture"), `${fixture}\n`);
     writeFileSync(join(suite, "prepare.sh"), '#!/usr/bin/env bash\ntouch "$1/prepared"\n');
     chmodSync(join(suite, "prepare.sh"), 0o755);
@@ -211,16 +288,25 @@ esac
       "Rubric items (each true or false):\n1 a: a\n2 b: b\n",
     );
     writeFileSync(join(suite, "hidden/t1/hidden.test.ts"), "// hidden\n");
+    // The tree must be exactly as the agent left it: nothing staged, changes visible through git.
     writeFileSync(
       join(suite, "checks.sh"),
-      '#!/usr/bin/env bash\nprintf "has_prepared\\tpass\\nhas_nothing\\tfail\\n"\n',
+      `#!/usr/bin/env bash
+cd "$1"
+chk() { if "$@"; then printf '%s\\tpass\\n' "$name"; else printf '%s\\tfail\\n' "$name"; fi; }
+name=has_prepared; chk test -f prepared
+name=staged_clean; chk git diff --cached --quiet
+name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others --exclude-standard; } | grep -qx new.ts'
+`,
     );
+    chmodSync(join(suite, "checks.sh"), 0o755);
 
     env = {
       ...process.env,
       EVAL_OUT: out,
       CLAUDE_BIN: fake,
       EVAL_SUITES_DIR: suites,
+      EVAL_REPO_ROOT: root,
     };
   });
 
@@ -228,7 +314,7 @@ esac
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  /** Runs a harness script with the fake claude; returns trimmed stdout lines split by tab. */
+  /** Runs a harness script with the fake claude; returns trimmed stdout lines. */
   function run(script: string, args: string[], extra: NodeJS.ProcessEnv = {}) {
     const r = spawnSync("bash", [join(EVALS, script), ...args], {
       encoding: "utf8",
@@ -239,15 +325,28 @@ esac
   }
 
   const cols = (script: string): string[] => run(script, ["--header"]).stdout.trim().split("\t");
+  const asRow = (script: string, line: string | undefined): Record<string, string | undefined> =>
+    Object.fromEntries(cols(script).map((c, i) => [c, line?.split("\t")[i]]));
+  /** The argv of every stub invocation in a mode, one string per invocation. */
+  const argvFiles = (mode: string): string[] =>
+    readdirSync(tmp)
+      .filter((f) => f.startsWith(`claude-args-${mode}-`))
+      .map((f) => readFileSync(join(tmp, f), "utf8"));
+  const argv = (mode: string): string[] => argvFiles(mode).flatMap((t) => t.split("\n"));
+
+  it("has the documented column order", () => {
+    expect(cols("run-full.sh").join(" ")).toBe(
+      "suite cond task model rep invoked activated ds_calls bootstrap_used last_sub tests passed tests_rc " +
+        "tests_failed_suites tsc checks_pass checks_total hidden_pass hidden_total hidden_rc " +
+        "hidden_failed_suites cost secs turns end diff_lines model_id",
+    );
+  });
 
   it("run-invoke.sh records the invocation row and builds SKILL.md from the current body", () => {
     const r = run("run-invoke.sh", ["tiny", "v2-imperative", "t1", "fake-model", "1"]);
     expect(r.status, r.stderr).toBe(0);
     expect(r.rows).toHaveLength(1);
-    const row = Object.fromEntries(
-      cols("run-invoke.sh").map((c, i) => [c, r.rows[0]?.split("\t")[i]]),
-    );
-    expect(row).toMatchObject({
+    expect(asRow("run-invoke.sh", r.rows[0])).toMatchObject({
       suite: "tiny",
       variant: "v2-imperative",
       task: "t1",
@@ -261,56 +360,122 @@ esac
       end: "success",
       model_id: "fake-model-1",
     });
-    const args = readFileSync(join(tmp, "claude-args.txt"), "utf8");
+    const args = argv("run");
     expect(args).toContain("--max-turns");
     expect(args).toContain("project,local");
-    expect(args).not.toContain("--dangerously");
     // The template is a git repo with the baseline commit and the ignore entries.
     const tpl = join(out, "templates/tiny");
     expect(existsSync(join(tpl, "prepared"))).toBe(true);
     expect(readFileSync(join(tpl, ".gitignore"), "utf8")).toContain("node_modules");
+    expect(readFileSync(join(tpl, ".git/eval-template-ready"), "utf8").trim()).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
   });
 
-  it("run-full.sh (noskill) records the full row, checks and the hidden files", () => {
+  it("rebuilds a stale template when the fixture changes", () => {
+    const fixture = readFileSync(join(tmp, "suites/tiny/fixture"), "utf8").trim();
+    writeFileSync(join(fixture, "hello.txt"), "hello again\n");
+    const r = run("make-template.sh", ["tiny"]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain("template built");
+    expect(readFileSync(join(out, "templates/tiny/hello.txt"), "utf8")).toBe("hello again\n");
+    expect(run("make-template.sh", ["tiny"]).stderr).toContain("template ready");
+  });
+
+  it("run-full.sh (noskill) records the row, passes the safety flags and leaves the tree untouched for checks", () => {
     const r = run("run-full.sh", ["tiny", "noskill", "t1", "fake-model", "2"]);
     expect(r.status, r.stderr).toBe(0);
     expect(r.rows).toHaveLength(1);
-    const row = Object.fromEntries(
-      cols("run-full.sh").map((c, i) => [c, r.rows[0]?.split("\t")[i]]),
-    );
-    expect(row).toMatchObject({
+    expect(asRow("run-full.sh", r.rows[0])).toMatchObject({
       suite: "tiny",
       cond: "noskill",
       task: "t1",
       rep: "2",
       invoked: "1",
       activated: "1",
-      ds_calls: "2",
+      ds_calls: "2", // the denied status call and the dynamic-skills-extra command do not count
+      bootstrap_used: "1",
       last_sub: "activate",
       tests: "0",
       passed: "0",
+      tests_rc: "127", // vitest was not installed: a failed run, not a missing one
+      tests_failed_suites: "0",
       tsc: "n/a",
-      checks_pass: "1",
-      checks_total: "2",
+      checks_pass: "2",
+      checks_total: "3",
+      hidden_pass: "0",
       hidden_total: "0",
+      hidden_rc: "127",
       cost: "0.1250",
       turns: "3",
       end: "success",
       model_id: "fake-model-1",
     });
-    expect(Number(row.diff_lines)).toBeGreaterThanOrEqual(0);
     const runDir = join(out, "runs/tiny.noskill.t1.fake-model.2");
-    expect(existsSync(join(runDir, "out.jsonl"))).toBe(true);
-    expect(existsSync(join(runDir, "diff.patch"))).toBe(true);
-    expect(readFileSync(join(runDir, "checks.tsv"), "utf8")).toContain("has_nothing\tfail");
+    expect(readFileSync(join(runDir, "checks.tsv"), "utf8")).toContain("staged_clean\tpass");
     expect(existsSync(join(runDir, "repo/hidden.test.ts"))).toBe(true); // copied after the run
+    // The stub logged every allow and deny element.
+    const args = argv("run");
+    const home = realpathSync(homedir()).slice(1);
+    for (const want of [
+      "--setting-sources",
+      "Read",
+      "Bash(pnpm *)",
+      "Bash(dynamic-skills *)",
+      `Edit(//${runDir.slice(1)}/**)`,
+      "WebFetch",
+      "WebSearch",
+      "Bash(dynamic-skills init)",
+      "Bash(dynamic-skills init *)",
+      "Bash(dynamic-skills save)",
+      "Bash(dynamic-skills save *)",
+      `Edit(//${home}/.claude/**)`,
+      `Edit(//${home}/.agents/**)`,
+      `Edit(//${home}/.config/**)`,
+      `Edit(//${runDir.slice(1)}/repo/.claude/**)`,
+      `Read(//${root.slice(1)}/scripts/evals/**)`,
+      "--allowed-tools",
+      "--disallowed-tools",
+      "Do the tiny task.",
+    ]) {
+      expect(args, want).toContain(want);
+    }
+    expect(args.some((l) => /dangerously|bypass/i.test(l))).toBe(false);
   });
 
-  it("run-grid.sh writes a results file with a header, and grade-all.sh joins blind grades", () => {
+  it("keeps the diff clean of lockfiles and build artefacts and runs checks on the agent's tree", () => {
+    const r = run("run-full.sh", ["tiny", "noskill", "t2", "fake-model", "3"], { FAKE_EDIT: "1" });
+    expect(r.status, r.stderr).toBe(0);
+    const row = asRow("run-full.sh", r.rows[0]);
+    expect(row).toMatchObject({
+      checks_pass: "3",
+      checks_total: "3",
+      hidden_pass: "-",
+      hidden_total: "-",
+    });
+    const diff = readFileSync(join(out, "runs/tiny.noskill.t2.fake-model.3/diff.patch"), "utf8");
+    expect(diff).toContain("new.ts");
+    expect(diff).not.toContain("pnpm-lock.yaml");
+    expect(diff).not.toContain("tsbuildinfo");
+    expect(diff).not.toContain("node_modules");
+  });
+
+  it("run-full.sh (explicit) prefixes the prompt and installs the skill from the stub CLI", () => {
+    const r = run("run-full.sh", ["tiny", "explicit", "t1", "fake-model", "1"]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(argv("run")).toContain("/dynamic-skill-bootstrap Do the tiny task.");
+    const skill = join(
+      out,
+      "runs/tiny.explicit.t1.fake-model.1/repo/.claude/skills/dynamic-skill-bootstrap/SKILL.md",
+    );
+    expect(existsSync(skill)).toBe(true);
+  });
+
+  it("run-grid.sh writes a results file, tolerates CRLF, and grade-all.sh joins blind grades", () => {
     const jobs = join(tmp, "jobs.txt");
     writeFileSync(
       jobs,
-      "# comment\ntiny noskill t1 fake-model 1\n\ntiny explicit t1 fake-model 1\ntiny noskill t2 fake-model 1\n",
+      "# comment\r\ntiny   noskill t1 fake-model 1\r\n\r\ntiny explicit t1 fake-model 1\r\ntiny noskill t2 fake-model 1\r\n",
     );
     const g = run("run-grid.sh", ["full", jobs, "2"], { EVAL_NAME: "grid-test" });
     expect(g.status, g.stderr).toBe(0);
@@ -332,8 +497,45 @@ esac
     const graded = joined.slice(1).map((l) => l.split("\t").slice(-3).join(","));
     expect(graded.filter((x) => x === "1,2,4")).toHaveLength(2); // the two t1 runs; t2 has no rubric
     expect(graded.filter((x) => x === ",,")).toHaveLength(1);
-    expect(a.stdout).toContain("tiny");
     expect(readFileSync(join(out, "grid-test/anon-map.tsv"), "utf8")).toMatch(/^g001\t/);
+
+    // Summary: tests that never loaded score 0, not "no data"; no hidden tests for t2 stays "-".
+    const sum = readFileSync(join(out, "grid-test/summary.tsv"), "utf8").trim().split("\n");
+    const sh = sum[0]?.split("\t") ?? [];
+    const byKey = Object.fromEntries(
+      sum.slice(1).map((l) => {
+        const f = l.split("\t");
+        return [`${f[1]}.${f[3]}`, Object.fromEntries(sh.map((c, i) => [c, f[i]]))];
+      }),
+    );
+    expect(byKey["t1.noskill"]).toMatchObject({
+      bootstrap_used: "1.00",
+      tests_pass: "0.00",
+      hidden_pass: "0.00",
+    });
+    expect(byKey["t2.noskill"]).toMatchObject({ tests_pass: "0.00", hidden_pass: "-" });
+    expect(a.stdout).toContain("tiny");
+
+    // The grader got the tools-off flags and a prompt that names no condition.
+    expect(argvFiles("grade").length).toBeGreaterThanOrEqual(2);
+    for (const a of argvFiles("grade")) expect(a).toContain("--tools\n\n--output-format\njson");
+    const prompts = readdirSync(tmp).filter((f) => f.startsWith("grader-prompt-"));
+    expect(prompts.length).toBeGreaterThanOrEqual(2);
+    for (const p of prompts) {
+      const text = readFileSync(join(tmp, p), "utf8");
+      expect(text).toContain("Rubric items");
+      expect(text).not.toMatch(/noskill|explicit|variant|v0|v2|dynamic-skill/i);
+    }
+  });
+
+  it("run-grid.sh exits non-zero when a job produced no row", () => {
+    const jobs = join(tmp, "jobs-bad.txt");
+    writeFileSync(jobs, "tiny noskill t1 fake-model 9\ntiny nope t1 fake-model 9\n");
+    const g = run("run-grid.sh", ["full", jobs, "2"], { EVAL_NAME: "grid-bad" });
+    expect(g.status).not.toBe(0);
+    expect(readFileSync(join(out, "grid-bad/results.tsv"), "utf8").trim().split("\n")).toHaveLength(
+      2,
+    );
   });
 
   it("rejects a bad condition and a missing task without running claude", () => {

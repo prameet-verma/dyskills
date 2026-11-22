@@ -19,6 +19,10 @@ NODE_BIN=$(command -v node || true)
 [ -n "$NODE_BIN" ] || { echo "evals: node not found on PATH" >&2; exit 1; }
 NODE_DIR=$(dirname "$NODE_BIN")
 
+# git without hooks or fsmonitor, with a fixed identity, for every repository the harness touches.
+GIT=(git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c user.name=eval -c user.email=eval@example.invalid
+  -c commit.gpgsign=false)
+
 die() {
   echo "evals: $*" >&2
   exit 1
@@ -38,8 +42,19 @@ tsv() {
 }
 
 # Portable wall-clock limit (no timeout binary needed): "${ALARM[@]}" <seconds> <cmd> [args...]
+# The command runs in its own process group, and the whole group is killed on timeout (exit 142).
 # An array, not a function, so it can sit behind `env`.
-ALARM=(perl -e 'alarm shift; exec @ARGV')
+ALARM=(perl -e '
+my $secs = shift;
+my $pid = fork();
+die "fork: $!" unless defined $pid;
+if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127; }
+$SIG{ALRM} = sub { kill "TERM", -$pid; select(undef, undef, undef, 2); kill "KILL", -$pid; waitpid($pid, 0); exit 142; };
+alarm $secs;
+waitpid($pid, 0);
+my $r = $?;
+exit(($r & 127) ? 128 + ($r & 127) : $r >> 8);
+')
 
 # Absolute path of the claude binary; only the scripts that run it call this.
 need_claude() {
@@ -48,11 +63,12 @@ need_claude() {
   case $CLAUDE_ABS in /*) ;; *) CLAUDE_ABS=$PWD/$CLAUDE_ABS ;; esac
 }
 
-# PATH for headless runs: [shim dir], node, pnpm and claude directories, then system dirs.
+# PATH for headless runs: [shim dir], node and pnpm directories, then system dirs. The claude binary is
+# called by absolute path and its directory is deliberately not on PATH.
 run_path() { # [extra-leading-dir]
   local p="" d pn
   pn=$(command -v pnpm || true)
-  for d in "$@" "$NODE_DIR" "${pn:+$(dirname "$pn")}" "$(dirname "${CLAUDE_ABS:-/usr/bin/x}")" /usr/bin /bin; do
+  for d in "$@" "$NODE_DIR" "${pn:+$(dirname "$pn")}" /usr/bin /bin; do
     [ -n "$d" ] && p="${p:+$p:}$d"
   done
   printf '%s' "$p"
@@ -121,13 +137,19 @@ fs.writeFileSync(file, src.replace(/^description: .*$/m, () => "description: " +
 }
 
 # Summarise a stream-json transcript. Prints one tab line, no empty fields:
-# invoked listed first_tool activated ds_calls last_sub cost turns end model
+# invoked listed first_tool activated ds_calls last_sub cost turns end model bootstrap_used
+# ds_calls, activated and last_sub count only successful dynamic-skills calls: the matching tool_result must
+# not be an error or a denial and its JSON must say "ok":true. invoked is a Skill tool_use naming the
+# bootstrap skill. An explicit slash-command prompt is expanded by the client and never shows as a tool_use,
+# so `explicit` runs have invoked 0 by design; bootstrap_used (invoked or any successful call) covers them.
 summarize_stream() { # <out.jsonl>
   "$NODE_BIN" -e '
 const fs = require("fs");
 let text = "";
 try { text = fs.readFileSync(process.argv[1], "utf8"); } catch { /* no transcript */ }
-let invoked = 0, listed = 0, first = "", activated = 0, calls = 0, last = "-", cost = 0, turns = 0, end = "-", model = "-";
+let invoked = 0, listed = 0, first = "", cost = 0, turns = 0, end = "-", model = "-";
+const uses = []; // dynamic-skills Bash calls in order: {id, sub}
+const results = new Map(); // tool_use_id -> {error, text}
 for (const l of text.split("\n")) {
   if (!l.trim()) continue;
   let d;
@@ -141,13 +163,15 @@ for (const l of text.split("\n")) {
       if (b.type !== "tool_use") continue;
       if (!first) first = b.name + (b.name === "Skill" ? ":" + (b.input?.skill ?? "") : "");
       if (b.name === "Skill" && String(b.input?.skill ?? "").includes("dynamic-skill-bootstrap")) invoked = 1;
-      const cmd = String(b.input?.command ?? "").trim();
-      const m = /^dynamic-skills(?:\s+([A-Za-z][\w-]*))?/.exec(cmd);
-      if (m) {
-        calls++;
-        last = m[1] ?? "-";
-        if (m[1] === "activate") activated = 1;
-      }
+      const m = /^dynamic-skills(?:\s+([A-Za-z][\w-]*))?(?=\s|$)/.exec(String(b.input?.command ?? "").trim());
+      if (b.name === "Bash" && m) uses.push({ id: b.id, sub: m[1] ?? "-" });
+    }
+  }
+  if (d.type === "user" && Array.isArray(c)) {
+    for (const b of c) {
+      if (b.type !== "tool_result") continue;
+      const body = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x.text ?? "").join("\n") : "";
+      results.set(b.tool_use_id, { error: b.is_error === true, text: body });
     }
   }
   if (d.type === "result") {
@@ -156,18 +180,29 @@ for (const l of text.split("\n")) {
     end = d.subtype || (d.is_error ? "error" : "-");
   }
 }
-console.log([invoked, listed, first || "-", activated, calls, last, cost.toFixed(4), turns, end, model].join("\t"));
+let calls = 0, activated = 0, last = "-";
+for (const u of uses) {
+  const r = results.get(u.id);
+  if (!r || r.error || /permission|denied|was blocked/i.test(r.text.slice(0, 200)) || !/"ok"\s*:\s*true/.test(r.text)) continue;
+  calls++;
+  last = u.sub;
+  if (u.sub === "activate") activated = 1;
+}
+console.log([invoked, listed, first || "-", activated, calls, last, cost.toFixed(4), turns, end, model, invoked || calls > 0 ? 1 : 0].join("\t"));
 ' "$1"
 }
 
-# vitest json report -> "total passed" (0 0 when the report is missing or unreadable).
+# vitest json report plus exit code file -> "total passed failed_suites rc".
+# Missing or unreadable reports count 0 0 0; rc is 127 when vitest was not run at all.
 vitest_counts() { # <vitest.json>
+  local rc=127
+  [ -f "$1.rc" ] && rc=$(cat "$1.rc")
   "$NODE_BIN" -e '
 try {
   const v = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  console.log((v.numTotalTests ?? 0) + "\t" + (v.numPassedTests ?? 0));
-} catch { console.log("0\t0"); }
-' "$1"
+  console.log([v.numTotalTests ?? 0, v.numPassedTests ?? 0, v.numFailedTestSuites ?? 0, process.argv[2]].join("\t"));
+} catch { console.log(["0", "0", "0", process.argv[2]].join("\t")); }
+' "$1" "$rc"
 }
 
 # End reason: the result subtype, else timeout (SIGALRM) or the exit code.
@@ -179,21 +214,54 @@ end_reason() { # <end-from-stream> <rc>
   fi
 }
 
-# Run vitest with the json reporter in a repo: vitest_json <repo> <out.json> <log> [file filters...]
+# Run vitest with the json reporter in a repo and record its exit code in <out.json>.rc:
+# vitest_json <repo> <out.json> <log> [file filters...]
 vitest_json() {
-  local repo=$1 out=$2 log=$3
+  local repo=$1 out=$2 log=$3 rc=0
   shift 3
   if [ -x "$repo/node_modules/.bin/vitest" ]; then
-    (cd "$repo" && env PATH="$RUN_PATH" CI=1 "${ALARM[@]}" "$EVAL_CHECK_TIMEOUT" ./node_modules/.bin/vitest run \
-      --reporter=json --outputFile="$out" "$@") >"$log" 2>&1 || true
+    (cd "$repo" && env PATH="$RUN_PATH" CI=1 NX_DAEMON=false "${ALARM[@]}" "$EVAL_CHECK_TIMEOUT" \
+      ./node_modules/.bin/vitest run --reporter=json --outputFile="$out" "$@") >"$log" 2>&1 || rc=$?
   else
     echo "vitest is not installed in the run repository" >"$log"
+    rc=127
   fi
+  echo "$rc" >"$out.rc"
+}
+
+# The deny list shared by full and invoke runs, in DENY. Not a sandbox: see the README.
+build_deny() { # <run-dir>
+  local w=${1#/} hr hr2 cfg=""
+  hr=$(cd "$HOME" && pwd -P)
+  hr=${hr#/}
+  hr2=${HOME#/}
+  DENY=("WebFetch" "WebSearch" "Bash(dynamic-skills init)" "Bash(dynamic-skills init *)" "Bash(dynamic-skills save)"
+    "Bash(dynamic-skills save *)" "Edit(//$hr/.claude/**)" "Edit(//$hr/.agents/**)" "Edit(//$hr/.config/**)"
+    "Edit(//$w/repo/.claude/**)" "Read(//${EVAL_REPO_ROOT#/}/scripts/evals/**)"
+    "Read(//$(cd "$EVAL_SUITES_DIR" && pwd -P | sed 's|^/||')/**)")
+  [ "$hr2" != "$hr" ] && DENY+=("Edit(//$hr2/.claude/**)" "Edit(//$hr2/.agents/**)" "Edit(//$hr2/.config/**)")
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ -d "$CLAUDE_CONFIG_DIR" ]; then
+    cfg=$(cd "$CLAUDE_CONFIG_DIR" && pwd -P)
+    DENY+=("Edit(//${cfg#/}/**)")
+  fi
+  return 0
+}
+
+# Hash of a fixture tree plus its prepare.sh, so a stale template is detected.
+tree_hash() { # <fixture-dir> <prepare.sh>
+  local h="shasum -a 256"
+  command -v shasum >/dev/null 2>&1 || h=sha256sum
+  {
+    (cd "$1" && find . -type f -not -path './node_modules/*' -not -path './.git/*' | LC_ALL=C sort \
+      | while IFS= read -r f; do printf '%s ' "$f"; $h <"$f"; done)
+    $h <"$2"
+  } | $h | cut -d' ' -f1
 }
 
 full_header() {
-  tsv suite cond task model rep invoked activated ds_calls last_sub tests passed tsc checks_pass checks_total \
-    hidden_pass hidden_total cost secs turns end diff_lines model_id
+  tsv suite cond task model rep invoked activated ds_calls bootstrap_used last_sub tests passed tests_rc \
+    tests_failed_suites tsc checks_pass checks_total hidden_pass hidden_total hidden_rc hidden_failed_suites \
+    cost secs turns end diff_lines model_id
 }
 
 invoke_header() {

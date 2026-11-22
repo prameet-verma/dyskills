@@ -68,6 +68,12 @@ const num = (v) => (v === undefined || v === "" || v === "-" || Number.isNaN(Num
 const mean = (xs) => { const v = xs.filter((x) => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
 const fmt = (x, d = 2) => (x === null ? "-" : x.toFixed(d));
 
+// A run whose vitest failed to load anything (tests 0, non-zero exit) scores 0, not "no data".
+const rate = (total, passed, rc) => {
+  const t = num(total);
+  if (t) return num(passed) / t;
+  return num(rc) ? 0 : null;
+};
 const joined = [[...head, "rubric_pass", "rubric_total", "quality"].join("\t")];
 const groups = new Map();
 for (const r of rows) {
@@ -77,20 +83,25 @@ for (const r of rows) {
   const key = [r[col.suite], r[col.task], r[col.model], r[col.cond]].join("\t");
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push({
-    invoked: num(r[col.invoked]), activated: num(r[col.activated]),
-    testRate: num(r[col.tests]) ? num(r[col.passed]) / num(r[col.tests]) : null,
+    invoked: num(r[col.invoked]), used: num(r[col.bootstrap_used]), activated: num(r[col.activated]),
+    testRate: rate(r[col.tests], r[col.passed], r[col.tests_rc]),
+    suitesFailed: num(r[col.tests_failed_suites]),
+    hiddenRate: r[col.hidden_total] === "-" ? null : rate(r[col.hidden_total], r[col.hidden_pass], r[col.hidden_rc]),
+    hiddenSuitesFailed: num(r[col.hidden_failed_suites]),
     rubric: ok && num(g[2]) ? num(g[1]) / num(g[2]) : null,
     quality: ok ? num(g[3]) : null,
     cost: num(r[col.cost]), secs: num(r[col.secs]),
   });
 }
 fs.writeFileSync(`${out}/joined.tsv`, joined.join("\n") + "\n");
-const sh = ["suite", "task", "model", "cond", "runs", "invoked", "activated", "tests_pass", "rubric", "quality", "cost", "secs"];
+const sh = ["suite", "task", "model", "cond", "runs", "invoked", "bootstrap_used", "activated", "tests_pass",
+  "tests_failed_suites", "hidden_pass", "hidden_failed_suites", "rubric", "quality", "cost", "secs"];
 const sum = [sh.join("\t")];
 for (const [key, xs] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-  sum.push([...key.split("\t"), xs.length, fmt(mean(xs.map((x) => x.invoked))), fmt(mean(xs.map((x) => x.activated))),
-    fmt(mean(xs.map((x) => x.testRate))), fmt(mean(xs.map((x) => x.rubric))), fmt(mean(xs.map((x) => x.quality))),
-    fmt(mean(xs.map((x) => x.cost)), 3), fmt(mean(xs.map((x) => x.secs)), 0)].join("\t"));
+  const m = (f, d = 2) => fmt(mean(xs.map(f)), d);
+  sum.push([...key.split("\t"), xs.length, m((x) => x.invoked), m((x) => x.used), m((x) => x.activated),
+    m((x) => x.testRate), m((x) => x.suitesFailed), m((x) => x.hiddenRate), m((x) => x.hiddenSuitesFailed),
+    m((x) => x.rubric), m((x) => x.quality), m((x) => x.cost, 3), m((x) => x.secs, 0)].join("\t"));
 }
 fs.writeFileSync(`${out}/summary.tsv`, sum.join("\n") + "\n");
 const cells = sum.map((l) => l.split("\t"));

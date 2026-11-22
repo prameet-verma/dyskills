@@ -79,23 +79,41 @@ Per run, in `$EVAL_RUNS_DIR/<suite>.<cond>.<task>.<model>.<rep>/`: `out.jsonl` (
 `hidden.json`, `init.json` and the final `repo/` without `node_modules`. Invocation runs keep only the
 transcript and row.
 
-`run-full.sh` columns: `suite cond task model rep invoked activated ds_calls last_sub tests passed tsc
-checks_pass checks_total hidden_pass hidden_total cost secs turns end diff_lines model_id`.
+`run-full.sh` columns: `suite cond task model rep invoked activated ds_calls bootstrap_used last_sub tests
+passed tests_rc tests_failed_suites tsc checks_pass checks_total hidden_pass hidden_total hidden_rc
+hidden_failed_suites cost secs turns end diff_lines model_id`.
 
-- `invoked`: a `Skill` tool call naming `dynamic-skill-bootstrap`.
-- `activated`: a bare `dynamic-skills activate` call.
-- `ds_calls`, `last_sub`: how many `dynamic-skills` commands ran, and the last subcommand. It shows where a
-  model left the flow (for example `assess` and nothing after).
-- `tests`, `passed`: the agent's tests, re-run by the harness with vitest.
-- `tsc`: `pass`, `fail` or `n/a` (no tsconfig found).
-- `checks_*`, `hidden_*`: `-` when the suite has no `checks.sh` or hidden tests.
+- `invoked`: a `Skill` tool call naming `dynamic-skill-bootstrap`. An `explicit` run starts with a slash
+  command, which the client expands itself; stream-json does not echo the prompt and shows no `Skill` call.
+  So `explicit` rows show `invoked` 0 by design.
+- `bootstrap_used`: 1 when `invoked` or any successful `dynamic-skills` call happened. Use it, not
+  `invoked`, to compare conditions; the summary reports both.
+- `activated`, `ds_calls`, `last_sub`: only successful `dynamic-skills` calls count: the matching
+  `tool_result` must not be an error or a denial and must contain `"ok":true`. `last_sub` is the last
+  successful subcommand and shows where a model left the flow (for example `assess` and nothing after).
+- `tests`, `passed`, `tests_rc`, `tests_failed_suites`: the agent's tests, re-run by the harness with vitest
+  (exit code and failed suites from the json report). A run that fails to load anything has `tests` 0 and a
+  non-zero `tests_rc`; the summary scores it 0, not "no data". `tests_rc` 127 means vitest was not installed.
+- `tsc`: `pass`, `fail` or `n/a`. It covers every `tsconfig.json` up to depth 3 outside `node_modules`, so it
+  is not comparable with the prototype eval, which type-checked only `packages/orders`.
+- `checks_*`, `hidden_*`: `-` when the suite has no `checks.sh` or no hidden tests for the task. The hidden
+  columns mirror the test columns.
 - `end`: the result subtype, `timeout` or `exit<code>`.
 
+After the agent finishes, `run-full.sh` works in this order: (1) capture `diff.patch`; (2) run `checks.sh`;
+(3) re-run the agent's tests and `tsc`; (4) copy in the hidden tests and run them. The diff uses a private
+git index, so nothing is staged by the harness: at step 2 the tree is exactly as the agent left it, relative
+to the setup commit, and `git diff --name-only HEAD` plus `git ls-files --others --exclude-standard` list the
+agent's changes. The diff leaves out `node_modules`, lockfiles, `.claude`, `.nx`, `dist` and `*.tsbuildinfo`.
+
 `run-invoke.sh` columns: `suite variant task model rep invoked listed first_tool turns cost secs end
-model_id`. `listed` says whether the skill appeared in the session's skill list.
+model_id`. `listed` says whether the skill appeared in the session's skill list. Invocation runs use the
+prepared template (a git repository with pinned dependencies, and no `.env` or planted injection), so
+rates can differ from the recorded pilot, which used a raw fixture copy.
 
 `grade-all.sh` writes beside `results.tsv`: `grades.tsv`, `anon-map.tsv`, `joined.tsv` (results plus
-`rubric_pass rubric_total quality`) and `summary.tsv` (means per suite, task, model and condition).
+`rubric_pass rubric_total quality`) and `summary.tsv` (means per suite, task, model and condition: `invoked`, `bootstrap_used`, `activated`,
+`tests_pass`, `tests_failed_suites`, `hidden_pass`, `hidden_failed_suites`, `rubric`, `quality`, cost, seconds).
 
 ## Suites
 
@@ -127,19 +145,33 @@ before drawing conclusions about the skill's value.
 
 ## Safety model
 
+This is a guard against accidents, not a sandbox. `Bash(node *)` and `Bash(pnpm *)` can run arbitrary code,
+so a determined or confused agent can write anywhere the user can. The `Edit`, home and `Read` denies stop
+the direct tool paths only. Run evals on a machine and account where that is acceptable.
+
 - The agent runs with `--setting-sources project,local`, so user settings, hooks and plugins are not
   loaded, and no permission-bypass option is ever passed.
 - Bash is an allowlist: `pnpm`, `node`, `npx vitest|tsc|nx`, `dynamic-skills`, `ls`, `cat`, `mkdir`,
-  read-only `git`. Anything else is denied in a headless run.
+  read-only `git`. Anything else is denied in a headless run. `dynamic-skills init` and `dynamic-skills save`
+  are denied in every condition, so a globally installed CLI cannot write the real home.
 - `Edit` is allowed only inside the run directory, and denied on `~/.claude/**`, `~/.agents/**`,
-  `~/.config/**` (derived from `$HOME`) and the run repository's own `.claude/**`. `WebFetch` and
-  `WebSearch` are denied.
+  `~/.config/**` (from the real path of `$HOME`), `$CLAUDE_CONFIG_DIR` when set, and the run repository's own
+  `.claude/**`. `Read` is denied on `scripts/evals/**` and the suites directory, so the agent cannot read
+  hidden tests or rubrics. `WebFetch` and `WebSearch` are denied.
 - `dynamic-skills init` runs with a jailed `HOME` and `CLAUDE_CONFIG_DIR`; the session uses a per-run
-  `DYNAMIC_SKILLS_HOME` and `DYNAMIC_SKILLS_HARNESS=claude-code`.
+  `DYNAMIC_SKILLS_HOME`, `DYNAMIC_SKILLS_HARNESS=claude-code` and `NX_DAEMON=false`.
 - The CLI is a `dynamic-skills` shim on `PATH` that runs `packages/cli/dist/index.js`. It is never fetched
-  through a package runner, and the scripts fail clearly when `dist` is missing.
-- Runs are limited by a portable wall-clock alarm. `node_modules` is deleted from run directories after each
-  run; transcripts, diffs and grading files are kept.
+  through a package runner, and the scripts fail clearly when `dist` is missing. The `claude` binary is
+  called by absolute path; its directory is not put on `PATH`.
+- Runs are limited by a wall-clock alarm that kills the whole process group. `node_modules` is deleted from
+  run directories after each run; transcripts, diffs and grading files are kept.
+- git runs with hooks and fsmonitor off, and diffs without external diff drivers or colour.
 - The only network use is `pnpm install` in a suite's `prepare.sh`. The agent itself talks to its model
   endpoint as usual.
 - The grader gets the diff as data, with no tools, under an anonymous id; the condition never leaks into it.
+
+## Templates
+
+`make-template.sh` stores a hash of the fixture tree plus `prepare.sh` in the template and rebuilds when it
+no longer matches, under a `mkdir` lock so parallel callers build once. `EVAL_REPO_ROOT` (default: this
+repository) names the root that holds `packages/cli/dist` and `skills/`; tests point it at a stub.

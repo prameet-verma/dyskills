@@ -18,7 +18,8 @@ check_name name "$name"
 OUT="$EVAL_OUT/$name"
 mkdir -p "$OUT/runs"
 clean="$OUT/jobs.txt"
-awk 'NF && $1 !~ /^#/' "$jobs" >"$clean"
+# Strip CRs and normalise whitespace so a Windows-edited jobs file still splits into five fields.
+awk '{ gsub(/\r/, "") } NF && $1 !~ /^#/ { $1 = $1; print }' "$jobs" >"$clean"
 [ -s "$clean" ] || die "no jobs in $jobs"
 bad=$(awk 'NF != 5 {print NR": "$0}' "$clean")
 [ -z "$bad" ] || die "each job needs 5 fields (suite cond task model rep):
@@ -45,5 +46,8 @@ xargs -P "$par" -L 1 bash -c '
 sort "$rows" >>"$OUT/results.tsv"
 rm -f "$rows"
 find "$OUT/errors" -type f -empty -delete 2>/dev/null || true
-echo "$(($(wc -l <"$OUT/results.tsv") - 1)) of $(wc -l <"$clean" | tr -d ' ') jobs recorded: $OUT/results.tsv" >&2
+recorded=$(($(wc -l <"$OUT/results.tsv") - 1))
+total=$(wc -l <"$clean" | tr -d ' ')
+echo "$recorded of $total jobs recorded: $OUT/results.tsv" >&2
 printf '%s\n' "$OUT/results.tsv"
+[ "$recorded" -eq "$total" ] || die "$((total - recorded)) job(s) produced no row; see $OUT/errors/"

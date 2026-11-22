@@ -25,27 +25,25 @@ safe_rm "$W"
 mkdir -p "$W"
 W=$(cd "$W" && pwd -P)
 # A clone carries only tracked files: no dependency tree is needed to see whether the skill fires.
-git clone -q --no-hardlinks "$T" "$W/repo"
-git -C "$W/repo" remote remove origin
+"${GIT[@]}" clone -q --no-hardlinks "$T" "$W/repo"
+"${GIT[@]}" -C "$W/repo" remote remove origin
 mkdir -p "$W/repo/.claude/skills"
 cp -R "$SRC" "$W/repo/.claude/skills/dynamic-skill-bootstrap"
 set_description "$W/repo/.claude/skills/dynamic-skill-bootstrap/SKILL.md" "$EVAL_DIR/variants/$variant.txt"
 
-WR=${W#/}
-HR=${HOME#/}
-deny=("WebFetch" "WebSearch" "Edit(//$HR/.claude/**)" "Edit(//$HR/.agents/**)" "Edit(//$HR/.config/**)"
-  "Edit(//$WR/repo/.claude/**)")
+build_deny "$W"
 RUN_PATH=$(run_path)
 
 start=$(date +%s)
 rc=0
-(cd "$W/repo" && env PATH="$RUN_PATH" DYNAMIC_SKILLS_HOME="$W/home" DYNAMIC_SKILLS_HARNESS=claude-code \
+(cd "$W/repo" || exit 1
+  env PATH="$RUN_PATH" DYNAMIC_SKILLS_HOME="$W/home" DYNAMIC_SKILLS_HARNESS=claude-code NX_DAEMON=false \
   "${ALARM[@]}" "$EVAL_INVOKE_TIMEOUT" "$CLAUDE_ABS" -p "$prompt" --model "$model" --setting-sources project,local \
-  --max-turns 4 --disallowed-tools "${deny[@]}" --output-format stream-json --verbose \
+  --max-turns 4 --disallowed-tools "${DENY[@]}" --output-format stream-json --verbose \
   </dev/null) >"$W/out.jsonl" 2>"$W/err.txt" || rc=$?
 secs=$(($(date +%s) - start))
 
-IFS=$'\t' read -r invoked listed first _activated _calls _last cost turns end model_id <<<"$(summarize_stream "$W/out.jsonl")"
+IFS=$'\t' read -r invoked listed first _activated _calls _last cost turns end model_id _used <<<"$(summarize_stream "$W/out.jsonl")"
 end=$(end_reason "$end" "$rc")
 rm -rf "$W/repo"
 
