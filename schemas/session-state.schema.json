@@ -594,6 +594,13 @@
             "null"
           ]
         },
+        "analysisBaselineMs": {
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "lastCommandEndedAtActiveMs": {
           "default": null,
           "type": [
@@ -628,6 +635,7 @@
         "analysisSubmissions",
         "packetTokens",
         "analysisStartedAtActiveMs",
+        "analysisBaselineMs",
         "lastCommandEndedAtActiveMs"
       ],
       "additionalProperties": false

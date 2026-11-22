@@ -332,6 +332,11 @@ export const SessionMetricsSchema = z.object({
   packetTokens: z.number().default(0),
   /** Active ms at the end of `discover`; start of the analysis stage (PRD §10.8). */
   analysisStartedAtActiveMs: z.number().nullable().default(null),
+  /**
+   * Sum of the stage times booked (excluding `analysis` and `discovery`) when `discover` ended, so
+   * the analysis span can leave out time other stages booked since (PRD §10.8). Null on a legacy session.
+   */
+  analysisBaselineMs: z.number().nullable().default(null),
   /** Active ms when the last saved command ended; start of the agent gap that follows (PRD §10.8). */
   lastCommandEndedAtActiveMs: z.number().nullable().default(null),
   outcome: z.enum(["activated", "augmented", "reused", "timeout", "failed", "skipped"]).optional(),

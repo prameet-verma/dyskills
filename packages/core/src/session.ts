@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { CONTRACT_VERSION, DEFAULT_BUDGET_MS } from "./constants";
 import { SessionStateSchema } from "./schemas";
-import type { InvocationMode, SessionState, StageName } from "./schemas";
+import type { InvocationMode, SessionMetrics, SessionState, StageName } from "./schemas";
 import { SlaClock } from "./sla";
 
 /** A lock file older than this is assumed to belong to a crashed process and is reclaimed. */
@@ -343,6 +343,7 @@ export class SessionStore {
         analysisSubmissions: 0,
         packetTokens: 0,
         analysisStartedAtActiveMs: null,
+        analysisBaselineMs: null,
         lastCommandEndedAtActiveMs: null,
       },
     };
@@ -515,12 +516,28 @@ export function stopClock(s: SessionState, now: number): void {
 }
 
 /**
+ * The analysis stage's span at `nowMs` (active ms): time since `discover` ended, less what other
+ * stages (assessment, clarification, ...) booked since then, so the stage sum never exceeds active
+ * time. `analysisBaselineMs` removes what was booked before `discover` ended (`assess`). A legacy
+ * session without the baseline measures the plain span from `analysisStartedAtActiveMs` (or 0).
+ */
+export function analysisSpanMs(m: SessionMetrics, nowMs: number): number {
+  let others = 0;
+  for (const [name, ms] of Object.entries(m.stageMs)) {
+    if (name !== "analysis" && name !== "discovery") others += ms;
+  }
+  const booked = m.analysisBaselineMs === null ? 0 : others - m.analysisBaselineMs;
+  return nowMs - (m.analysisStartedAtActiveMs ?? 0) - booked;
+}
+
+/**
  * Attributes the active time since the last completed command to `stage`, the stage whose agent
  * work was in progress when the session ended before its command could run (PRD §10.8). Nothing is
- * attributed while the clock is paused (a human wait) or when the gap start is unknown. Analysis is measured from `analysisStartedAtActiveMs`, like a successful `context submit`, less the time other stages booked; every other stage adds the gap since the last command. The gap
- * is added to the stage, never overwriting it, and no command run time covers it. On success a
- * stage holds only the command's own run time; on timeout the agent's in-progress gap is added
- * too.
+ * attributed while the clock is paused (a human wait) or when the gap start is unknown. Analysis is
+ * measured like a successful `context submit` (see {@link analysisSpanMs}); every other stage adds
+ * the gap since the last command. The gap is added to the stage, never overwriting it, and no
+ * command run time covers it. On success a stage holds only the command's own run time; on timeout
+ * the agent's in-progress gap is added too.
  *
  * @param s - The session (mutated).
  * @param stage - The stage that was in progress.
@@ -532,14 +549,7 @@ export function attributeInProgressStage(s: SessionState, stage: StageName, at: 
   const m = s.metrics;
   const nowMs = clock.activeMs(at);
   if (stage === "analysis" && m.analysisStartedAtActiveMs !== null) {
-    // Same measure as a successful `context submit`: the span since discovery ended, here minus
-    // the time other stages already booked (assessment, clarification, ...) so nothing is counted
-    // twice. It also covers a `context request` in between, which books no stage of its own.
-    let others = 0;
-    for (const [name, ms] of Object.entries(m.stageMs))
-      if (name !== "analysis" && name !== "discovery") others += ms;
-    const span = nowMs - m.analysisStartedAtActiveMs - others;
-    recordStage(s, stage, Math.max(0, span - (m.stageMs.analysis ?? 0)));
+    recordStage(s, stage, Math.max(0, analysisSpanMs(m, nowMs) - (m.stageMs.analysis ?? 0)));
     return;
   }
   const from = m.lastCommandEndedAtActiveMs;

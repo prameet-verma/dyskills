@@ -113,7 +113,15 @@ const STAGE_OF_COMMAND: Partial<Record<CliCommand, StageName>> = {
 export function inProgressStage(state: SessionState, command?: CliCommand): StageName | undefined {
   const last = state.completedSteps.at(-1) as CompletedStep | undefined;
   const own = command === undefined ? undefined : STAGE_OF_COMMAND[command];
-  if (own && last !== undefined && PREDECESSORS[command as CliCommand]?.includes(last)) return own;
+  // Legal means `assertCanRun` would let it through: a valid predecessor and, for the commands
+  // that need one, a recorded verdict that is not awaiting approval.
+  const legal =
+    command !== undefined &&
+    last !== undefined &&
+    PREDECESSORS[command]?.includes(last) === true &&
+    (!NEEDS_VERDICT.has(command) ||
+      (state.sufficiency !== null && state.sufficiency?.approval !== "pending"));
+  if (own && legal) return own;
   if (last === "context-submit" && state.sufficiency) return "compilation";
   return last === undefined ? undefined : STAGE_AFTER_STEP[last];
 }
