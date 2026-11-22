@@ -7,3 +7,4 @@ fixtures/
 pnpm-lock.yaml
 PRD.md
 docs/superpowers/
+scripts/evals/suites/*/hidden/

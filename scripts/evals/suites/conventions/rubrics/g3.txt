@@ -1,0 +1,21 @@
+Add a small `listOrdersByStatus(ctx, status)` query to the orders package, exported from the package entry point like the other operations, with tests.
+
+`ctx` is the package's `OrdersContext`. On success it returns the orders that currently have the given status, in the order they were created, as a list (an empty list when there are none). A status that is not a valid order status is refused, and the caller can tell that it failed.
+
+Rubric items
+Functional items:
+1 filters_by_status: listOrdersByStatus(ctx, status) returns only the orders with that status.
+2 creation_order: The orders come back in creation order, and as an empty list when none match.
+3 invalid_status: A status that is not a valid order status is refused; the caller can tell it failed.
+4 exported: listOrdersByStatus is exported from the orders package entry point.
+5 pure_query: The query changes nothing and announces no event.
+6 tests_cover: Tests cover filtering, ordering, the empty case and the invalid status.
+Convention items:
+7 result_not_throw: The new code returns a Result from @acme/result (ok list, err for the invalid status); it does not throw.
+8 define_error: Every new error is a tagged object built with defineError, not an Error subclass, a bare string or `new Error`.
+9 reads_via_db: Rows are read through the house db API (db.list or db.get), not a hand-rolled store or module-level state.
+10 no_console: Any logging uses log from @acme/log; there is no console.* call. If nothing is logged, mark true.
+11 spec_placement: New or changed tests are *.spec.ts files next to the source in packages/orders/src; no *.test.ts.
+12 testkit_create_test_db: Tests build their database with createTestDb (not a hand-built createDb).
+13 testkit_expect_helpers: Tests unwrap results with expectOk / expectErr(result, kind).
+14 follows_docs_not_legacy: The changed code follows docs/conventions.md rather than copying the older style visible in packages/orders (thrown Error subclasses, unguarded writes, *.test.ts).

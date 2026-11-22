@@ -1,0 +1,10 @@
+{
+  "name": "@acme/events",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": { "@acme/result": "workspace:*", "@acme/errors": "workspace:*" }
+}

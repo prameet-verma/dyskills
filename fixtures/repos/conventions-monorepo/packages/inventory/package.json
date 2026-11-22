@@ -1,0 +1,10 @@
+{
+  "name": "@acme/inventory",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": { "@acme/result": "workspace:*", "@acme/errors": "workspace:*", "@acme/db": "workspace:*", "@acme/outbox": "workspace:*", "@acme/events": "workspace:*", "@acme/ids": "workspace:*", "@acme/log": "workspace:*", "@acme/testkit": "workspace:*" }
+}

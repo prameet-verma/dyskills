@@ -1,0 +1,53 @@
+import { err, map, ok, type Result } from "@acme/result";
+import { log } from "@acme/log";
+import {
+  InvalidQuantity,
+  STOCK_TABLE,
+  UnknownSku,
+  type InventoryContext,
+  type InventoryError,
+  type StockItem,
+} from "./types";
+
+export async function addStock(
+  ctx: InventoryContext,
+  sku: string,
+  quantity: number,
+): Promise<Result<StockItem, InventoryError>> {
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return err(InvalidQuantity("quantity must be a positive integer", { quantity }));
+  }
+  return ctx.db.transaction<StockItem, InventoryError>(async (tx) => {
+    const current = await tx.get<StockItem>(STOCK_TABLE, sku);
+    const saved = current
+      ? await tx.updateWhereVersion<StockItem>(STOCK_TABLE, sku, current.version, {
+          onHand: current.onHand + quantity,
+          updatedAt: tx.now().toISOString(),
+        })
+      : await tx.insert<StockItem>(STOCK_TABLE, {
+          id: sku,
+          onHand: quantity,
+          reserved: 0,
+          updatedAt: tx.now().toISOString(),
+        });
+    if (saved.ok) log.info("inventory.stock_added", { sku, quantity });
+    return saved;
+  });
+}
+
+export async function getStock(
+  ctx: InventoryContext,
+  sku: string,
+): Promise<Result<StockItem, InventoryError>> {
+  const item = await ctx.db.get<StockItem>(STOCK_TABLE, sku);
+  log.info("inventory.stock_read", { sku, found: item !== undefined });
+  return item ? ok(item) : err(UnknownSku(`unknown sku ${sku}`, { sku }));
+}
+
+/** Units that can still be reserved. */
+export async function availableStock(
+  ctx: InventoryContext,
+  sku: string,
+): Promise<Result<number, InventoryError>> {
+  return map(await getStock(ctx, sku), (item) => item.onHand - item.reserved);
+}
