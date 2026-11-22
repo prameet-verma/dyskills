@@ -1,0 +1,1 @@
+Generates and activates an evaluated, task-specific skill grounded in this repository (its conventions, constraints and tests) in about two minutes, reusing or extending an existing skill when one fits. Use it when a task needs specialised or project-specific expertise, or when the user asks to create a skill. Skip trivial edits, questions and simple follow-ups.

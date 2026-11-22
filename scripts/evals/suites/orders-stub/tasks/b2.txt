@@ -1,0 +1,1 @@
+Make getOrder in packages/orders throw a TypeError when the id is an empty string.

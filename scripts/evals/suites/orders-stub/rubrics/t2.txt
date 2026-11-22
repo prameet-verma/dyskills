@@ -1,0 +1,8 @@
+Task given to the engineer: "Set up Nx-cached build and test targets for packages/orders (project.json, plus a targetDefaults entry for test in nx.json), and write a vitest suite for getOrder and updateOrder following this monorepo's conventions. Make the CI workflow run the Nx targets."
+Rubric items (each true or false):
+1 project_json: packages/orders/project.json defines build and test targets that actually run (build compiles, test runs vitest).
+2 test_default: nx.json targetDefaults has a test entry with cache enabled, and the existing build default is kept.
+3 cache_io: caching is configured sensibly (build declares outputs; inputs or dependsOn are reasonable).
+4 vitest_suite: a vitest suite covers both getOrder and updateOrder.
+5 ci_nx: the CI workflow runs the Nx targets (for example nx run-many or nx affected for build and test).
+6 conventions: uses pnpm and the existing tools, no unrelated churn, no unnecessary new dependencies.

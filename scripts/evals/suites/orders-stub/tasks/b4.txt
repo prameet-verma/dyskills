@@ -1,0 +1,1 @@
+What does the CI workflow in this repository run, and on which events?

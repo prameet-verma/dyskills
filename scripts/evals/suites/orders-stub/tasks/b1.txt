@@ -1,0 +1,1 @@
+updateOrder in packages/orders ignores its patch argument. Fix it so the patch is applied to the stored order and getOrder returns the updated fields.
