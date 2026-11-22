@@ -105,10 +105,10 @@ hidden_failed_suites cost secs turns end diff_lines model_id`.
   columns mirror the test columns.
 - `end`: the result subtype, `timeout` or `exit<code>`.
 
-After the agent finishes, `run-full.sh` works in this order: (1) capture `diff.patch`; (2) run `checks.sh`;
+After the agent finishes, `run-full.sh` works in this order: (1) capture `diff.patch` against the `eval-baseline` tag (so an agent's own commits still show); (2) run `checks.sh`;
 (3) re-run the agent's tests and `tsc`; (4) copy in the hidden tests and run them. The diff uses a private
 git index, so nothing is staged by the harness: at step 2 the tree is exactly as the agent left it, relative
-to the setup commit, and `git diff --name-only HEAD` plus `git ls-files --others --exclude-standard` list the
+to the setup commit, and `git diff --name-only eval-baseline` plus `git ls-files --others --exclude-standard` list the
 agent's changes. The diff leaves out `node_modules`, lockfiles, `.claude`, `.nx`, `dist` and `*.tsbuildinfo`.
 
 `run-invoke.sh` columns: `suite variant task model rep invoked listed first_tool turns cost secs end
@@ -128,7 +128,8 @@ A suite is `suites/<suite>/` with:
 - `prepare.sh <template-dir>`: makes the fixture copy runnable (install dependencies, strip lines). Executable.
 - `tasks/<task-id>.txt`: the task prompt.
 - `rubrics/<task-id>.txt`: optional. The task text plus rubric items. No rubric, no blind grading for that task.
-- `checks.sh <repo-dir> <task-id>`: optional. Prints `name<TAB>pass|fail` lines; the harness records the
+- `checks.sh <repo-dir> <task-id>`: optional. It may diff against the `eval-baseline` tag, which marks the
+  setup commit and survives an agent that commits its own work. Prints `name<TAB>pass|fail` lines; the harness records the
   counts and keeps the lines in the run directory.
 - `hidden/<task-id>/`: optional. Files copied into the repository after the agent finished, at the same
   relative paths. The harness runs vitest on just those files. The agent never sees them.

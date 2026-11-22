@@ -49,7 +49,9 @@ else
   RUN_PATH=$(run_path)
 fi
 (cd "$REPO" || exit 1
-  "${GIT[@]}" add -A && "${GIT[@]}" commit -q -m setup --allow-empty)
+  "${GIT[@]}" add -A && "${GIT[@]}" commit -q -m setup --allow-empty
+  # The baseline for the diff and for checks.sh survives an agent that commits its own work.
+  "${GIT[@]}" tag eval-baseline)
 
 # Safety: a command allowlist, Edit only inside the run directory, no web, no edits to user config, no reads
 # of the harness (hidden tests, rubrics). This is a guard against accidents, not a sandbox (see the README).
@@ -75,17 +77,17 @@ case $rc in 129 | 130 | 143) exit "$rc" ;; esac
 (
   cd "$REPO" || exit 1
   export GIT_INDEX_FILE="$W/diff.index"
-  "${GIT[@]}" read-tree HEAD
+  "${GIT[@]}" read-tree eval-baseline
   "${GIT[@]}" add -A >/dev/null 2>&1 || true
-  "${GIT[@]}" diff --cached --no-ext-diff --no-color HEAD -- . ':(exclude,glob)**/node_modules/**' \
+  "${GIT[@]}" diff --cached --no-ext-diff --no-color eval-baseline -- . ':(exclude,glob)**/node_modules/**' \
     ':(exclude,glob)**/pnpm-lock.yaml' ':(exclude,glob).claude/**' ':(exclude,glob)**/.nx/**' \
     ':(exclude,glob)**/dist/**' ':(exclude,glob)**/*.tsbuildinfo'
 ) >"$W/diff.patch" || true
 rm -f "$W/diff.index"
 diff_lines=$(wc -l <"$W/diff.patch" | tr -d ' ')
 
-# (2) Objective checks, on the tree as the agent left it: `git diff --name-only HEAD` plus untracked files
-# lists the agent's changes relative to the setup commit.
+# (2) Objective checks, on the tree as the agent left it: `git diff --name-only eval-baseline` plus untracked files
+# lists the agent's changes relative to the setup commit, and the `eval-baseline` tag marks that commit.
 checks_pass=- checks_total=-
 if [ -f "$SD/checks.sh" ]; then
   (cd "$REPO" || exit 1

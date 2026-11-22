@@ -260,6 +260,11 @@ if [ "$mode" = grade ]; then
   printf '%s\\n' '${verdict}'
   exit 0
 fi
+if [ -n "\${FAKE_COMMIT:-}" ]; then
+  echo 'export const c = 1' >committed.ts
+  git add committed.ts
+  git -c user.name=agent -c user.email=agent@example.invalid commit -q -m "agent work"
+fi
 if [ -n "\${FAKE_EDIT:-}" ]; then
   echo more >>pnpm-lock.yaml
   mkdir -p node_modules/p && echo x >node_modules/p/i.js
@@ -481,6 +486,23 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
     expect(diff).not.toContain("pnpm-lock.yaml");
     expect(diff).not.toContain("tsbuildinfo");
     expect(diff).not.toContain("node_modules");
+  });
+
+  it("diffs against the eval-baseline tag, so an agent's own commits still show", () => {
+    const r = run("run-full.sh", ["tiny", "noskill", "t2", "fake-model", "4"], {
+      FAKE_COMMIT: "1",
+    });
+    expect(r.status, r.stderr).toBe(0);
+    const runDir = join(out, "runs/tiny.noskill.t2.fake-model.4");
+    expect(readFileSync(join(runDir, "diff.patch"), "utf8")).toContain("committed.ts");
+    const tag = spawnSync(
+      "git",
+      ["-C", join(runDir, "repo"), "rev-parse", "--verify", "eval-baseline"],
+      {
+        encoding: "utf8",
+      },
+    );
+    expect(tag.status).toBe(0);
   });
 
   it("run-full.sh (explicit) prefixes the prompt and installs the skill from the stub CLI", () => {
