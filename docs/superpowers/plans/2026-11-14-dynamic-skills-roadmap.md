@@ -146,7 +146,9 @@ when the base's hash no longer matches, the freshness validator treats the augme
   result decides the product positioning and the shipped description. Evidence so far:
   [bootstrap invocation pilot](../research/2026-11-21-bootstrap-invocation-pilot.md) and
   [effectiveness eval](../research/2026-11-21-bootstrap-effectiveness-eval.md) (no gain on a stub
-  fixture; the next eval needs a repository whose conventions a model cannot guess).
+  fixture; the next eval needs a repository whose conventions a model cannot guess), and the
+  [grounding eval](../research/2026-11-22-grounding-eval.md) (no gain even with house conventions:
+  agents read the docs themselves; next, measure reuse and hard discovery).
 
 ### Phase 4 — Evaluation Maturity
 
