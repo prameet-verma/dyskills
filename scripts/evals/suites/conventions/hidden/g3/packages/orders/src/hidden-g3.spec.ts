@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { err, ok } from "@acme/result";
 import { DeliveryFailed, type BusEvent, type Publisher } from "@acme/events";
+import type { Row } from "@acme/db";
 import { createOutboxRelay } from "@acme/outbox";
 import { createTestDb } from "@acme/testkit";
 import * as orders from "./index";
@@ -56,8 +57,8 @@ async function delivered(db: Db, rec: Recorder, topic: RegExp): Promise<BusEvent
   return rec.events.filter((e) => topic.test(e.topic));
 }
 
-const rowOf = (db: Db, id: string) =>
-  db.get("orders", id) as Promise<{ status: string; version: number; updatedAt: string; items: unknown[] }>;
+type Stored = Row & { status: string; updatedAt: string; items: unknown[] };
+const rowOf = (db: Db, id: string) => db.get<Stored>("orders", id) as Promise<Stored>;
 
 async function freshOrder() {
   const { db, clock } = createTestDb();
@@ -84,7 +85,7 @@ const list = (...a: unknown[]) => need("listOrdersByStatus")(...a);
 async function setup() {
   need("listOrdersByStatus");
   const { db, clock, rec, ctx } = await freshOrder(); // one pending order already exists
-  const first = (await db.list<{ id: string }>("orders"))[0]!.id;
+  const first = (await db.list<Row>("orders"))[0]!.id;
   const ids = [first];
   for (const sku of ["b", "c"]) {
     clock.advance(1000);

@@ -1,16 +1,16 @@
 Two people can edit the same order at the same time and today the last save silently wins. Make `updateOrder` safe when several people edit the same order concurrently, and make sure the rest of the system finds out about every successful change. Add tests.
 
 Requirements:
-- The signature becomes `updateOrder(ctx, id, patch, lastSeenVersion)`. `ctx` is the package's `OrdersContext`, and `lastSeenVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused: the order is left exactly as it was, nothing is announced, and the caller can tell that the update failed.
+- The signature becomes `updateOrder(ctx, id, patch, seenVersion)`. `ctx` is the package's `OrdersContext`, and `seenVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused: the order is left exactly as it was, nothing is announced, and the caller can tell that the update failed.
 - A successful update stores the change, increases the order's version by one, refreshes `updatedAt`, and returns the updated order.
 - Every successful update announces one "order updated" event whose payload has the order's `id` and its new `version`. An announcement must never be lost, and must never be made for a change that did not happen, even if the database or the event publisher fails part-way. Two different updates to the same order are two different events.
 - A patch with an unknown status or an empty item list is refused and changes nothing; an unknown order id is also refused. In every refusal the caller can tell that it failed.
 
 Rubric items
 Functional items:
-1 stale_refused: updateOrder(ctx, id, patch, lastSeenVersion) refuses a stale lastSeenVersion, leaves the order unchanged and announces nothing; the caller can tell it failed.
+1 stale_refused: updateOrder(ctx, id, patch, seenVersion) refuses a stale seenVersion, leaves the order unchanged and announces nothing; the caller can tell it failed.
 2 success_semantics: A successful update applies the patch, increases version by exactly one, refreshes updatedAt and returns the updated order.
-3 concurrent_writers: Two simultaneous updates at the same lastSeenVersion result in exactly one success and one refusal.
+3 concurrent_writers: Two simultaneous updates at the same seenVersion result in exactly one success and one refusal.
 4 event_per_update: Each successful update announces exactly one order-updated event with the order id and new version in the payload, none for refused updates, and two updates give two distinct events.
 5 event_not_lost: The change and its announcement are atomic: if the database or the event publisher fails part-way, there is never a stored change without an announcement or an announcement without a stored change.
 6 invalid_patch: An unknown status, an empty item list and an unknown order id are refused and change nothing.
@@ -18,7 +18,7 @@ Functional items:
 Convention items:
 8 result_not_throw: Failures in the new or changed code are returned as Result error values from @acme/result; it does not throw, and callers are not asked to catch.
 9 define_error: Every new error is a tagged object built with defineError (kind, message, details), not an Error subclass, a bare string or `new Error`.
-10 update_where_version: The write uses tx.updateWhereVersion with the caller-supplied lastSeenVersion (not a version re-read inside the transaction, not tx.update, not a hand-rolled compare), and surfaces its VersionConflict to the caller.
+10 update_where_version: The write uses tx.updateWhereVersion with the caller-supplied seenVersion (not a version re-read inside the transaction, not tx.update, not a hand-rolled compare), and surfaces its VersionConflict to the caller.
 11 outbox_in_transaction: The event is written with outbox.enqueue(tx, ...) inside the same db.transaction as the update; there is no direct bus.publish and no second transaction.
 12 versioned_topic: The topic is versioned and dotted in the house form (for example orders.v1.updated).
 13 idempotency_key: The enqueue passes a deterministic idempotencyKey unique per distinct change (for example order-updated:<id>:<version>), not random and not constant per order.

@@ -1,7 +1,7 @@
 Two people can edit the same order at the same time and today the last save silently wins. Make `updateOrder` safe when several people edit the same order concurrently, and make sure the rest of the system finds out about every successful change. Add tests.
 
 Requirements:
-- The signature becomes `updateOrder(ctx, id, patch, lastSeenVersion)`. `ctx` is the package's `OrdersContext`, and `lastSeenVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused: the order is left exactly as it was, nothing is announced, and the caller can tell that the update failed.
+- The signature becomes `updateOrder(ctx, id, patch, seenVersion)`. `ctx` is the package's `OrdersContext`, and `seenVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused: the order is left exactly as it was, nothing is announced, and the caller can tell that the update failed.
 - A successful update stores the change, increases the order's version by one, refreshes `updatedAt`, and returns the updated order.
 - Every successful update announces one "order updated" event whose payload has the order's `id` and its new `version`. An announcement must never be lost, and must never be made for a change that did not happen, even if the database or the event publisher fails part-way. Two different updates to the same order are two different events.
 - A patch with an unknown status or an empty item list is refused and changes nothing; an unknown order id is also refused. In every refusal the caller can tell that it failed.

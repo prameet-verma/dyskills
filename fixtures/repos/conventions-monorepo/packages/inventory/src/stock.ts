@@ -19,18 +19,19 @@ export async function addStock(
   }
   return ctx.db.transaction<StockItem, InventoryError>(async (tx) => {
     const current = await tx.get<StockItem>(STOCK_TABLE, sku);
-    if (current) {
-      return tx.updateWhereVersion<StockItem>(STOCK_TABLE, sku, current.version, {
-        onHand: current.onHand + quantity,
-        updatedAt: tx.now().toISOString(),
-      });
-    }
-    return tx.insert<StockItem>(STOCK_TABLE, {
-      id: sku,
-      onHand: quantity,
-      reserved: 0,
-      updatedAt: tx.now().toISOString(),
-    });
+    const saved = current
+      ? await tx.updateWhereVersion<StockItem>(STOCK_TABLE, sku, current.version, {
+          onHand: current.onHand + quantity,
+          updatedAt: tx.now().toISOString(),
+        })
+      : await tx.insert<StockItem>(STOCK_TABLE, {
+          id: sku,
+          onHand: quantity,
+          reserved: 0,
+          updatedAt: tx.now().toISOString(),
+        });
+    if (saved.ok) log.info("inventory.stock_added", { sku, quantity });
+    return saved;
   });
 }
 

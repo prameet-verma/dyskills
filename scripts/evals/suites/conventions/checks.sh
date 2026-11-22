@@ -20,6 +20,11 @@ case "$task" in
   *) echo "unknown task: $task" >&2; exit 2 ;;
 esac
 
+# Diff against the harness's `eval-baseline` tag when it exists (so committed work still counts),
+# else against HEAD.
+BASE=HEAD
+git rev-parse -q --verify refs/tags/eval-baseline >/dev/null 2>&1 && BASE=eval-baseline
+
 # --- the agent's changed files ------------------------------------------------------------------
 CHANGED=()
 while IFS= read -r f; do
@@ -30,7 +35,7 @@ while IFS= read -r f; do
   esac
   case "$f" in */node_modules/*|*/hidden-*) continue ;; esac
   CHANGED+=("$f")
-done < <({ git diff --relative --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | sort -u)
+done < <({ git diff --relative --name-only --diff-filter=ACMR "$BASE"; git ls-files --others --exclude-standard; } | sort -u)
 
 SRC=()   # changed source files
 TESTS=() # changed spec/test files
@@ -114,7 +119,7 @@ p_tests_added() {
   [ "$total" -ge "$min" ]
 }
 p_uses_result_import() {
-  grep -qE 'from "@acme/result"' "${FN_FILES[@]}" && nostrings "${FN_FILES[@]}" | grep -qE '\b(ok|err)\('
+  grep -qE 'from "@acme/result"' "${FN_FILES[@]}" && nostrings "${FN_FILES[@]}" | grep -qE 'Result<|\berr\('
 }
 p_uses_define_error() { src_code | grep -qE '\bdefineError\('; }
 p_tagged_errors() {
@@ -136,11 +141,21 @@ p_enqueue_in_transaction() {
   return $any
 }
 p_versioned_topic() {
-  # at least one topic literal, and every topic literal matches the house pattern
-  local lits
-  lits=$(src_code | grep -E 'topic:[[:space:]]*["`'"'"']')
-  [ -n "$lits" ] || return 1
-  ! printf '%s\n' "$lits" | grep -vE 'topic:[[:space:]]*["`'"'"'][a-z]+\.v[0-9]+\.[a-z]+(-[a-z]+)*["`'"'"']'
+  # every `topic:` value (literal, or a named const defined in the changed files) matches the house pattern
+  src_code | node -e '
+    process.stdout.on("error", () => {});
+    const s = require("fs").readFileSync(0, "utf8");
+    const house = /^[a-z]+\.v[0-9]+\.[a-z]+(-[a-z]+)*$/;
+    const values = [...s.matchAll(/\btopic\s*:\s*("(?:[^"\\]|\\.)*"|\x27(?:[^\x27\\]|\\.)*\x27|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*(?:\([^)]*\))?)/g)].map((m) => m[1].trim());
+    for (const m of s.matchAll(/\btopic\s*[,}]/g)) values.push("topic");
+    if (values.length === 0) process.exit(1);
+    for (const v of values) {
+      let lit = /^(["`\x27])(.*)\1$/.exec(v)?.[2];
+      if (lit === undefined && /^[A-Za-z_$][\w$]*$/.test(v)) {
+        lit = new RegExp("(?:const|let)\\s+" + v.replace("$", "\\$") + "\\s*(?::[^=]+)?=\\s*([\"`\x27])([^\"`\x27]*)\\1").exec(s)?.[2];
+      }
+      if (lit === undefined || !house.test(lit)) process.exit(1);
+    }'
 }
 p_topic_names_event() {
   case "$task" in
@@ -149,11 +164,23 @@ p_topic_names_event() {
   esac
 }
 p_idempotency_key() {
-  local lines
-  lines=$(src_code | grep -E 'idempotencyKey')
-  [ -n "$lines" ] || return 1
-  ! printf '%s\n' "$lines" | grep -qE 'randomUUID|Math\.random|Date\.now|newId\(' || return 1
-  printf '%s\n' "$lines" | grep -qE 'ersion'
+  # an idempotencyKey property whose value (inline, or the variable it names) is deterministic and
+  # contains a version component
+  src_code | node -e '
+    process.stdout.on("error", () => {});
+    const s = require("fs").readFileSync(0, "utf8");
+    const exprs = [];
+    const def = (name) =>
+      new RegExp("(?:const|let)\\s+" + name + "\\s*(?::[^=]+)?=\\s*([^;\\n]+)").exec(s)?.[1];
+    for (const m of s.matchAll(/\bidempotencyKey\s*:\s*("(?:[^"\\]|\\.)*"|\x27(?:[^\x27\\]|\\.)*\x27|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*(?:\([^)]*\))?)/g)) {
+      const v = m[1].trim();
+      exprs.push(/^[A-Za-z_$][\w$]*$/.test(v) ? (def(v) ?? "") : v);
+    }
+    for (const m of s.matchAll(/\bidempotencyKey\s*[,}]/g)) exprs.push(def("idempotencyKey") ?? "");
+    if (exprs.length === 0) process.exit(1);
+    const random = /randomUUID|Math\.random|Date\.now|newId\(/;
+    if (exprs.some((e) => random.test(e))) process.exit(1);
+    if (!exprs.some((e) => /ersion/.test(e))) process.exit(1);'
 }
 p_ids_via_newid() { ! src_nostr | grep -qE 'randomUUID|Math\.random|\buuid|crypto\.|Date\.now'; }
 p_no_wall_clock() { ! src_nostr | grep -qE 'new[[:space:]]+Date\(|Date\.now\('; }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { err, ok } from "@acme/result";
 import { DeliveryFailed, type BusEvent, type Publisher } from "@acme/events";
+import type { Row } from "@acme/db";
 import { createOutboxRelay } from "@acme/outbox";
 import { createTestDb } from "@acme/testkit";
 import * as orders from "./index";
@@ -56,8 +57,8 @@ async function delivered(db: Db, rec: Recorder, topic: RegExp): Promise<BusEvent
   return rec.events.filter((e) => topic.test(e.topic));
 }
 
-const rowOf = (db: Db, id: string) =>
-  db.get("orders", id) as Promise<{ status: string; version: number; updatedAt: string; items: unknown[] }>;
+type Stored = Row & { status: string; updatedAt: string; items: unknown[] };
+const rowOf = (db: Db, id: string) => db.get<Stored>("orders", id) as Promise<Stored>;
 
 async function freshOrder() {
   const { db, clock } = createTestDb();
@@ -163,17 +164,36 @@ describe("g1: updateOrder under concurrent writers", () => {
   });
 
   describe("fault injection: state and announcements stay consistent", () => {
-    it("when the event publisher returns a failure", async () => {
-      const { db, rec, ctx, id } = await freshOrder();
-      rec.state.mode = "fail";
-      await call(() => update(ctx, id, { status: "paid" }, 1));
-      await expectConsistent(db, rec, id);
-    });
+    it.each(["fail", "throw"] as const)(
+      "recovers after the event publisher was down (publisher %s)",
+      async (mode) => {
+        const { db, rec, ctx, id } = await freshOrder();
+        rec.state.mode = mode;
+        await call(() => update(ctx, id, { status: "paid" }, 1)); // may succeed or be refused
+        rec.state.mode = "ok";
+        const afterFirst = (await rowOf(db, id)).version;
+        const second = await call(() => update(ctx, id, { items: [{ sku: "z", quantity: 2 }] }, afterFirst));
+        expect(second.ok).toBe(true);
+        const finalVersion = (await rowOf(db, id)).version;
+        const versions = (await delivered(db, rec, UPDATED)).map(
+          (e) => (e.payload as { version: number }).version,
+        );
+        // one announcement per version that was stored, none lost, none extra
+        expect(versions).toEqual(Array.from({ length: finalVersion - 1 }, (_, i) => i + 2));
+      },
+    );
 
-    it("when the event publisher throws", async () => {
-      const { db, rec, ctx, id } = await freshOrder();
-      rec.state.mode = "throw";
-      await call(() => update(ctx, id, { status: "paid" }, 1));
+    it("when the transaction commit fails after the work ran", async () => {
+      const { db, rec, id } = await freshOrder();
+      const failingCommit: Db = {
+        ...db,
+        transaction: ((f: (tx: never) => Promise<unknown>) =>
+          db.transaction(async (tx) => {
+            await f(tx as never);
+            return err({ kind: "CommitFailed", message: "injected commit failure" });
+          })) as unknown as Db["transaction"],
+      };
+      await call(() => update({ db: failingCommit, bus: rec.bus }, id, { status: "paid" }, 1));
       await expectConsistent(db, rec, id);
     });
 
