@@ -67,6 +67,8 @@ rc=0
   --allowed-tools "${allow[@]}" --disallowed-tools "${DENY[@]}" --output-format stream-json --verbose \
   </dev/null) >"$W/out.jsonl" 2>"$W/err.txt" || rc=$?
 secs=$(($(date +%s) - start))
+# Interrupted (INT, TERM, HUP): stop here instead of recording a row for a killed run.
+case $rc in 129 | 130 | 143) exit "$rc" ;; esac
 
 # (1) The agent's change, without generated files. A private index keeps the repository's own index and
 # working tree exactly as the agent left them: nothing is staged by the harness.

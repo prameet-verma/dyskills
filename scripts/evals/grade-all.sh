@@ -68,10 +68,12 @@ const num = (v) => (v === undefined || v === "" || v === "-" || Number.isNaN(Num
 const mean = (xs) => { const v = xs.filter((x) => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
 const fmt = (x, d = 2) => (x === null ? "-" : x.toFixed(d));
 
-// A run whose vitest failed to load anything (tests 0, non-zero exit) scores 0, not "no data".
-const rate = (total, passed, rc) => {
+// Test score: passed / (tests + failed suites), so a suite that failed to load always pulls it below 1.
+// vitest missing (rc 127) is "no data"; a run that failed with tests 0 scores 0.
+const rate = (total, passed, failedSuites, rc) => {
+  if (num(rc) === 127) return null;
   const t = num(total);
-  if (t) return num(passed) / t;
+  if (t) return num(passed) / (t + (num(failedSuites) ?? 0));
   return num(rc) ? 0 : null;
 };
 const joined = [[...head, "rubric_pass", "rubric_total", "quality"].join("\t")];
@@ -84,9 +86,9 @@ for (const r of rows) {
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push({
     invoked: num(r[col.invoked]), used: num(r[col.bootstrap_used]), activated: num(r[col.activated]),
-    testRate: rate(r[col.tests], r[col.passed], r[col.tests_rc]),
+    testRate: rate(r[col.tests], r[col.passed], r[col.tests_failed_suites], r[col.tests_rc]),
     suitesFailed: num(r[col.tests_failed_suites]),
-    hiddenRate: r[col.hidden_total] === "-" ? null : rate(r[col.hidden_total], r[col.hidden_pass], r[col.hidden_rc]),
+    hiddenRate: r[col.hidden_total] === "-" ? null : rate(r[col.hidden_total], r[col.hidden_pass], r[col.hidden_failed_suites], r[col.hidden_rc]),
     hiddenSuitesFailed: num(r[col.hidden_failed_suites]),
     rubric: ok && num(g[2]) ? num(g[1]) / num(g[2]) : null,
     quality: ok ? num(g[3]) : null,

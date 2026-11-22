@@ -89,11 +89,16 @@ hidden_failed_suites cost secs turns end diff_lines model_id`.
 - `bootstrap_used`: 1 when `invoked` or any successful `dynamic-skills` call happened. Use it, not
   `invoked`, to compare conditions; the summary reports both.
 - `activated`, `ds_calls`, `last_sub`: only successful `dynamic-skills` calls count: the matching
-  `tool_result` must not be an error or a denial and must contain `"ok":true`. `last_sub` is the last
-  successful subcommand and shows where a model left the flow (for example `assess` and nothing after).
+  `tool_result` must not be an error and its output must start with `{"ok":true`. `status` prints text, so it
+  is never counted. `evaluate` counts as successful even when the evaluation itself finds problems.
+  `last_sub` is the last counted subcommand (two words for `context submit`, `sufficiency submit` and
+  `approve`, `eval record`, `clarify ask` and `answer`) and shows where a model left the flow (for example
+  `assess` and nothing after).
 - `tests`, `passed`, `tests_rc`, `tests_failed_suites`: the agent's tests, re-run by the harness with vitest
   (exit code and failed suites from the json report). A run that fails to load anything has `tests` 0 and a
-  non-zero `tests_rc`; the summary scores it 0, not "no data". `tests_rc` 127 means vitest was not installed.
+  non-zero `tests_rc`. Scoring in `summary.tsv`: `tests_pass` is `passed / (tests + tests_failed_suites)`, so a
+  failed suite always pulls it below 1; tests 0 with a non-zero exit scores 0; `tests_rc` 127 (vitest was
+  not installed) is "no data" (`-`). The hidden columns follow the same rule.
 - `tsc`: `pass`, `fail` or `n/a`. It covers every `tsconfig.json` up to depth 3 outside `node_modules`, so it
   is not comparable with the prototype eval, which type-checked only `packages/orders`.
 - `checks_*`, `hidden_*`: `-` when the suite has no `checks.sh` or no hidden tests for the task. The hidden
@@ -163,7 +168,8 @@ the direct tool paths only. Run evals on a machine and account where that is acc
 - The CLI is a `dynamic-skills` shim on `PATH` that runs `packages/cli/dist/index.js`. It is never fetched
   through a package runner, and the scripts fail clearly when `dist` is missing. The `claude` binary is
   called by absolute path; its directory is not put on `PATH`.
-- Runs are limited by a wall-clock alarm that kills the whole process group. `node_modules` is deleted from
+- Runs are limited by a wall-clock alarm that kills the whole process group, and so does an interrupt (INT,
+  TERM or HUP) sent to the harness. `node_modules` is deleted from
   run directories after each run; transcripts, diffs and grading files are kept.
 - git runs with hooks and fsmonitor off, and diffs without external diff drivers or colour.
 - The only network use is `pnpm install` in a suite's `prepare.sh`. The agent itself talks to its model
@@ -173,5 +179,7 @@ the direct tool paths only. Run evals on a machine and account where that is acc
 ## Templates
 
 `make-template.sh` stores a hash of the fixture tree plus `prepare.sh` in the template and rebuilds when it
-no longer matches, under a `mkdir` lock so parallel callers build once. `EVAL_REPO_ROOT` (default: this
+no longer matches, under a `mkdir` lock so parallel callers build once (a stale lock is stolen by an atomic rename).
+`EVAL_OUT` must not be under `scripts/evals` or the suites directory: the agent's `Read` deny would cover its own
+repository, and the scripts refuse to start. `EVAL_REPO_ROOT` (default: this
 repository) names the root that holds `packages/cli/dist` and `skills/`; tests point it at a stub.

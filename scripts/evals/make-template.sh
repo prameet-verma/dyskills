@@ -37,7 +37,14 @@ LOCK="$EVAL_OUT/templates/.lock-$suite"
 waited=0
 until mkdir "$LOCK" 2>/dev/null; do
   owner=$(cat "$LOCK/pid" 2>/dev/null || true)
-  if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
+  if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+    # Steal atomically: rename, then confirm the renamed lock is the dead owner's (not a fresh one).
+    if mv "$LOCK" "$LOCK.dead.$$" 2>/dev/null; then
+      if [ "$(cat "$LOCK.dead.$$/pid" 2>/dev/null || true)" = "$owner" ]; then rm -rf "$LOCK.dead.$$"
+      else mv "$LOCK.dead.$$" "$LOCK" 2>/dev/null || rm -rf "$LOCK.dead.$$"; fi
+    fi
+    continue
+  fi
   waited=$((waited + 1))
   [ "$waited" -le 900 ] || die "timed out waiting for the template lock $LOCK"
   sleep 1

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -201,7 +201,11 @@ describe("fake-claude end to end", () => {
       type: "user",
       message: {
         content: [
-          { type: "tool_result", tool_use_id: "c1", content: '{"ok":true,"step":"assess"}' },
+          {
+            type: "tool_result",
+            tool_use_id: "c1",
+            content: '{"ok":true,"skillPath":"/runs/rbac-permissions-denied/was blocked/SKILL.md"}',
+          },
           {
             type: "tool_result",
             tool_use_id: "c2",
@@ -278,6 +282,10 @@ STREAM
     mkdirSync(fixture);
     writeFileSync(join(fixture, "hello.txt"), "hello\n");
     writeFileSync(join(fixture, "pnpm-lock.yaml"), "lock\n");
+    // A vitest that loads nothing and fails: tests 0 with a non-zero exit scores 0.
+    mkdirSync(join(fixture, "node_modules/.bin"), { recursive: true });
+    writeFileSync(join(fixture, "node_modules/.bin/vitest"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(fixture, "node_modules/.bin/vitest"), 0o755);
     writeFileSync(join(suite, "fixture"), `${fixture}\n`);
     writeFileSync(join(suite, "prepare.sh"), '#!/usr/bin/env bash\ntouch "$1/prepared"\n');
     chmodSync(join(suite, "prepare.sh"), 0o755);
@@ -300,6 +308,21 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
 `,
     );
     chmodSync(join(suite, "checks.sh"), 0o755);
+
+    // A suite whose fixture has no vitest at all: "no data", not a zero.
+    const bare = join(suites, "bare");
+    mkdirSync(join(bare, "tasks"), { recursive: true });
+    mkdirSync(join(bare, "rubrics"));
+    mkdirSync(join(bare, "hidden/t1"), { recursive: true });
+    const bareFixture = join(tmp, "bare-fixture");
+    mkdirSync(bareFixture);
+    writeFileSync(join(bareFixture, "a.txt"), "a\n");
+    writeFileSync(join(bare, "fixture"), `${bareFixture}\n`);
+    writeFileSync(join(bare, "prepare.sh"), "#!/usr/bin/env bash\ntrue\n");
+    chmodSync(join(bare, "prepare.sh"), 0o755);
+    writeFileSync(join(bare, "tasks/t1.txt"), "Bare task.\n");
+    writeFileSync(join(bare, "rubrics/t1.txt"), "Rubric items (each true or false):\n1 a: a\n");
+    writeFileSync(join(bare, "hidden/t1/h.test.ts"), "// hidden\n");
 
     env = {
       ...process.env,
@@ -398,14 +421,14 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
       last_sub: "activate",
       tests: "0",
       passed: "0",
-      tests_rc: "127", // vitest was not installed: a failed run, not a missing one
+      tests_rc: "1", // vitest loaded nothing and failed
       tests_failed_suites: "0",
       tsc: "n/a",
       checks_pass: "2",
       checks_total: "3",
       hidden_pass: "0",
       hidden_total: "0",
-      hidden_rc: "127",
+      hidden_rc: "1",
       cost: "0.1250",
       turns: "3",
       end: "success",
@@ -475,14 +498,14 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
     const jobs = join(tmp, "jobs.txt");
     writeFileSync(
       jobs,
-      "# comment\r\ntiny   noskill t1 fake-model 1\r\n\r\ntiny explicit t1 fake-model 1\r\ntiny noskill t2 fake-model 1\r\n",
+      "# comment\r\ntiny   noskill t1 fake-model 1\r\n\r\ntiny explicit t1 fake-model 1\r\ntiny noskill t2 fake-model 1\r\nbare noskill t1 fake-model 1\r\n",
     );
     const g = run("run-grid.sh", ["full", jobs, "2"], { EVAL_NAME: "grid-test" });
     expect(g.status, g.stderr).toBe(0);
     const results = join(out, "grid-test/results.tsv");
     const lines = readFileSync(results, "utf8").trim().split("\n");
     expect(lines[0]).toBe(cols("run-full.sh").join("\t"));
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(5);
     expect(existsSync(join(out, "grid-test/runs/tiny.explicit.t1.fake-model.1/diff.patch"))).toBe(
       true,
     );
@@ -495,7 +518,7 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
     const head = joined[0]?.split("\t") ?? [];
     expect(head.slice(-3)).toEqual(["rubric_pass", "rubric_total", "quality"]);
     const graded = joined.slice(1).map((l) => l.split("\t").slice(-3).join(","));
-    expect(graded.filter((x) => x === "1,2,4")).toHaveLength(2); // the two t1 runs; t2 has no rubric
+    expect(graded.filter((x) => x === "1,2,4")).toHaveLength(3); // bare t1 has a rubric too
     expect(graded.filter((x) => x === ",,")).toHaveLength(1);
     expect(readFileSync(join(out, "grid-test/anon-map.tsv"), "utf8")).toMatch(/^g001\t/);
 
@@ -505,22 +528,23 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
     const byKey = Object.fromEntries(
       sum.slice(1).map((l) => {
         const f = l.split("\t");
-        return [`${f[1]}.${f[3]}`, Object.fromEntries(sh.map((c, i) => [c, f[i]]))];
+        return [`${f[0]}.${f[1]}.${f[3]}`, Object.fromEntries(sh.map((c, i) => [c, f[i]]))];
       }),
     );
-    expect(byKey["t1.noskill"]).toMatchObject({
+    expect(byKey["tiny.t1.noskill"]).toMatchObject({
       bootstrap_used: "1.00",
       tests_pass: "0.00",
       hidden_pass: "0.00",
     });
-    expect(byKey["t2.noskill"]).toMatchObject({ tests_pass: "0.00", hidden_pass: "-" });
+    expect(byKey["tiny.t2.noskill"]).toMatchObject({ tests_pass: "0.00", hidden_pass: "-" });
+    expect(byKey["bare.t1.noskill"]).toMatchObject({ tests_pass: "-", hidden_pass: "-" }); // vitest missing: no data
     expect(a.stdout).toContain("tiny");
 
     // The grader got the tools-off flags and a prompt that names no condition.
     expect(argvFiles("grade").length).toBeGreaterThanOrEqual(2);
     for (const a of argvFiles("grade")) expect(a).toContain("--tools\n\n--output-format\njson");
     const prompts = readdirSync(tmp).filter((f) => f.startsWith("grader-prompt-"));
-    expect(prompts.length).toBeGreaterThanOrEqual(2);
+    expect(prompts.length).toBeGreaterThanOrEqual(3);
     for (const p of prompts) {
       const text = readFileSync(join(tmp, p), "utf8");
       expect(text).toContain("Rubric items");
@@ -536,6 +560,57 @@ name=sees_new; chk bash -c '{ git diff --name-only HEAD; git ls-files --others -
     expect(readFileSync(join(out, "grid-bad/results.tsv"), "utf8").trim().split("\n")).toHaveLength(
       2,
     );
+  });
+
+  it("kills the client's whole process group when the harness is interrupted", async () => {
+    const hang = join(tmp, "bin/fake-hang");
+    writeFileSync(
+      hang,
+      `#!/bin/bash
+echo $$ >"${tmp}/hang-pid"
+sleep 300 &
+echo $! >"${tmp}/hang-child"
+wait
+`,
+    );
+    chmodSync(hang, 0o755);
+    // Its own process group, like a terminal's foreground group: Ctrl-C reaches the harness and the
+    // timeout wrapper, not the client (which the wrapper moved to a separate group).
+    const h = spawn(
+      "bash",
+      [join(EVALS, "run-invoke.sh"), "tiny", "v0-current", "t1", "fake-model", "8"],
+      {
+        env: { ...env, CLAUDE_BIN: hang },
+        detached: true,
+        stdio: "ignore",
+      },
+    );
+    const exited = new Promise<void>((res) => h.on("exit", () => res()));
+    const alive = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    for (let i = 0; i < 200 && !existsSync(join(tmp, "hang-child")); i++) await sleep(100);
+    const pids = ["hang-pid", "hang-child"].map((f) =>
+      Number(readFileSync(join(tmp, f), "utf8").trim()),
+    );
+    expect(pids.every(alive)).toBe(true);
+    process.kill(-(h.pid ?? 0), "SIGINT");
+    await exited;
+    for (let i = 0; i < 80 && pids.some(alive); i++) await sleep(100);
+    expect(pids.map(alive)).toEqual([false, false]);
+  });
+
+  it("refuses an EVAL_OUT under scripts/evals", () => {
+    const r = run("run-full.sh", ["--header"], { EVAL_OUT: join(EVALS, "out-guard-test") });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("must not be under");
+    expect(existsSync(join(EVALS, "out-guard-test"))).toBe(false);
   });
 
   it("rejects a bad condition and a missing task without running claude", () => {

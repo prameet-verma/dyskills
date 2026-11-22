@@ -42,6 +42,8 @@ rc=0
   --max-turns 4 --disallowed-tools "${DENY[@]}" --output-format stream-json --verbose \
   </dev/null) >"$W/out.jsonl" 2>"$W/err.txt" || rc=$?
 secs=$(($(date +%s) - start))
+# Interrupted (INT, TERM, HUP): stop here instead of recording a row for a killed run.
+case $rc in 129 | 130 | 143) exit "$rc" ;; esac
 
 IFS=$'\t' read -r invoked listed first _activated _calls _last cost turns end model_id _used <<<"$(summarize_stream "$W/out.jsonl")"
 end=$(end_reason "$end" "$rc")

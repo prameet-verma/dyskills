@@ -6,8 +6,22 @@ EVAL_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 EVAL_REPO_ROOT=${EVAL_REPO_ROOT:-$(cd "$EVAL_DIR/../.." && pwd -P)}
 EVAL_SUITES_DIR=${EVAL_SUITES_DIR:-$EVAL_DIR/suites}
 EVAL_OUT=${EVAL_OUT:-${TMPDIR:-/tmp}/dyskills-evals}
+# The agent's Read deny covers scripts/evals and the suites directory; runs under them would block it.
+_eval_guard() { # <path>: fail when it is under a denied directory
+  local g
+  for g in "$EVAL_DIR" "$EVAL_REPO_ROOT/scripts/evals" "$(cd "$EVAL_SUITES_DIR" 2>/dev/null && pwd -P || true)"; do
+    case "$1/" in
+      "${g:-/nonexistent-guard}"/*)
+        echo "evals: EVAL_OUT ($1) must not be under $g" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+case $EVAL_OUT in /*) _eval_guard "$EVAL_OUT" ;; esac
 mkdir -p "$EVAL_OUT"
 EVAL_OUT=$(cd "$EVAL_OUT" && pwd -P)
+_eval_guard "$EVAL_OUT"
 CLAUDE_BIN=${CLAUDE_BIN:-claude}
 EVAL_GRADER_MODEL=${EVAL_GRADER_MODEL:-opus}
 EVAL_RUNS_DIR=${EVAL_RUNS_DIR:-$EVAL_OUT/runs}
@@ -42,14 +56,19 @@ tsv() {
 }
 
 # Portable wall-clock limit (no timeout binary needed): "${ALARM[@]}" <seconds> <cmd> [args...]
-# The command runs in its own process group, and the whole group is killed on timeout (exit 142).
+# The command runs in its own process group, and the whole group is killed on timeout (exit 142) and on
+# INT, TERM or HUP to the harness (exit 130, 143, 129), so an interrupted grid leaves no paid session behind.
 # An array, not a function, so it can sit behind `env`.
 ALARM=(perl -e '
 my $secs = shift;
 my $pid = fork();
 die "fork: $!" unless defined $pid;
 if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127; }
-$SIG{ALRM} = sub { kill "TERM", -$pid; select(undef, undef, undef, 2); kill "KILL", -$pid; waitpid($pid, 0); exit 142; };
+sub stop { my $code = shift; kill "TERM", -$pid; select(undef, undef, undef, 2); kill "KILL", -$pid; waitpid($pid, 0); exit $code; }
+$SIG{ALRM} = sub { stop(142) };
+$SIG{INT} = sub { stop(130) };
+$SIG{TERM} = sub { stop(143) };
+$SIG{HUP} = sub { stop(129) };
 alarm $secs;
 waitpid($pid, 0);
 my $r = $?;
@@ -139,7 +158,8 @@ fs.writeFileSync(file, src.replace(/^description: .*$/m, () => "description: " +
 # Summarise a stream-json transcript. Prints one tab line, no empty fields:
 # invoked listed first_tool activated ds_calls last_sub cost turns end model bootstrap_used
 # ds_calls, activated and last_sub count only successful dynamic-skills calls: the matching tool_result must
-# not be an error or a denial and its JSON must say "ok":true. invoked is a Skill tool_use naming the
+# not be an error and its output must start with {"ok":true (status prints text and is never counted;
+# evaluate counts as successful even when the evaluation itself finds problems). invoked is a Skill tool_use naming the
 # bootstrap skill. An explicit slash-command prompt is expanded by the client and never shows as a tool_use,
 # so `explicit` runs have invoked 0 by design; bootstrap_used (invoked or any successful call) covers them.
 summarize_stream() { # <out.jsonl>
@@ -163,7 +183,7 @@ for (const l of text.split("\n")) {
       if (b.type !== "tool_use") continue;
       if (!first) first = b.name + (b.name === "Skill" ? ":" + (b.input?.skill ?? "") : "");
       if (b.name === "Skill" && String(b.input?.skill ?? "").includes("dynamic-skill-bootstrap")) invoked = 1;
-      const m = /^dynamic-skills(?:\s+([A-Za-z][\w-]*))?(?=\s|$)/.exec(String(b.input?.command ?? "").trim());
+      const m = /^dynamic-skills(?:\s+((?:context|sufficiency|eval|clarify)(?:\s+[A-Za-z][\w-]*)?|[A-Za-z][\w-]*))?(?=\s|$)/.exec(String(b.input?.command ?? "").trim());
       if (b.name === "Bash" && m) uses.push({ id: b.id, sub: m[1] ?? "-" });
     }
   }
@@ -183,7 +203,7 @@ for (const l of text.split("\n")) {
 let calls = 0, activated = 0, last = "-";
 for (const u of uses) {
   const r = results.get(u.id);
-  if (!r || r.error || /permission|denied|was blocked/i.test(r.text.slice(0, 200)) || !/"ok"\s*:\s*true/.test(r.text)) continue;
+  if (!r || r.error || !/^\s*\{"ok"\s*:\s*true\b/.test(r.text)) continue;
   calls++;
   last = u.sub;
   if (u.sub === "activate") activated = 1;
