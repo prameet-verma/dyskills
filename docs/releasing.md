@@ -23,9 +23,19 @@ bump the minor version; fixes bump the patch version. A `CONTRACT_VERSION` bump 
    the field is missing or the tarball lacks `LICENSE`. (Done.)
 1. Keep the `repository` field in `packages/cli/package.json`
    (`https://github.com/prameet-verma/dyskills`); the release check fails without it. (Done.)
-1. Claim the npm name `dynamic-skills`.
-1. Configure the `npm` GitHub environment (required reviewers) and the `NPM_TOKEN` secret, or npm
-   trusted publishing.
+1. Claim the npm name `dynamic-skills`. (Done: a `0.0.0` placeholder is published under the
+   maintainer's account.)
+1. The `npm` GitHub environment exists, with the maintainer as required reviewer and a deployment
+   policy that admits only `v*.*.*` tags. (Done.)
+1. Give the publish job an npm credential. The workflow publishes with `NODE_AUTH_TOKEN` from the
+   `NPM_TOKEN` secret: create a granular access token on npmjs.com with read and write access to
+   `dynamic-skills` only, then store it as an environment secret of `npm` (not a repository
+   secret): `gh secret set NPM_TOKEN --env npm --repo prameet-verma/dyskills`. npm is restricting
+   tokens that bypass 2FA for publishing, so plan to move to npm trusted publishing (a trusted
+   publisher for this repository, workflow `release.yml` and environment `npm`); that switch also
+   changes the publish step and must be rehearsed before the first real release.
+1. Run the Codex and OpenCode live smoke (`scripts/live-smoke.sh codex|opencode …`) on their pinned
+   versions; the Phase 2 gate left them open until before the first release.
 1. Bump the version in `packages/cli/package.json` and update `CHANGELOG.md`.
 1. Run `pnpm --filter dynamic-skills publish --dry-run --no-git-checks` locally.
 1. Run `pnpm exec tsx scripts/check-release.ts --tag v<version>`; it must print no problems.
