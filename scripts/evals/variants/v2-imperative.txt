@@ -1,0 +1,1 @@
+Use at the start of every non-trivial implementation task (a new feature, a refactor, a cross-cutting change), before reading or editing code. It assesses the gap, analyses the repository and activates a short, evaluated skill for the task. Also use when the user asks to create a skill. Skip trivial edits, questions and simple follow-ups.

@@ -1,0 +1,1 @@
+Set up Nx-cached build and test targets for packages/orders (project.json, plus a targetDefaults entry for test in nx.json), and write a vitest suite for getOrder and updateOrder following this monorepo's conventions. Make the CI workflow run the Nx targets.

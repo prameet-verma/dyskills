@@ -1,0 +1,10 @@
+Task given to the engineer: "Make updateOrder in packages/orders safe under concurrent writers: add optimistic concurrency (a version field and a typed ConflictError), publish order-updated events through a transactional outbox (an in-memory outbox plus a relay with at-least-once delivery and idempotency keys so consumers can deduplicate), and add vitest tests for the conflict, retry and duplicate-delivery cases, following this monorepo's conventions."
+Rubric items (each true or false):
+1 version: orders carry a version that increments on every successful update.
+2 conflict_error: a typed ConflictError (its own class) carrying the order id and the expected and actual versions.
+3 stale_rejected: an update with a stale expected version is rejected and leaves the stored order unchanged.
+4 atomic_outbox: the state change and its outbox event are written together, so neither can exist without the other.
+5 at_least_once: the relay marks an event delivered only after the publish succeeds and retries failed events.
+6 idempotency_key: every event carries a stable idempotency key or event id.
+7 dedup: consumers can deduplicate (a dedup helper or consumer is implemented and used in tests).
+8 tests_cover: tests exercise all three of conflict, retry and duplicate delivery.
