@@ -27,14 +27,14 @@ function validateRequest(sku: string, quantity: number): Result<{ sku: string; q
 }
 
 /**
- * Reserve stock. `lastSeenVersion` is the stock row version the caller last saw; if the row has
+ * Reserve stock. `expectedStockVersion` is the stock row version the caller last saw; if the row has
  * moved on, the write is refused with a VersionConflict and nothing changes. The stock change, the
  * reservation row and the `inventory.v1.reserved` event commit in ONE transaction.
  */
 export async function reserveStock(
   ctx: InventoryContext,
   request: { sku: string; quantity: number },
-  lastSeenVersion: number,
+  expectedStockVersion: number,
 ): Promise<Result<Reservation, InventoryError>> {
   const checked = validateRequest(request.sku, request.quantity);
   if (!checked.ok) return checked;
@@ -52,7 +52,7 @@ export async function reserveStock(
         }),
       );
     }
-    const stock = await tx.updateWhereVersion<StockItem>(STOCK_TABLE, sku, lastSeenVersion, {
+    const stock = await tx.updateWhereVersion<StockItem>(STOCK_TABLE, sku, expectedStockVersion, {
       reserved: current.reserved + quantity,
       updatedAt: tx.now().toISOString(),
     });
@@ -76,11 +76,11 @@ export async function reserveStock(
   });
 }
 
-/** Release a held reservation. Same shape as reserveStock: guarded by `lastSeenVersion`, one transaction, one event. */
+/** Release a held reservation. Same shape as reserveStock: guarded by `expectedStockVersion`, one transaction, one event. */
 export async function releaseStock(
   ctx: InventoryContext,
   reservationId: string,
-  lastSeenVersion: number,
+  expectedStockVersion: number,
 ): Promise<Result<Reservation, InventoryError>> {
   return ctx.db.transaction<Reservation, InventoryError>(async (tx) => {
     const held = await tx.get<Reservation>(RESERVATIONS_TABLE, reservationId);
@@ -92,7 +92,7 @@ export async function releaseStock(
     }
     const current = await tx.get<StockItem>(STOCK_TABLE, held.sku);
     if (!current) return err(UnknownSku(`unknown sku ${held.sku}`, { sku: held.sku }));
-    const stock = await tx.updateWhereVersion<StockItem>(STOCK_TABLE, held.sku, lastSeenVersion, {
+    const stock = await tx.updateWhereVersion<StockItem>(STOCK_TABLE, held.sku, expectedStockVersion, {
       reserved: Math.max(0, current.reserved - held.quantity),
       updatedAt: tx.now().toISOString(),
     });
