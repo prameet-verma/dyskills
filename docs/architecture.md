@@ -181,10 +181,18 @@ counts as unset and the default home is used (Ruling R42).
 | `reports/`              | `evaluate`, `eval record`, `sufficiency submit` and `approve` (`sufficiency`), and terminal paths | `evaluation`, `performance`, `discovery`, `assumptions`, `sufficiency`; `clean` archives `performance` to `<home>/reports/<id>.json` before removing the session                                      |
 
 Stage metrics (`metrics.stageMs`): on success a stage holds only the command's own run time, plus
-the analysis span measured from the end of `discover`. When the deadline fires (a `TIMEOUT`, or
-`clean` of an expired session), the agent's in-progress gap since the last command is added to the
-stage that was under way (`analysis`, `assessment`, `compilation` or `evaluation`, chosen from the
-last completed step), so a timed-out session does not report 0 for the work it spent its budget on.
+the analysis span measured from the end of `discover`, less the time other stages booked since
+(`metrics.analysisBaselineMs` leaves out what was booked before `discover` ended, so the stage sum
+does not exceed active time, apart from `assess`'s own run time before the session clock starts). When a session ends before its next command can run, the agent's in-
+progress gap since the last command is added to the stage that was under way: at the deadline (a
+`TIMEOUT`), and when `clean` or `save --scope discard` ends an abandoned session that is still open
+(`timeout` if its budget had run out, otherwise `failed`; the gap is capped at the budget). The
+stage is chosen from the last completed step, or from the command about to run when it is legal
+there (a valid predecessor and, for `compile` and `clarify ask`, a recorded verdict not awaiting approval) and
+names its stage (`context request` and `context submit` `analysis`, `clarify ask` `clarification`,
+`compile` `compilation`); the stages are `analysis`, `assessment`, `clarification`, `compilation`
+and `evaluation`. A re-analysis timeout measures `analysis` the same way as a successful `context
+submit`, so a timed-out session does not report 0 for the work it spent its budget on.
 
 Native placements are ephemeral ([ADR 0008](adr/0008-read-first-activation.md)). Every `assess` and
 `activate` sweeps `<home>/native/`: a placement is removed when it is older than 24 h

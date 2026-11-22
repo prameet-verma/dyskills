@@ -39,6 +39,7 @@ function state(
       analysisSubmissions: 0,
       packetTokens: 0,
       analysisStartedAtActiveMs: null,
+      analysisBaselineMs: null,
       lastCommandEndedAtActiveMs: null,
     },
     ...over,

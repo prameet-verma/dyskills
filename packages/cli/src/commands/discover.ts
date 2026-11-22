@@ -78,6 +78,10 @@ export const discoverCommand: SessionCommandDef = {
     state.metrics.packetTokens = packet.size.estimatedTokens;
     state.metrics.parallelOps += discovery.detectorsRun.length;
     state.metrics.analysisStartedAtActiveMs = SlaClock.from(state.sla).activeMs(now());
+    // Time other stages booked before analysis began (`assess`); the analysis span leaves it out.
+    state.metrics.analysisBaselineMs = Object.entries(state.metrics.stageMs)
+      .filter(([name]) => name !== "analysis" && name !== "discovery")
+      .reduce((sum, [, ms]) => sum + ms, 0);
     return {
       data: {
         packetPath,

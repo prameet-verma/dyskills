@@ -73,7 +73,9 @@ const PREDECESSORS: Partial<Record<CliCommand, CompletedStep[]>> = {
 /**
  * Stage whose agent work follows each completed step: the time before the next command is the
  * agent working, so a deadline hit there belongs to that stage (PRD §10.8).
- * `context-submit` maps to the sufficiency judgement (a verdict must precede `compile`);
+ * `context-submit` maps to the sufficiency judgement (`assessment`) while no verdict exists; once one
+ * is recorded (a re-analysis after clarification) no assessment can run, so the next work is
+ * `compilation`;
  * `compile` only writes the brief, so the bundle-writing that follows is `compilation`;
  * `evaluate` and `eval-record` precede the behavioural runs and their recording (`evaluation`).
  * Steps followed by a human wait (`clarify-ask`) have no entry; a paused clock attributes nothing.
@@ -81,7 +83,7 @@ const PREDECESSORS: Partial<Record<CliCommand, CompletedStep[]>> = {
 const STAGE_AFTER_STEP: Partial<Record<CompletedStep, StageName>> = {
   discover: "analysis",
   "context-request": "analysis",
-  "context-submit": "assessment",
+  "context-submit": "assessment", // becomes "compilation" once a verdict exists, see below
   "sufficiency-submit": "compilation",
   "sufficiency-approve": "compilation",
   "clarify-answer": "compilation",
@@ -90,21 +92,37 @@ const STAGE_AFTER_STEP: Partial<Record<CompletedStep, StageName>> = {
   "eval-record": "evaluation",
 };
 
-/** Commands whose own stage is unambiguous whatever the last step was (re-analysis, revision). */
+/**
+ * Commands whose own stage is unambiguous (re-analysis, revision, formulating clarification
+ * questions). `clarify ask` is `clarification`: the agent drafting more questions after a verdict
+ * or an answered round is clarification work, not compilation. Used only when the command is
+ * legal after the last step (see {@link inProgressStage}).
+ */
 const STAGE_OF_COMMAND: Partial<Record<CliCommand, StageName>> = {
   "context request": "analysis",
   "context submit": "analysis",
+  "clarify ask": "clarification",
   compile: "compilation",
 };
 
 /**
  * Stage whose agent work was in progress: the command about to run when it names one
- * unambiguously, otherwise the one that follows the session's last completed step.
+ * unambiguously and is legal after the last completed step (an illegal command is refused, so it
+ * says nothing about the agent's work), otherwise the one that follows the last completed step.
  */
 export function inProgressStage(state: SessionState, command?: CliCommand): StageName | undefined {
-  const own = command === undefined ? undefined : STAGE_OF_COMMAND[command];
-  if (own) return own;
   const last = state.completedSteps.at(-1) as CompletedStep | undefined;
+  const own = command === undefined ? undefined : STAGE_OF_COMMAND[command];
+  // Legal means `assertCanRun` would let it through: a valid predecessor and, for the commands
+  // that need one, a recorded verdict that is not awaiting approval.
+  const legal =
+    command !== undefined &&
+    last !== undefined &&
+    PREDECESSORS[command]?.includes(last) === true &&
+    (!NEEDS_VERDICT.has(command) ||
+      (state.sufficiency !== null && state.sufficiency?.approval !== "pending"));
+  if (own && legal) return own;
+  if (last === "context-submit" && state.sufficiency) return "compilation";
   return last === undefined ? undefined : STAGE_AFTER_STEP[last];
 }
 

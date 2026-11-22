@@ -8,6 +8,7 @@ import {
   MAX_ANALYSIS_SUBMISSIONS,
   MAX_CONTEXT_REQUEST_ROUNDS,
   SlaClock,
+  analysisSpanMs,
 } from "@dynamic-skills/core";
 import { buildFileIndex } from "@dynamic-skills/discovery";
 import {
@@ -150,8 +151,11 @@ export const contextSubmitCommand: SessionCommandDef = {
     m.llmInteractions += 1;
     state.status = "analysing";
     // PRD §10.8: analysis time is active time since discovery ended (human waits excluded).
-    m.stageMs.analysis =
-      SlaClock.from(state.sla).activeMs(now()) - (m.analysisStartedAtActiveMs ?? 0);
+    // Less what other stages booked since, so a re-analysis never counts them twice.
+    m.stageMs.analysis = Math.max(
+      m.stageMs.analysis ?? 0,
+      analysisSpanMs(m, SlaClock.from(state.sla).activeMs(now())),
+    );
     return {
       data: {
         evidenceAdded: out.evidenceAdded,

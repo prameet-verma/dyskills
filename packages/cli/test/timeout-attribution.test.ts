@@ -1,6 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_BUDGET_MS } from "@dynamic-skills/core";
+import type { SessionState } from "@dynamic-skills/core";
+import { inProgressStage } from "../src/state-machine";
+import type { CliCommand, CompletedStep } from "../src/state-machine";
 import { runCli } from "../src/run";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -210,5 +213,204 @@ describe("deadline attributes the in-progress stage", () => {
     const m = await metrics(id);
     expect(m.lastCommandEndedAtActiveMs).toBeNull();
     expect(m.stageMs.compilation).toBeUndefined();
+  });
+
+  const sumStages = (m: { stageMs: Record<string, number> }) =>
+    Object.values(m.stageMs).reduce((a, b) => a + b, 0);
+
+  it("a command that books its own stage without recording a step is not counted twice", async () => {
+    const id = await ready(h);
+    expect((await h.run(["compile", "--session", id])).exitCode).toBe(0);
+    h.clock.t += 20_000;
+    // No skill bundle was written: `evaluate` fails (recordStep false) after booking its run time.
+    let tick = 0;
+    const failed = await h.runWith(["evaluate", "--session", id], {
+      now: () => h.clock.t + 1_000 * tick++,
+    });
+    expect(failed.out.ok).toBe(false);
+    expect(failed.out.error).not.toBe("TIMEOUT");
+    expect((await metrics(id)).stageMs.evaluation ?? 0).toBeGreaterThan(0);
+    h.clock.t += GAP + 5_000;
+    expect((await h.run(["evaluate", "--session", id])).out.error).toBe("TIMEOUT");
+    const state = await h.readJson(id, "session.json");
+    expect(sumStages(state.metrics)).toBeLessThanOrEqual(state.sla.activeMs);
+  });
+
+  it("a re-analysis timeout books the time of a context request in between", async () => {
+    const id = await discovered(h);
+    h.clock.t += 10_000;
+    await submitAnalysis(id);
+    h.clock.t += 7_000;
+    const req = await h.doc("req.json", {
+      schemaVersion: "1",
+      action: "request_context",
+      requests: [{ type: "documentation", path: "README.md", reason: "needed" }],
+    });
+    let tick = 0;
+    const ok = await h.runWith(["context", "request", "--session", id, "--file", req], {
+      now: () => h.clock.t + 100 * tick++,
+    });
+    expect(ok.exitCode).toBe(0);
+    h.clock.t += DEFAULT_BUDGET_MS;
+    expect((await h.run(["context", "request", "--session", id, "--file", req])).out.error).toBe(
+      "TIMEOUT",
+    );
+    const state = await h.readJson(id, "session.json");
+    expect(state.metrics.stageMs.analysis).toBe(state.sla.activeMs);
+    expect(sumStages(state.metrics)).toBeLessThanOrEqual(state.sla.activeMs);
+  });
+
+  /** Active ms of a session at the harness clock: the saved snapshot lags while the clock runs. */
+  const activeNow = (state: {
+    sla: { activeMs: number; paused: boolean; segmentStartedAt: number };
+  }) => state.sla.activeMs + (state.sla.paused ? 0 : h.clock.t - state.sla.segmentStartedAt);
+
+  /** Runs a command on a clock that advances 100 ms per reading, then leaves the clock there. */
+  const ticking = async (argv: string[]) => {
+    let n = 0;
+    const r = await h.runWith(argv, { now: () => h.clock.t + 100 * n++ });
+    h.clock.t += 100 * (n - 1);
+    return r;
+  };
+
+  it("time `assess` booked before discovery is not taken out of the analysis timeout gap", async () => {
+    const task = "Add caching to order reads in the orders service";
+    const created = await ticking(["assess", "--task", task]);
+    const id = String(created.out.sessionId);
+    const assessMs = (await h.readJson(id, "session.json")).metrics.stageMs.assessment;
+    expect((await h.run(["discover", "--session", id])).exitCode).toBe(0);
+    h.clock.t += DEFAULT_BUDGET_MS + 10_000;
+    expect((await submitAnalysis(id)).out.error).toBe("TIMEOUT");
+    const state = await h.readJson(id, "session.json");
+    const m = state.metrics;
+    expect(m.stageMs.assessment).toBeGreaterThan(0);
+    expect(m.stageMs.analysis).toBe(state.sla.activeMs - m.analysisStartedAtActiveMs);
+    expect(m.stageMs.analysis).toBe(DEFAULT_BUDGET_MS + 10_000);
+    // `assess` books its run time from before the session (and its clock) exists, so only that
+    // part may exceed the active time.
+    expect(sumStages(m)).toBeLessThanOrEqual(state.sla.activeMs + assessMs);
+  });
+
+  it("a re-analysis after a clarification round never counts other stages twice", async () => {
+    const task = "Add a database migration for the orders table";
+    const created = await ticking(["assess", "--task", task]);
+    const id = String(created.out.sessionId);
+    const assessMs = (await h.readJson(id, "session.json")).metrics.stageMs.assessment;
+    expect((await ticking(["discover", "--session", id])).exitCode).toBe(0);
+    h.clock.t += 10_000;
+    const first = await h.doc("analysis.json", await analysisFixture("minimal.json"));
+    const submit = () => h.run(["context", "submit", "--session", id, "--file", first]);
+    expect((await submit()).exitCode).toBe(0);
+    const v = await h.doc("v.json", verdict({ outcome: "insufficient" }));
+    expect((await ticking(["sufficiency", "submit", "--session", id, "--file", v])).exitCode).toBe(
+      0,
+    );
+    const q = await h.doc("q.json", {
+      schemaVersion: "1",
+      questions: [
+        {
+          id: "q-migration",
+          text: "What migration rollout policy applies?",
+          requirement: "migration-policy",
+          material: true,
+          blocking: true,
+        },
+      ],
+    });
+    expect((await ticking(["clarify", "ask", "--session", id, "--file", q])).exitCode).toBe(0);
+    h.clock.t += 600_000;
+    const a = await h.doc("a.json", {
+      schemaVersion: "1",
+      answers: [{ questionId: "q-migration", status: "answered", value: "Expand and contract" }],
+    });
+    expect((await ticking(["clarify", "answer", "--session", id, "--file", a])).exitCode).toBe(0);
+    h.clock.t += 5_000;
+    expect((await submit()).exitCode).toBe(0);
+
+    const mid = await h.readJson(id, "session.json");
+    expect(mid.metrics.stageMs.assessment).toBeGreaterThan(0);
+    expect(mid.metrics.stageMs.discovery).toBeGreaterThan(0);
+    expect(mid.metrics.stageMs.clarification).toBeGreaterThan(0);
+    expect(sumStages(mid.metrics)).toBeLessThanOrEqual(
+      activeNow(mid) + assessMs + mid.metrics.stageMs.discovery,
+    );
+    // Analysis is everything since discovery ended, less the sufficiency and clarification run
+    // times (not `assess`'s, which was booked before discovery ended).
+    const expected = (st: typeof mid) =>
+      activeNow(st) -
+      st.metrics.analysisStartedAtActiveMs -
+      (st.metrics.stageMs.assessment - assessMs) -
+      st.metrics.stageMs.clarification;
+    expect(mid.metrics.stageMs.analysis).toBe(expected(mid));
+
+    h.clock.t += DEFAULT_BUDGET_MS;
+    expect((await submit()).out.error).toBe("TIMEOUT");
+    const ended = await h.readJson(id, "session.json");
+    expect(ended.metrics.stageMs.analysis).toBe(expected(ended));
+    expect(sumStages(ended.metrics)).toBeLessThanOrEqual(
+      ended.sla.activeMs + assessMs + ended.metrics.stageMs.discovery,
+    );
+  });
+});
+
+describe("inProgressStage", () => {
+  const at = (last: CompletedStep | undefined, sufficiency = false) =>
+    ({
+      completedSteps: last === undefined ? [] : [last],
+      sufficiency: sufficiency ? { outcome: "insufficient", approval: "approved" } : null,
+    }) as unknown as SessionState;
+
+  it("maps the last completed step to the stage that follows it", () => {
+    const table: [CompletedStep | undefined, string | undefined][] = [
+      [undefined, undefined],
+      ["assess", undefined],
+      ["discover", "analysis"],
+      ["context-request", "analysis"],
+      ["context-submit", "assessment"],
+      ["sufficiency-submit", "compilation"],
+      ["sufficiency-approve", "compilation"],
+      ["clarify-ask", undefined],
+      ["clarify-answer", "compilation"],
+      ["compile", "compilation"],
+      ["evaluate", "evaluation"],
+      ["eval-record", "evaluation"],
+      ["activate", undefined],
+    ];
+    for (const [last, stage] of table) expect(inProgressStage(at(last)), String(last)).toBe(stage);
+  });
+
+  it("a re-analysis with a verdict already recorded leads to compilation, not assessment", () => {
+    expect(inProgressStage(at("context-submit", true))).toBe("compilation");
+  });
+
+  it("a legal command names its own stage", () => {
+    const stage = (last: CompletedStep, c: CliCommand) => inProgressStage(at(last, true), c);
+    expect(stage("clarify-answer", "clarify ask")).toBe("clarification");
+    expect(stage("sufficiency-submit", "clarify ask")).toBe("clarification");
+    expect(stage("clarify-answer", "context submit")).toBe("analysis");
+    expect(stage("context-submit", "context request")).toBe("analysis");
+    expect(stage("evaluate", "compile")).toBe("compilation");
+  });
+
+  it("compile and clarify ask without a verdict are illegal, so the table applies", () => {
+    expect(inProgressStage(at("context-submit"), "clarify ask")).toBe("assessment");
+    expect(inProgressStage(at("context-submit"), "compile")).toBe("assessment");
+  });
+
+  it("a verdict awaiting approval does not make compile or clarify ask legal", () => {
+    const pending = {
+      completedSteps: ["sufficiency-submit"],
+      sufficiency: { outcome: "insufficient", approval: "pending" },
+    } as unknown as SessionState;
+    expect(inProgressStage(pending, "compile")).toBe("compilation");
+    expect(inProgressStage(pending, "clarify ask")).toBe("compilation");
+  });
+
+  it("an illegal command falls back to the table", () => {
+    const stage = (last: CompletedStep, c: CliCommand) => inProgressStage(at(last), c);
+    expect(stage("sufficiency-submit", "context submit")).toBe("compilation");
+    expect(stage("clarify-answer", "context request")).toBe("compilation");
+    expect(stage("discover", "compile")).toBe("analysis");
+    expect(stage("evaluate", "clarify ask")).toBe("evaluation");
   });
 });

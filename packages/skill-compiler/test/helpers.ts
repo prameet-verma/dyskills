@@ -54,6 +54,7 @@ export function makeState(): SessionState {
       analysisSubmissions: 0,
       packetTokens: 0,
       analysisStartedAtActiveMs: null,
+      analysisBaselineMs: null,
       lastCommandEndedAtActiveMs: null,
     },
   };
