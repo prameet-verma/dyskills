@@ -47,7 +47,7 @@ export const outbox = {
 
 export type DrainReport = { delivered: number; failed: number };
 
-/** Delivers pending messages at least once: a message is marked delivered only after publish succeeds. */
+/** Delivers pending messages at least once (`createOutboxRelay(db).drain(publisher)`): a message is marked delivered only after publish succeeds. */
 export function createOutboxRelay(db: Db) {
   return {
     async drain(publisher: Publisher): Promise<DrainReport> {
@@ -62,9 +62,10 @@ export function createOutboxRelay(db: Db) {
           idempotencyKey: message.idempotencyKey,
         });
         await db.transaction(async (tx) =>
-          tx.update<OutboxMessage>(
+          tx.updateWhereVersion<OutboxMessage>(
             OUTBOX_TABLE,
             message.id,
+            message.version,
             sent.ok
               ? { deliveredAt: tx.now().toISOString(), attempts: message.attempts + 1 }
               : { attempts: message.attempts + 1 },

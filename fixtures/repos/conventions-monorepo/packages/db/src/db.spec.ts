@@ -35,4 +35,20 @@ describe("db", () => {
     );
     expect(fresh).toEqual(ok({ id: "a", name: "X", version: 2 }));
   });
+
+  it("throws immediately on a nested transaction and on a missing expected version", async () => {
+    const db = createDb();
+    await db.transaction(async (tx) => tx.insert<Thing>("things", { id: "a", name: "A" }));
+    await expect(
+      db.transaction(async () => {
+        await db.transaction(async () => ok(1));
+        return ok(2);
+      }),
+    ).rejects.toThrow(/nested/);
+    await expect(
+      db.transaction(async (tx) =>
+        tx.updateWhereVersion<Thing>("things", "a", undefined as unknown as number, {}),
+      ),
+    ).rejects.toThrow(/expectedVersion/);
+  });
 });

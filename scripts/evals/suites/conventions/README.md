@@ -16,12 +16,24 @@ Three plain-language product requests against `packages/orders`, run with and wi
 | `g2` | add `cancelOrder` (pending only, publishes an event)                                  | mid        |
 | `g3` | add `listOrdersByStatus`                                                              | routine    |
 
+`packages/orders` is deliberately legacy code written before ADR 0003: it throws `Error`
+subclasses, publishes events directly, has no logging, uses `*.test.ts` and writes without version
+checks. `docs/conventions.md` says new or changed code must follow the conventions and that `orders`
+is being migrated; `packages/inventory` is the one complete reference. So the test is whether the
+agent follows the documented conventions or copies the local legacy style. A solution that works
+but ignores the conventions passes the hidden specs and fails the checks.
+
 The prompts never name the house libraries. Three layers score a run:
 
 - `hidden/<task>/`: behavioural specs copied in after the agent finishes. They use only the public
-  functions the prompt names and the house libraries' observable state (db rows, delivered outbox
-  events), and tolerate any internal naming. They check behaviour, not style.
-- `checks.sh <repo-dir> <task>`: deterministic static checks (`name<TAB>pass|fail`).
+  functions the prompt names and observable state (db rows, events seen on the context's publisher
+  or drained from the outbox, counted the same either way), and tolerate any internal naming. g1
+  also injects faults (publisher failure or throw, a failing database transaction) and requires
+  state and announcements to stay consistent. They check behaviour, not style.
+- `checks.sh <repo-dir> <task>`: deterministic static checks (`name<TAB>pass|fail`). They grade only
+  the files the agent changed or added (`git diff --name-only HEAD` plus untracked files; the run
+  repo needs a baseline commit) and fail everything if the task function was not written, so doing
+  nothing scores 0.
 - `rubrics/<task>.txt`: the task text plus true/false items for a blind grader.
 
 ## The conventions
@@ -37,6 +49,7 @@ The prompts never name the house libraries. Three layers score a run:
 8. Ids from `newId("ord")` (`@acme/ids`).
 9. `log.info(event, fields)` (`@acme/log`), never `console.*`.
 10. `*.spec.ts` next to the source, using `@acme/testkit`.
+11. Time from `tx.now()`, never `new Date()` (listed with the others in `docs/conventions.md`).
 
 ## Why there is no CLAUDE.md
 
@@ -47,5 +60,5 @@ read the repository to find them.
 
 ## Files
 
-`fixture`, `prepare.sh <template-dir>` (installs the workspace), `tasks/`, `rubrics/`, `checks.sh`,
+`fixture`, `prepare.sh <template-dir>` (frozen-lockfile install of the workspace), `tasks/`, `rubrics/`, `checks.sh`,
 `hidden/`.

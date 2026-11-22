@@ -9,19 +9,14 @@ import {
   type StockItem,
 } from "./types";
 
-function validateQuantity(quantity: number): Result<number, InventoryError> {
-  return Number.isInteger(quantity) && quantity > 0
-    ? ok(quantity)
-    : err(InvalidQuantity("quantity must be a positive integer", { quantity }));
-}
-
 export async function addStock(
   ctx: InventoryContext,
   sku: string,
   quantity: number,
 ): Promise<Result<StockItem, InventoryError>> {
-  const checked = validateQuantity(quantity);
-  if (!checked.ok) return checked;
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return err(InvalidQuantity("quantity must be a positive integer", { quantity }));
+  }
   return ctx.db.transaction<StockItem, InventoryError>(async (tx) => {
     const current = await tx.get<StockItem>(STOCK_TABLE, sku);
     if (current) {

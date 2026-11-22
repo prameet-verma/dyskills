@@ -1,21 +1,27 @@
 Add a `cancelOrder` operation to the orders package, exported from the package entry point like the other operations, with tests.
 
-`cancelOrder(ctx, id)` cancels an order; `ctx` is the same first argument `createOrder` takes. Only orders that are still pending can be cancelled. Cancelling an order that is paid, is already cancelled or does not exist is a failure and changes nothing. A successful cancel sets the status to cancelled, increases the version by one, refreshes `updatedAt`, returns the updated order, and announces one "order cancelled" event so the rest of the system finds out; the event payload has the order's `id` and its new `version`. Nothing is announced when the cancel did not happen, and two people cancelling the same order at the same moment must result in exactly one cancellation and one event.
+`cancelOrder(ctx, id)` cancels an order; `ctx` is the package's `OrdersContext`. Only orders that are still pending can be cancelled. Cancelling an order that is paid, is already cancelled or does not exist is refused and changes nothing, and the caller can tell that it failed. A successful cancel sets the status to cancelled, increases the version by one, refreshes `updatedAt`, returns the updated order, and announces one "order cancelled" event so the rest of the system finds out; the event payload has the order's `id` and its new `version`. Nothing is announced when the cancel did not happen, and two people cancelling the same order at the same moment must result in exactly one cancellation and one event.
 
 Rubric items
+Functional items:
 1 cancel_pending: cancelOrder(ctx, id) on a pending order sets status to cancelled, increases version by one, refreshes updatedAt and returns the updated order.
-2 only_pending: Cancelling a paid order, an already cancelled order or an unknown id is a failure and changes nothing.
-3 event_on_cancel: A successful cancel publishes exactly one order-cancelled event with the order id and new version, and a refused cancel publishes none.
+2 only_pending: Cancelling a paid order, an already cancelled order or an unknown id is refused and changes nothing; the caller can tell it failed.
+3 event_on_cancel: A successful cancel announces exactly one order-cancelled event with the order id and new version, and a refused cancel announces none.
 4 concurrent_cancel: Simultaneous cancels of the same order give exactly one success and one event.
 5 exported: cancelOrder is exported from the orders package entry point.
-6 result_not_throw: Failures are returned as Result error values from @acme/result; the new code does not throw.
-7 define_error: A new failure (for example not cancellable) is a tagged object built with defineError, not a class or a bare string.
-8 update_where_version: The status change uses tx.updateWhereVersion with the version read in the same transaction, not tx.update.
-9 outbox_in_transaction: The event is written with outbox.enqueue(tx, ...) inside the same db.transaction as the status change, not published directly.
-10 versioned_topic: The topic is versioned and dotted (for example orders.v1.cancelled).
-11 idempotency_key: The enqueue passes a deterministic idempotencyKey unique per cancellation (for example order-cancelled:<id>:<version>).
-12 new_id: Any new id is created with newId from @acme/ids; if no ids are created this item passes.
-13 log_not_console: Any logging uses log from @acme/log; there is no console.* call.
-14 spec_placement: New tests are *.spec.ts files next to the source in packages/orders/src; no *.test.ts.
-15 testkit_helpers: Tests use @acme/testkit (createTestDb, expectOk/expectErr, drainOutbox, fakeClock).
-16 tests_cover: Tests cover cancelling a pending order, refusing a paid and an already cancelled order, the emitted event, and the missing order.
+6 tests_cover: Tests cover cancelling a pending order, refusing a paid and an already cancelled order, the emitted event, and the missing order.
+Convention items:
+7 result_not_throw: Failures in the new code are returned as Result error values from @acme/result; it does not throw.
+8 define_error: Every new failure (for example not cancellable) is a tagged object built with defineError, not an Error subclass, a bare string or `new Error`.
+9 update_where_version: The status change uses tx.updateWhereVersion, with the version read from the order inside the same transaction (there is no caller-supplied version here); it does not use tx.update.
+10 outbox_in_transaction: The event is written with outbox.enqueue(tx, ...) inside the same db.transaction as the status change; there is no direct bus.publish and no second transaction.
+11 versioned_topic: The topic is versioned and dotted (for example orders.v1.cancelled).
+12 idempotency_key: The enqueue passes a deterministic idempotencyKey unique per cancellation (for example order-cancelled:<id>:<version>), not random and not constant per order.
+13 time_from_tx: Timestamps come from tx.now(); there is no new Date() or Date.now() in the new code.
+14 new_id: If new ids are created, they come from newId in @acme/ids. If no ids are created, mark true.
+15 log_state_change: The cancellation is logged via log.info with a structured `orders.<snake_case>` event name; there is no console.* call.
+16 spec_placement: New or changed tests are *.spec.ts files next to the source in packages/orders/src; no *.test.ts.
+17 testkit_create_test_db: Tests build their database with createTestDb (not a hand-built createDb).
+18 testkit_expect_helpers: Tests unwrap results with expectOk / expectErr(result, kind).
+19 testkit_drain_outbox: Tests assert the announced event with drainOutbox(db).
+20 follows_docs_not_legacy: The changed code follows docs/conventions.md rather than copying the older style visible in packages/orders (thrown Error subclasses, direct publishing, unguarded writes, wall-clock time, *.test.ts).

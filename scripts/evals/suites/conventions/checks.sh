@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Objective static checks for the conventions suite.
 # Usage: checks.sh <repo-dir> <task-id>      (task-id: g1 | g2 | g3)
-# Prints one "name<TAB>pass|fail" line per check that applies to the task. Deterministic:
-# plain grep over the files under packages/orders/src, hidden-* specs excluded.
-set -u
+# The repo must be a git repository with a baseline commit. Checks grade ONLY the files the agent
+# changed or added (git diff --name-only HEAD plus untracked files, under packages/). Every check
+# is gated on the task's function having been written or changed by the agent, so an agent that
+# did nothing scores 0. Prints one "name<TAB>pass|fail" line per applicable check. Deterministic.
 
-repo="${1:?usage: checks.sh <repo-dir> <task-id>}"
-task="${2:?usage: checks.sh <repo-dir> <task-id>}"
-src="$repo/packages/orders/src"
+repo="${1:-}"
+task="${2:-}"
+[ -n "$repo" ] && [ -n "$task" ] || { echo "usage: checks.sh <repo-dir> <task-id>" >&2; exit 2; }
+[ -d "$repo" ] || { echo "checks.sh: no such directory: $repo" >&2; exit 2; }
+cd "$repo" || exit 2
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "checks.sh: not a git repository: $repo" >&2; exit 2; }
 
 case "$task" in
   g1) fn=updateOrder ;;
@@ -16,126 +20,190 @@ case "$task" in
   *) echo "unknown task: $task" >&2; exit 2 ;;
 esac
 
-# Non-spec and spec sources of the orders package (agent-written files only).
-src_files() { /usr/bin/find "$src" -type f -name '*.ts' ! -name '*.spec.ts' ! -name 'hidden-*' 2>/dev/null | sort; }
-spec_files() { /usr/bin/find "$src" -type f -name '*.spec.ts' ! -name 'hidden-*' 2>/dev/null | sort; }
-# Print the lines of the given files with whole-line comments dropped.
-code() { [ "$#" -gt 0 ] && /usr/bin/grep -hvE '^[[:space:]]*(//|\*|/\*)' "$@" 2>/dev/null; return 0; }
+# --- the agent's changed files ------------------------------------------------------------------
+CHANGED=()
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    packages/*.ts) ;;
+    *) continue ;;
+  esac
+  case "$f" in */node_modules/*|*/hidden-*) continue ;; esac
+  CHANGED+=("$f")
+done < <({ git diff --relative --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | sort -u)
 
-# shellcheck disable=SC2046
-SRC=$(src_files)
-SPECS=$(spec_files)
-# Files that declare the task's function.
-FN_FILES=$(for f in $SRC; do /usr/bin/grep -qE "(function|const)[[:space:]]+$fn\\b" "$f" && echo "$f"; done)
+SRC=()   # changed source files
+TESTS=() # changed spec/test files
+for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
+  case "$f" in
+    *.spec.ts|*.test.ts) TESTS+=("$f") ;;
+    *) SRC+=("$f") ;;
+  esac
+done
 
-report() { printf '%s\t%s\n' "$1" "$2"; }
-check() { local name=$1; shift; if "$@"; then report "$name" pass; else report "$name" fail; fi; }
+# Source files that declare the task function.
+FN_FILES=()
+for f in ${SRC[@]+"${SRC[@]}"}; do
+  grep -qE "(function|const)[[:space:]]+$fn\\b" "$f" && FN_FILES+=("$f")
+done
+# Changed tests that mention the task function.
+FN_TESTS=()
+for f in ${TESTS[@]+"${TESTS[@]}"}; do
+  grep -qE "\\b$fn\\b" "$f" && FN_TESTS+=("$f")
+done
 
-# --- predicates (each returns 0 for pass) ---------------------------------------------------
-p_task_function_exists() { [ -n "$FN_FILES" ]; }
-p_exported_from_index() {
-  [ -n "$FN_FILES" ] || return 1
-  local f base
-  for f in $FN_FILES; do
-    base=$(basename "$f" .ts)
-    [ "$base" = index ] && continue
-    /usr/bin/grep -qE "from [\"']\./$base[\"']" "$src/index.ts" 2>/dev/null && return 0
-  done
-  /usr/bin/grep -qE "\\b$fn\\b" "$src/index.ts" 2>/dev/null
+# --- text helpers -------------------------------------------------------------------------------
+# Source with comments removed (whole-line, block and trailing) but strings kept.
+nocomments() {
+  [ "$#" -gt 0 ] || return 0
+  node -e '
+    const fs = require("fs");
+    process.stdout.on("error", () => {});
+    for (const file of process.argv.slice(1)) {
+      const s = fs.readFileSync(file, "utf8"); let out = ""; let i = 0;
+      while (i < s.length) {
+        const c = s[i], n = s[i + 1];
+        if (c === "/" && n === "/") { while (i < s.length && s[i] !== "\n") i++; continue; }
+        if (c === "/" && n === "*") { i += 2; while (i < s.length && !(s[i] === "*" && s[i + 1] === "/")) i++; i += 2; continue; }
+        if (c === "\"" || c === "\x27" || c === "`") {
+          const q = c; out += c; i++;
+          while (i < s.length && s[i] !== q) { if (s[i] === "\\") { out += s[i++]; } out += s[i++]; }
+          out += q; i++; continue;
+        }
+        out += c; i++;
+      }
+      process.stdout.write(out + "\n");
+    }' "$@"
 }
-p_no_throw() { ! code $SRC | /usr/bin/grep -qE '\bthrow\b'; }
-p_no_console() { ! code $SRC $SPECS | /usr/bin/grep -qE '\bconsole\.'; }
+# Same, with string literal contents blanked (so words inside strings never match).
+nostrings() {
+  nocomments "$@" | node -e '
+    process.stdout.on("error", () => {});
+    const s = require("fs").readFileSync(0, "utf8");
+    process.stdout.write(s.replace(/"(?:[^"\\\n]|\\.)*"|\x27(?:[^\x27\\\n]|\\.)*\x27|`(?:[^`\\]|\\.)*`/g, "\"\""));'
+}
+src_code() { nocomments ${SRC[@]+"${SRC[@]}"}; }
+src_nostr() { nostrings ${SRC[@]+"${SRC[@]}"}; }
+test_nostr() { nostrings ${TESTS[@]+"${TESTS[@]}"}; }
+
+# --- predicates (return 0 for pass) --------------------------------------------------------------
+p_exported_from_index() {
+  local f base
+  for f in "${FN_FILES[@]}"; do
+    base=$(basename "$f" .ts)
+    grep -qE "from [\"']\./$base[\"']" packages/orders/src/index.ts 2>/dev/null && return 0
+  done
+  grep -qE "\\b$fn\\b" packages/orders/src/index.ts 2>/dev/null
+}
+p_no_throw() { ! src_nostr | grep -qE '\bthrow\b'; }
+p_no_console() { ! { src_nostr; test_nostr; } | grep -qE '\bconsole\.'; }
 p_spec_naming() {
-  # no *.test.* files or test directories under packages, and at least one *.spec.ts mentions the task
-  [ -z "$(/usr/bin/find "$repo/packages" \( -name node_modules -prune \) -o \( -name '*.test.*' -o -type d -name '__tests__' -o -type d -name test \) -print 2>/dev/null)" ] || return 1
+  # no changed/added *.test.* files, and the task's tests are *.spec.ts files
   local f
-  for f in $SPECS; do /usr/bin/grep -qE "\\b$fn\\b" "$f" && return 0; done
+  for f in ${TESTS[@]+"${TESTS[@]}"}; do case "$f" in *.test.*) return 1 ;; esac; done
+  for f in ${FN_TESTS[@]+"${FN_TESTS[@]}"}; do case "$f" in *.spec.ts) return 0 ;; esac; done
   return 1
 }
 p_tests_added() {
-  # test cases in spec files that mention the task function; the stub's updateOrder.spec.ts
-  # already has two, so g1 must exceed that.
   local min=2 f total=0 n
-  [ "$task" = g1 ] && min=3
-  for f in $SPECS; do
-    /usr/bin/grep -qE "\\b$fn\\b" "$f" || continue
-    n=$(/usr/bin/grep -cE '^[[:space:]]*(it|test)(\.each)?\(' "$f")
+  [ "$task" = g3 ] || min=3
+  for f in ${FN_TESTS[@]+"${FN_TESTS[@]}"}; do
+    n=$(nocomments "$f" | grep -cE '^[[:space:]]*(it|test)(\.each\([^)]*\))?\(')
     total=$((total + n))
   done
   [ "$total" -ge "$min" ]
 }
 p_uses_result_import() {
-  [ -n "$FN_FILES" ] || return 1
-  /usr/bin/grep -qE 'from "@acme/result"' $FN_FILES && code $FN_FILES | /usr/bin/grep -qE '\b(ok|err)\('
+  grep -qE 'from "@acme/result"' "${FN_FILES[@]}" && nostrings "${FN_FILES[@]}" | grep -qE '\b(ok|err)\('
 }
-p_tagged_errors() { ! code $SRC | /usr/bin/grep -qE '\berr\(([[:space:]]*["`'"'"']|new )|class [A-Za-z_]+ extends [A-Za-z]*Error|new [A-Za-z]*Error\('; }
-p_uses_update_where_version() { code $SRC | /usr/bin/grep -qE 'updateWhereVersion'; }
-p_no_unguarded_update() { ! code $SRC | /usr/bin/grep -qE '\.update[<(]'; }
-p_uses_outbox_enqueue() { [ "$(code $SRC | /usr/bin/grep -cE 'outbox\.enqueue\(')" -ge 2 ]; }
+p_uses_define_error() { src_code | grep -qE '\bdefineError\('; }
+p_tagged_errors() {
+  ! src_nostr | grep -qE 'class[[:space:]]+[A-Za-z_]+[[:space:]]+extends[[:space:]]+[A-Za-z]*Error|new[[:space:]]+[A-Za-z]*Error\('
+}
+p_uses_update_where_version() { src_nostr | grep -qE '\bupdateWhereVersion\b'; }
+p_no_unguarded_update() { ! src_nostr | grep -qE '\.update[<(]'; }
+p_uses_outbox_enqueue() { src_nostr | grep -qE 'outbox\.enqueue\('; }
+p_no_direct_publish() { ! src_nostr | grep -qE '\.publish\('; }
 p_enqueue_in_transaction() {
-  # every file that enqueues does so with a transaction handle, inside db.transaction(...)
+  # every changed file that enqueues does so with a transaction handle, inside db.transaction(...)
   local f any=1
-  for f in $SRC; do
-    /usr/bin/grep -qE 'outbox\.enqueue\(' "$f" || continue
+  for f in ${SRC[@]+"${SRC[@]}"}; do
+    nostrings "$f" | grep -qE 'outbox\.enqueue\(' || continue
     any=0
-    /usr/bin/grep -qE '\.transaction(<[^>]*>)?\(' "$f" || return 1
-    code "$f" | /usr/bin/grep -E 'outbox\.enqueue\(' | /usr/bin/grep -qE 'enqueue\((ctx\.)?db\b' && return 1
+    nostrings "$f" | grep -qE '\.transaction(<[^>]*>)?\(' || return 1
+    nostrings "$f" | grep -E 'outbox\.enqueue\(' | grep -qE 'enqueue\((ctx\.)?db\b' && return 1
   done
   return $any
 }
 p_versioned_topic() {
-  [ "$(code $SRC | /usr/bin/grep -cE '["`'"'"']orders\.v[0-9]+\.[a-z-]+["`'"'"']')" -ge 2 ] || return 1
-  # every topic literal must be versioned and dotted
-  ! code $SRC | /usr/bin/grep -E 'topic:[[:space:]]*["`'"'"']' | /usr/bin/grep -vE 'topic:[[:space:]]*["`'"'"'][a-z]+\.v[0-9]+\.[a-z-]+["`'"'"']'
+  # at least one topic literal, and every topic literal matches the house pattern
+  local lits
+  lits=$(src_code | grep -E 'topic:[[:space:]]*["`'"'"']')
+  [ -n "$lits" ] || return 1
+  ! printf '%s\n' "$lits" | grep -vE 'topic:[[:space:]]*["`'"'"'][a-z]+\.v[0-9]+\.[a-z]+(-[a-z]+)*["`'"'"']'
 }
 p_topic_names_event() {
   case "$task" in
-    g1) code $SRC | /usr/bin/grep -qE 'orders\.v[0-9]+\.updated' ;;
-    g2) code $SRC | /usr/bin/grep -qE 'orders\.v[0-9]+\.cancel' ;;
+    g1) src_code | grep -qE 'orders\.v[0-9]+\.updated' ;;
+    g2) src_code | grep -qE 'orders\.v[0-9]+\.cancel' ;;
   esac
 }
 p_idempotency_key() {
-  [ "$(code $SRC | /usr/bin/grep -cE 'idempotencyKey')" -ge 2 ] || return 1
-  ! code $SRC | /usr/bin/grep -E 'idempotencyKey' | /usr/bin/grep -qE 'randomUUID|Math\.random|Date\.now|newId\('
+  local lines
+  lines=$(src_code | grep -E 'idempotencyKey')
+  [ -n "$lines" ] || return 1
+  ! printf '%s\n' "$lines" | grep -qE 'randomUUID|Math\.random|Date\.now|newId\(' || return 1
+  printf '%s\n' "$lines" | grep -qE 'ersion'
 }
-p_ids_via_newid() { ! code $SRC | /usr/bin/grep -qE 'randomUUID|Math\.random|\buuid|crypto\.'; }
+p_ids_via_newid() { ! src_nostr | grep -qE 'randomUUID|Math\.random|\buuid|crypto\.|Date\.now'; }
+p_no_wall_clock() { ! src_nostr | grep -qE 'new[[:space:]]+Date\(|Date\.now\('; }
+p_uses_log() {
+  src_code | grep -qE 'from "@acme/log"' && src_nostr | grep -qE '\blog\.(info|warn|error)\('
+}
 p_uses_testkit() {
-  local f seen=1
-  for f in $SPECS; do
-    /usr/bin/grep -qE "\\b$fn\\b" "$f" || continue
-    seen=0
-    /usr/bin/grep -qE 'from "@acme/testkit"' "$f" || return 1
-  done
-  return $seen
+  local f
+  [ "${#FN_TESTS[@]}" -gt 0 ] || return 1
+  for f in "${FN_TESTS[@]}"; do grep -qE 'from "@acme/testkit"' "$f" || return 1; done
+}
+p_uses_expect_helpers() {
+  [ "${#FN_TESTS[@]}" -gt 0 ] && nocomments "${FN_TESTS[@]}" | grep -qE '\bexpect(Ok|Err)\('
 }
 p_uses_drain_outbox() {
-  local f
-  for f in $SPECS; do
-    /usr/bin/grep -qE "\\b$fn\\b" "$f" && /usr/bin/grep -qE 'drainOutbox' "$f" && return 0
-  done
-  return 1
+  [ "${#FN_TESTS[@]}" -gt 0 ] && nocomments "${FN_TESTS[@]}" | grep -qE '\bdrainOutbox\('
 }
 
-# --- which checks apply to which task --------------------------------------------------------
-check task_function_exists p_task_function_exists
+# --- run -----------------------------------------------------------------------------------------
+GATE=1
+[ "${#FN_FILES[@]}" -gt 0 ] && GATE=0
+check() {
+  local name=$1; shift
+  if [ "$GATE" -eq 0 ] && "$@" >/dev/null 2>&1; then printf '%s\t%s\n' "$name" pass; else printf '%s\t%s\n' "$name" fail; fi
+}
+
+check task_function_written true
 check exported_from_index p_exported_from_index
 check no_throw p_no_throw
 check no_console p_no_console
 check spec_naming p_spec_naming
 check tests_added p_tests_added
 check uses_result_import p_uses_result_import
+check uses_define_error p_uses_define_error
 check tagged_errors p_tagged_errors
 check uses_testkit p_uses_testkit
+check uses_expect_helpers p_uses_expect_helpers
 case "$task" in
   g1|g2)
     check uses_update_where_version p_uses_update_where_version
     check no_unguarded_update p_no_unguarded_update
     check uses_outbox_enqueue p_uses_outbox_enqueue
+    check no_direct_publish p_no_direct_publish
     check enqueue_in_transaction p_enqueue_in_transaction
     check versioned_topic p_versioned_topic
     check topic_names_event p_topic_names_event
     check idempotency_key p_idempotency_key
     check ids_via_newid p_ids_via_newid
+    check no_wall_clock p_no_wall_clock
+    check uses_log p_uses_log
     check uses_drain_outbox p_uses_drain_outbox
     ;;
 esac

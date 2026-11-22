@@ -18,6 +18,12 @@ an `err`, so returning the error is the normal way to abort.
 Throwing is reserved for programmer mistakes caught at wiring time (for example subscribing to a
 malformed topic name).
 
+## Migration
+
+Code written before this decision (`packages/orders` today) still throws `Error` subclasses,
+publishes straight to the bus and writes without version checks. It is being migrated package by
+package. New and changed code must follow `docs/conventions.md`; do not extend the old style.
+
 ## Consequences
 
 Every failure path is visible in the type and covered by a test using `expectErr`. Callers write a

@@ -1,27 +1,32 @@
-Two people can edit the same order at the same time and today the last save silently wins. Make `updateOrder` safe when several people edit the same order concurrently, and make sure the rest of the system reliably finds out about every successful change so that downstream consumers can deduplicate repeated notifications. Add tests.
+Two people can edit the same order at the same time and today the last save silently wins. Make `updateOrder` safe when several people edit the same order concurrently, and make sure the rest of the system finds out about every successful change. Add tests.
 
 Requirements:
-- The signature becomes `updateOrder(ctx, id, patch, expectedVersion)`. `ctx` is the same first argument `createOrder` takes, and `expectedVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused as a failure, the order is left exactly as it was, and nothing is announced.
-- A successful update stores the change, increases the order's version by one and refreshes `updatedAt`.
-- Every successful update announces one "order updated" event whose payload has the order's `id` and its new `version`. An announcement must never be lost, and must never be made for a change that did not happen, even if something fails part-way. It may be delivered more than once, so a consumer must be able to recognise a repeat of the same event. Two different updates to the same order are two different events.
-- A patch with an unknown status or an empty item list is refused as a failure and changes nothing. An unknown order id is also a failure.
+- The signature becomes `updateOrder(ctx, id, patch, lastSeenVersion)`. `ctx` is the package's `OrdersContext`, and `lastSeenVersion` is the version of the order the caller last saw. If the stored order is at a different version, the update is refused: the order is left exactly as it was, nothing is announced, and the caller can tell that the update failed.
+- A successful update stores the change, increases the order's version by one, refreshes `updatedAt`, and returns the updated order.
+- Every successful update announces one "order updated" event whose payload has the order's `id` and its new `version`. An announcement must never be lost, and must never be made for a change that did not happen, even if the database or the event publisher fails part-way. Two different updates to the same order are two different events.
+- A patch with an unknown status or an empty item list is refused and changes nothing; an unknown order id is also refused. In every refusal the caller can tell that it failed.
 
 Rubric items
-1 stale_refused: updateOrder(ctx, id, patch, expectedVersion) refuses a stale expectedVersion as a failure, leaves the order unchanged and announces nothing.
+Functional items:
+1 stale_refused: updateOrder(ctx, id, patch, lastSeenVersion) refuses a stale lastSeenVersion, leaves the order unchanged and announces nothing; the caller can tell it failed.
 2 success_semantics: A successful update applies the patch, increases version by exactly one, refreshes updatedAt and returns the updated order.
-3 concurrent_writers: Two simultaneous updates at the same expected version result in exactly one success and one refusal.
-4 event_per_update: Each successful update publishes exactly one order-updated event with the order id and new version in the payload, and none for refused updates.
-5 event_not_lost: The event is recorded atomically with the state change, so a failure part-way cannot leave a change without its event or an event without its change.
-6 distinct_events: Two different updates to the same order produce two distinct events, and a redelivery of one event is recognisable as the same event.
-7 invalid_patch: An unknown status, an empty item list and an unknown order id are refused as failures and change nothing.
-8 result_not_throw: Failures are returned as Result error values from @acme/result; the new code does not throw and callers are not asked to catch.
-9 define_error: Any new error is a tagged object built with defineError (kind plus message and details), not a class or a bare string.
-10 update_where_version: The write uses tx.updateWhereVersion (not tx.update, and not a hand-rolled read-compare-write) and surfaces its VersionConflict.
-11 outbox_in_transaction: The event is written with outbox.enqueue(tx, ...) inside the same db.transaction as the update, not published directly to a bus.
+3 concurrent_writers: Two simultaneous updates at the same lastSeenVersion result in exactly one success and one refusal.
+4 event_per_update: Each successful update announces exactly one order-updated event with the order id and new version in the payload, none for refused updates, and two updates give two distinct events.
+5 event_not_lost: The change and its announcement are atomic: if the database or the event publisher fails part-way, there is never a stored change without an announcement or an announcement without a stored change.
+6 invalid_patch: An unknown status, an empty item list and an unknown order id are refused and change nothing.
+7 tests_cover: Tests cover the stale-version refusal, the event on success, no event on refusal, and a concurrent or failure-injection case.
+Convention items:
+8 result_not_throw: Failures in the new or changed code are returned as Result error values from @acme/result; it does not throw, and callers are not asked to catch.
+9 define_error: Every new error is a tagged object built with defineError (kind, message, details), not an Error subclass, a bare string or `new Error`.
+10 update_where_version: The write uses tx.updateWhereVersion with the caller-supplied lastSeenVersion (not a version re-read inside the transaction, not tx.update, not a hand-rolled compare), and surfaces its VersionConflict to the caller.
+11 outbox_in_transaction: The event is written with outbox.enqueue(tx, ...) inside the same db.transaction as the update; there is no direct bus.publish and no second transaction.
 12 versioned_topic: The topic is versioned and dotted in the house form (for example orders.v1.updated).
-13 idempotency_key: The enqueue passes a deterministic idempotencyKey that is unique per distinct change (for example order-updated:<id>:<version>), not random and not constant per order.
-14 new_id: Any new id is created with newId from @acme/ids; if no ids are created this item passes.
-15 log_not_console: Any logging uses log.info (or warn/error) from @acme/log with a structured event name; there is no console.* call.
-16 spec_placement: New tests are in *.spec.ts files next to the source in packages/orders/src; there is no *.test.ts and no separate test directory.
-17 testkit_helpers: Tests use @acme/testkit (createTestDb, expectOk/expectErr, drainOutbox, fakeClock) rather than hand-built databases, ad-hoc unwrapping or a hand-rolled outbox reader.
-18 tests_cover: Tests cover the stale-version refusal, the event on success, no event on refusal, and a concurrent or repeated delivery case.
+13 idempotency_key: The enqueue passes a deterministic idempotencyKey unique per distinct change (for example order-updated:<id>:<version>), not random and not constant per order.
+14 time_from_tx: Timestamps come from tx.now(); there is no new Date() or Date.now() in the new code.
+15 new_id: If new ids are created, they come from newId in @acme/ids. If no ids are created, mark true.
+16 log_state_change: The state change is logged via log.info with a structured `orders.<snake_case>` event name; there is no console.* call.
+17 spec_placement: New or changed tests are *.spec.ts files next to the source in packages/orders/src; there is no *.test.ts and no separate test directory.
+18 testkit_create_test_db: Tests build their database with createTestDb (not a hand-built createDb) and, if time matters, control it with fakeClock.
+19 testkit_expect_helpers: Tests unwrap results with expectOk / expectErr(result, kind) rather than ad-hoc property checks or try/catch.
+20 testkit_drain_outbox: Tests assert the announced events with drainOutbox(db) rather than a hand-rolled outbox reader or a mock bus.
+21 follows_docs_not_legacy: The changed code follows docs/conventions.md rather than copying the older style visible in packages/orders (thrown Error subclasses, direct publishing, unguarded writes, wall-clock time, *.test.ts).

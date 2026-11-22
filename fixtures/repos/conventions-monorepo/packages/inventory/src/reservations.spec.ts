@@ -12,83 +12,89 @@ import {
 } from "./index";
 
 async function setup(onHand = 10) {
-  const { db } = createTestDb();
+  const { db, clock } = createTestDb();
   const ctx = { db };
-  expectOk(await addStock(ctx, "sku-1", onHand));
-  await drainOutbox(db);
-  return ctx;
+  const stock = expectOk(await addStock(ctx, "sku-1", onHand));
+  return { ctx, clock, version: stock.version };
 }
 
 describe("reserveStock", () => {
-  it("reserves, bumps the version and queues exactly one versioned event", async () => {
-    const ctx = await setup();
-    const item = expectOk(await reserveStock(ctx, { sku: "sku-1", quantity: 3 }));
-    expect(item).toMatchObject({ reserved: 3, version: 2 });
+  it("reserves against the version the caller saw and queues one versioned event", async () => {
+    const { ctx, clock, version } = await setup();
+    clock.advance(5000);
+    const reservation = expectOk(await reserveStock(ctx, { sku: "sku-1", quantity: 3 }, version));
+    expect(reservation).toMatchObject({ sku: "sku-1", quantity: 3, status: "held" });
+    expect(reservation.id.startsWith("res_")).toBe(true);
+    expect(reservation.updatedAt).toBe("2026-01-01T00:00:05.000Z");
     expect(expectOk(await availableStock(ctx, "sku-1"))).toBe(7);
-    const events = await drainOutbox(ctx.db);
-    expect(events).toEqual([
+    expect(await drainOutbox(ctx.db)).toEqual([
       {
         topic: "inventory.v1.reserved",
-        payload: { sku: "sku-1", quantity: 3, version: 2 },
-        idempotencyKey: "stock-reserved:sku-1:2",
+        payload: { sku: "sku-1", quantity: 3, reservationId: reservation.id, version: version + 1 },
+        idempotencyKey: `stock-reserved:sku-1:${version + 1}`,
       },
     ]);
   });
 
-  it("returns an error Result, queues nothing, and changes nothing when stock is short", async () => {
-    const ctx = await setup(2);
-    const e = expectErr(
-      await reserveStock(ctx, { sku: "sku-1", quantity: 5 }),
-      "InsufficientStock",
+  it("refuses a stale version with VersionConflict, changing and queueing nothing", async () => {
+    const { ctx, version } = await setup();
+    expectOk(await reserveStock(ctx, { sku: "sku-1", quantity: 1 }, version));
+    await drainOutbox(ctx.db);
+    const conflict = expectErr(
+      await reserveStock(ctx, { sku: "sku-1", quantity: 1 }, version),
+      "VersionConflict",
     );
-    expect(e).toMatchObject({ requested: 5, available: 2 });
+    expect(conflict).toMatchObject({ expected: version, actual: version + 1 });
+    expect(expectOk(await availableStock(ctx, "sku-1"))).toBe(9);
     expect(await drainOutbox(ctx.db)).toEqual([]);
-    expect(expectOk(await availableStock(ctx, "sku-1"))).toBe(2);
   });
 
-  it("returns tagged errors for unknown skus and bad quantities, never throws", async () => {
-    const ctx = await setup();
-    expectErr(await reserveStock(ctx, { sku: "nope", quantity: 1 }), "UnknownSku");
-    expectErr(await reserveStock(ctx, { sku: "sku-1", quantity: 0 }), "InvalidQuantity");
+  it("returns tagged errors, never throws, and queues nothing", async () => {
+    const { ctx, version } = await setup(2);
+    expectErr(await reserveStock(ctx, { sku: "sku-1", quantity: 5 }, version), "InsufficientStock");
+    expectErr(await reserveStock(ctx, { sku: "nope", quantity: 1 }, 1), "UnknownSku");
+    expectErr(await reserveStock(ctx, { sku: "sku-1", quantity: 0 }, version), "InvalidQuantity");
+    expect(await drainOutbox(ctx.db)).toEqual([]);
   });
 
-  it("serialises concurrent reservations without losing an update", async () => {
-    const ctx = await setup(10);
+  it("lets exactly one of two writers with the same version win", async () => {
+    const { ctx, version } = await setup();
     const results = await Promise.all([
-      reserveStock(ctx, { sku: "sku-1", quantity: 4 }),
-      reserveStock(ctx, { sku: "sku-1", quantity: 4 }),
+      reserveStock(ctx, { sku: "sku-1", quantity: 4 }, version),
+      reserveStock(ctx, { sku: "sku-1", quantity: 4 }, version),
     ]);
-    expect(results.every((r) => r.ok)).toBe(true);
-    expect(expectOk(await availableStock(ctx, "sku-1"))).toBe(2);
-    expect(await drainOutbox(ctx.db)).toHaveLength(2);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(await drainOutbox(ctx.db)).toHaveLength(1);
   });
 
   it("logs a structured event", async () => {
-    const ctx = await setup();
+    const { ctx, version } = await setup();
     const logs = captureLogs();
-    await reserveStock(ctx, { sku: "sku-1", quantity: 1 });
+    await reserveStock(ctx, { sku: "sku-1", quantity: 1 }, version);
     logs.restore();
     expect(logs.records.map((r) => r.event)).toContain("inventory.stock_reserved");
   });
 });
 
 describe("releaseStock", () => {
-  it("returns reserved units and queues a released event", async () => {
-    const ctx = await setup();
-    await reserveStock(ctx, { sku: "sku-1", quantity: 3 });
+  it("frees the units and queues a released event", async () => {
+    const { ctx, version } = await setup();
+    const held = expectOk(await reserveStock(ctx, { sku: "sku-1", quantity: 3 }, version));
     await drainOutbox(ctx.db);
-    expect(expectOk(await releaseStock(ctx, { sku: "sku-1", quantity: 2 })).reserved).toBe(1);
-    const events = await drainOutbox(ctx.db);
-    expect(events.map((e) => e.topic)).toEqual(["inventory.v1.released"]);
+    const released = expectOk(await releaseStock(ctx, held.id, version + 1));
+    expect(released.status).toBe("released");
+    expect(expectOk(await availableStock(ctx, "sku-1"))).toBe(10);
+    expect((await drainOutbox(ctx.db)).map((e) => e.topic)).toEqual(["inventory.v1.released"]);
+    expectErr(await releaseStock(ctx, held.id, version + 2), "AlreadyReleased");
   });
 });
 
 describe("subscribeReservationAudit", () => {
   it("audits a redelivered event once", async () => {
-    const ctx = await setup();
+    const { ctx, version } = await setup();
     const bus = createBus();
     subscribeReservationAudit(bus);
-    await reserveStock(ctx, { sku: "sku-1", quantity: 1 });
+    await reserveStock(ctx, { sku: "sku-1", quantity: 1 }, version);
     const logs = captureLogs();
     let failFirst = true;
     const flaky = {

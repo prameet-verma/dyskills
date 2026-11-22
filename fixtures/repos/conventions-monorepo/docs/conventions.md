@@ -1,6 +1,8 @@
 # Conventions
 
-Every package follows these. `packages/inventory` is the reference implementation.
+All new or changed code follows these. `packages/inventory` is the reference implementation.
+`packages/orders` predates ADR 0003 and is being migrated: when you touch it, move the code you
+touch to these conventions rather than copying its current style.
 
 1. **Result, not exceptions.** Domain code returns `Result<T, E>` from `@acme/result`
    (`ok`, `err`, `isOk`, `map`, `andThen`) and never throws across a package boundary.
@@ -9,21 +11,24 @@ Every package follows these. `packages/inventory` is the reference implementatio
    plain `{ kind, message, ...details }` objects. No `Error` subclasses.
 3. **Transactions.** Anything that changes state runs in `db.transaction(async (tx) => ...)`
    from `@acme/db`. It commits when the callback returns an ok `Result` and rolls back on an
-   `err` or a throw. Read and write through `tx`, not `db`, inside the callback.
+   `err` or a throw. Read and write through `tx`, not `db`, inside the callback. Never nest.
 4. **Optimistic concurrency.** Update a row only with
    `tx.updateWhereVersion(table, id, expectedVersion, patch)`; it returns a `VersionConflict`
-   error value when the stored version differs. `tx.update` is last-write-wins and is for tests
-   and migrations only.
-5. **Events go through the outbox.** Never publish directly. Call
+   error value when the stored version differs. When a caller supplies the version it last saw,
+   pass that value through. `tx.update` is last-write-wins and is for tests and migrations only.
+5. **Events go through the outbox.** Never publish to a bus directly from domain code. Call
    `outbox.enqueue(tx, { topic, payload, idempotencyKey })` inside the same transaction as the
-   state change; the relay (`outboxRelay.drain(bus)`) delivers at least once.
+   state change; the relay (`createOutboxRelay(db).drain(publisher)`) delivers at least once.
 6. **Topic names** are versioned and dotted: `orders.v1.updated`. Subscribing to a name that
    does not match throws.
 7. **Idempotency keys** are deterministic and unique per distinct event:
-   `<event>:<entity id>:<new version>`. Consumers wrap handlers in `idempotentHandler(store, fn)`.
+   `<event-name>:<entity id>:<new version>`, for example `stock-reserved:sku-1:2`. Consumers
+   wrap handlers in `idempotentHandler(store, fn)`.
 8. **Ids** come from `newId("ord")` in `@acme/ids` (prefixed: `ord_...`).
-9. **Logging** is `log.info(event, fields)` from `@acme/log`, with events named
-   `<package>.<snake_case>`. `console.*` is not used.
-10. **Tests** live next to the source as `*.spec.ts` (never `*.test.ts`) and use `@acme/testkit`:
+9. **Time** comes from the transaction: `tx.now()` (the db's clock), never `new Date()` or
+   `Date.now()`, so tests can control it with `fakeClock()`.
+10. **Logging** is `log.info(event, fields)` from `@acme/log`, with events named
+    `<package>.<snake_case>`, for each state change. `console.*` is not used.
+11. **Tests** live next to the source as `*.spec.ts` (never `*.test.ts`) and use `@acme/testkit`:
     `createTestDb()`, `fakeClock()`, `captureLogs()`, `expectOk` / `expectErr(result, kind)`
     and `drainOutbox(db)`.

@@ -1,9 +1,8 @@
-import { err, ok, type Result } from "@acme/result";
+import { ok } from "@acme/result";
+import { OrderNotFoundError } from "./errors";
 import {
   ORDERS_TABLE,
-  OrderNotFound,
   type Order,
-  type OrderError,
   type OrderItem,
   type OrderStatus,
   type OrdersContext,
@@ -12,18 +11,17 @@ import {
 export type OrderPatch = { status?: OrderStatus; items?: OrderItem[] };
 
 // TODO: naive first cut. Concurrent writers can overwrite each other and nobody is told.
-export async function updateOrder(
-  ctx: OrdersContext,
-  id: string,
-  patch: OrderPatch,
-): Promise<Result<Order, OrderError>> {
+export async function updateOrder(ctx: OrdersContext, id: string, patch: OrderPatch): Promise<Order> {
   const found = await ctx.db.get<Order>(ORDERS_TABLE, id);
-  if (!found) return err(OrderNotFound(`order ${id} not found`, { id }));
-  return ctx.db.transaction(async (tx) => {
+  if (!found) throw new OrderNotFoundError(id);
+  const saved = await ctx.db.transaction(async (tx) => {
     const updated = await tx.update<Order>(ORDERS_TABLE, id, {
       ...patch,
-      updatedAt: tx.now().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
-    return updated.ok ? ok(updated.value) : updated;
+    if (!updated.ok) throw new Error("update failed");
+    return ok(updated.value);
   });
+  if (!saved.ok) throw new Error("update failed");
+  return saved.value;
 }

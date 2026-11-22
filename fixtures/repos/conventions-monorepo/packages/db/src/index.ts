@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { err, ok, type Result } from "@acme/result";
 import { defineError, type DomainError } from "@acme/errors";
 
@@ -27,6 +28,7 @@ export interface Tx extends Reader {
   /**
    * Optimistic concurrency: applies the patch and bumps the version only if the stored version
    * equals `expectedVersion`; otherwise returns a VersionConflict and changes nothing.
+   * `expectedVersion` is required: a missing or non-integer value throws (a programming error).
    */
   updateWhereVersion<R extends Row>(
     table: string,
@@ -46,7 +48,8 @@ export interface Db extends Reader {
   now(): Date;
   /**
    * Runs `fn` atomically. Commits when it returns an ok Result; rolls back when it returns an err
-   * Result or throws (a throw is then re-thrown). Transactions run one at a time; do not nest.
+   * Result or throws (a throw is then re-thrown). Transactions run one at a time. Starting one
+   * from inside another throws immediately (it would deadlock): use the `tx` you were given.
    */
   transaction<T, E>(fn: (tx: Tx) => Promise<Result<T, E>>): Promise<Result<T, E>>;
 }
@@ -66,6 +69,7 @@ export function createDb(options: { clock?: Clock } = {}): Db {
   const clock = options.clock ?? { now: () => new Date() };
   let committed: Tables = new Map();
   let tail: Promise<unknown> = Promise.resolve();
+  const inTransaction = new AsyncLocalStorage<true>();
 
   const readFrom = (tables: () => Tables): Reader => ({
     async get<R extends Row>(table: string, id: string) {
@@ -85,14 +89,14 @@ export function createDb(options: { clock?: Clock } = {}): Db {
     async function apply<R extends Row>(
       table: string,
       id: string,
-      expected: number | undefined,
+      guard: { expected: number } | undefined,
       patch: Partial<Omit<R, "id" | "version">>,
     ): Promise<Result<R, VersionConflict>> {
       const current = rows(table).get(id);
-      if (current === undefined || (expected !== undefined && current.version !== expected)) {
+      if (current === undefined || (guard !== undefined && current.version !== guard.expected)) {
         return err(
           VersionConflict(`version conflict on ${table}/${id}`, {
-            expected: expected ?? -1,
+            expected: guard?.expected ?? -1,
             actual: current?.version ?? null,
           }),
         );
@@ -113,8 +117,12 @@ export function createDb(options: { clock?: Clock } = {}): Db {
         rows(table).set(id, stored);
         return ok(structuredClone(stored));
       },
-      updateWhereVersion: (table, id, expectedVersion, patch) =>
-        apply(table, id, expectedVersion, patch),
+      updateWhereVersion: (table, id, expectedVersion, patch) => {
+        if (!Number.isInteger(expectedVersion)) {
+          throw new Error(`updateWhereVersion needs an integer expectedVersion for ${table}/${id}`);
+        }
+        return apply(table, id, { expected: expectedVersion }, patch);
+      },
       update: (table, id, patch) => apply(table, id, undefined, patch),
     };
   }
@@ -123,9 +131,12 @@ export function createDb(options: { clock?: Clock } = {}): Db {
     ...readFrom(() => committed),
     now: () => clock.now(),
     transaction<T, E>(fn: (tx: Tx) => Promise<Result<T, E>>) {
+      if (inTransaction.getStore()) {
+        throw new Error("nested db.transaction: use the tx you were given");
+      }
       const run = tail.then(async () => {
         const work = cloneTables(committed);
-        const outcome = await fn(makeTx(work)); // a throw leaves `committed` untouched (rollback)
+        const outcome = await inTransaction.run(true, () => fn(makeTx(work))); // a throw leaves `committed` untouched (rollback)
         if (outcome.ok) committed = work;
         return outcome;
       });
